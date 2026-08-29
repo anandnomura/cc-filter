@@ -93,8 +93,8 @@ command_blocks:
   - "grep.*password"
   - "find.*env"
   - "printenv"
-  - "env |"
-  - "export |"
+  - 'env\s*\|'
+  - 'export\s*\|'
 
 # File redaction - DISABLED BY DEFAULT
 # Add extensions/patterns to enable scanning code files for secrets

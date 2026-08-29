@@ -173,9 +173,18 @@ func deny(reason string) {
 }
 
 func hookDecision(decision, reason string) {
+	if decision == "deny" {
+		reason = "BAP EDGE BLOCKED THIS TOOL CALL; IT DID NOT EXECUTE. " + reason
+	}
 	value := map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName": "PreToolUse", "permissionDecision": decision, "permissionDecisionReason": reason,
 	}}
+	if decision == "deny" {
+		// Claude's compact TUI labels attempted tool calls as "Ran" even when a
+		// PreToolUse hook denies them. systemMessage makes the enforcement result
+		// visible independently of the model's interpretation of the tool error.
+		value["systemMessage"] = reason
+	}
 	_ = json.NewEncoder(os.Stdout).Encode(value)
 }
 

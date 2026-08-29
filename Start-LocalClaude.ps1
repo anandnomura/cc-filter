@@ -1,0 +1,176 @@
+param(
+    [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
+    [switch]$VerifyHooksOnly,
+    [Alias('p')][switch]$Print,
+    [Parameter(Position = 0)][string]$Prompt = '',
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$ClaudeArguments
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
+
+function ConvertTo-YamlPath {
+    param([Parameter(Mandatory)][string]$Path)
+    return $Path.Replace('\', '\\')
+}
+
+function Test-BapHealth {
+    param([Parameter(Mandatory)][string]$CaBundle)
+    if (-not (Test-Path -LiteralPath $CaBundle)) { return $false }
+    try {
+        $response = & curl.exe --silent --show-error --fail --max-time 3 --ssl-no-revoke --cacert $CaBundle 'https://127.0.0.1:8443/healthz' 2>$null
+        return $LASTEXITCODE -eq 0 -and ($response | ConvertFrom-Json).status -eq 'ok'
+    } catch {
+        return $false
+    }
+}
+
+function Invoke-HookVerification {
+    param(
+        [Parameter(Mandatory)][string]$EdgeBinary,
+        [Parameter(Mandatory)][string]$EdgeConfig
+    )
+    $sessionID = 'local-launcher-test-' + [Guid]::NewGuid().ToString('N')
+    $cases = @(
+        @{ Label = 'safe command'; Command = 'git status --short'; Expected = 'allow' },
+        @{ Label = 'destructive command'; Command = 'git reset --hard'; Expected = 'deny' }
+    )
+    foreach ($case in $cases) {
+        $inputObject = @{
+            hook_event_name = 'PreToolUse'
+            session_id = $sessionID
+            tool_use_id = 'launcher-' + $case.Expected
+            cwd = $PSScriptRoot
+            tool_name = 'Bash'
+            tool_input = @{ command = $case.Command }
+        }
+        $inputJson = $inputObject | ConvertTo-Json -Compress -Depth 8
+        $result = $inputJson | & $EdgeBinary --config $EdgeConfig | ConvertFrom-Json
+        $actual = $result.hookSpecificOutput.permissionDecision
+        $reason = $result.hookSpecificOutput.permissionDecisionReason
+        if ($actual -ne $case.Expected) {
+            throw "BAP hook verification failed for $($case.Label): expected $($case.Expected), got $actual ($reason)"
+        }
+        Write-Host "PASS: $($case.Command) -> $actual ($reason)"
+    }
+
+    $endJson = @{
+        hook_event_name = 'SessionEnd'
+        session_id = $sessionID
+        cwd = $PSScriptRoot
+    } | ConvertTo-Json -Compress
+    $endJson | & $EdgeBinary --config $EdgeConfig | Out-Null
+}
+
+$edgeBinary = Join-Path $PSScriptRoot 'dist\bap-edge-windows-amd64.exe'
+$engine = ''
+if ($Runtime -eq 'Auto') {
+    foreach ($candidate in @('podman', 'docker')) {
+        $candidateRuntime = Get-BapRuntimeDirectory -Engine $candidate
+        if (Test-BapHealth -CaBundle (Join-Path $candidateRuntime 'dev-ca.pem')) {
+            $engine = $candidate
+            break
+        }
+    }
+}
+if (-not $engine) { $engine = Get-BapContainerEngine -Runtime $Runtime }
+$runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
+$caBundle = Join-Path $runtimeDirectory 'dev-ca.pem'
+
+if (-not (Test-BapHealth -CaBundle $caBundle)) {
+    Write-Host "BAP Service is not ready; starting it with $engine..."
+    & (Join-Path $PSScriptRoot 'Start-Bap.ps1') -Runtime $engine
+}
+
+if (-not (Test-Path -LiteralPath $edgeBinary)) {
+    Write-Host 'BAP Edge is not built; building it now...'
+    & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime $engine
+}
+
+$requiredRuntimeFiles = @('dev-ca.pem', 'grant-public.pem', 'edge-api-key.txt')
+foreach ($name in $requiredRuntimeFiles) {
+    $path = Join-Path $runtimeDirectory $name
+    if (-not (Test-Path -LiteralPath $path)) { throw "BAP runtime file is missing: $path" }
+}
+
+$localDirectory = Join-Path $PSScriptRoot '.bap\local-claude'
+$edgeStateDirectory = Join-Path $localDirectory 'edge-state'
+$edgeConfig = Join-Path $localDirectory 'bap-edge.yaml'
+$claudeSettings = Join-Path $localDirectory 'claude-settings.json'
+New-Item -ItemType Directory -Force -Path $localDirectory, $edgeStateDirectory | Out-Null
+
+$publicKey = ConvertTo-YamlPath (Join-Path $runtimeDirectory 'grant-public.pem')
+$caPath = ConvertTo-YamlPath $caBundle
+$statePath = ConvertTo-YamlPath $edgeStateDirectory
+@"
+service_url: "https://127.0.0.1:8443"
+public_key_path: "$publicKey"
+ca_bundle_path: "$caPath"
+subject_id: "claude-code-local"
+timeout_ms: 3000
+cache_directory: "$statePath"
+state_directory: "$statePath"
+api_key_env: "BAP_EDGE_API_KEY"
+"@ | Set-Content -LiteralPath $edgeConfig -Encoding utf8
+
+$hookCommand = '"' + $edgeBinary.Replace('\', '/') + '" --config "' + $edgeConfig.Replace('\', '/') + '"'
+$hook = @{ type = 'command'; command = $hookCommand; timeout = 10 }
+$settings = [ordered]@{
+    '$schema' = 'https://json.schemastore.org/claude-code-settings.json'
+    hooks = [ordered]@{
+        SessionStart = @(@{ matcher = 'startup|resume|clear|compact'; hooks = @($hook) })
+        PreToolUse = @(@{ matcher = '*'; hooks = @($hook) })
+        PostToolUse = @(@{ matcher = '*'; hooks = @($hook) })
+        PostToolUseFailure = @(@{ matcher = '*'; hooks = @($hook) })
+        UserPromptSubmit = @(@{ matcher = '*'; hooks = @($hook) })
+        SessionEnd = @(@{ matcher = '*'; hooks = @($hook) })
+    }
+}
+$settings | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $claudeSettings -Encoding utf8
+
+$env:BAP_EDGE_API_KEY = (Get-Content -LiteralPath (Join-Path $runtimeDirectory 'edge-api-key.txt') -Raw).Trim()
+
+if ($VerifyHooksOnly) {
+    Invoke-HookVerification -EdgeBinary $edgeBinary -EdgeConfig $edgeConfig
+    Write-Host "PASS: all six Claude hooks are configured in $claudeSettings"
+    exit 0
+}
+
+$claude = Get-Command claude -ErrorAction SilentlyContinue
+if ($claude) {
+    $claudeExecutable = $claude.Source
+} else {
+    $claudeExecutable = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
+}
+if (-not (Test-Path -LiteralPath $claudeExecutable)) {
+    throw "Claude Code was not found on PATH or at $claudeExecutable"
+}
+
+try {
+    $bridge = Invoke-RestMethod 'http://127.0.0.1:4080/health' -TimeoutSec 5
+    if (-not $bridge.ok) { throw 'ccbridge returned an unhealthy response.' }
+} catch {
+    throw 'The updated ccbridge is not ready at http://127.0.0.1:4080/health. Run start-ccbridge.bat in a separate window first.'
+}
+
+$env:ANTHROPIC_BASE_URL = 'http://127.0.0.1:4080'
+$env:ANTHROPIC_API_KEY = 'local-demo-key'
+$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+
+Write-Host ''
+Write-Host "Local Claude is using BAP Edge hooks from $claudeSettings"
+Write-Host 'ALLOW test: Call Bash exactly once with this exact command: git status --short'
+Write-Host 'DENY test:  Call Bash exactly once with this exact command: git reset --hard'
+Write-Host ''
+
+$defaultArguments = @(
+    '--model', 'claude-3-5-sonnet-20241022',
+    '--tools', 'Bash',
+    '--settings', $claudeSettings,
+    '--system-prompt', 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the Bash tool. Never substitute example paths or simulate results. Never claim a command succeeded when its tool call was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.'
+)
+if ($Print) { $defaultArguments += '--print' }
+if ($Prompt) { $defaultArguments += $Prompt }
+& $claudeExecutable @defaultArguments @ClaudeArguments
+exit $LASTEXITCODE
