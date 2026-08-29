@@ -54,10 +54,11 @@ Restart Claude Code. Open a **non-administrator** PowerShell and run:
 claude
 ```
 
-Inside Claude Code verify `/status`, `/hooks`, and `/permissions`. Confirm the six
-managed hooks are SessionStart, PreToolUse, PostToolUse, PostToolUseFailure,
-UserPromptSubmit, and SessionEnd. Ask Claude to read `README.md` (allow), read
-`.env` (deny), and run `git reset --hard` (deny). Then inspect the audit trail.
+Inside Claude Code verify `/status` and `/permissions`. `/hooks` may show zero
+because it lists editable hooks rather than managed policy hooks. The test
+script exercises the installed Program Files Edge binary directly. Ask Claude
+to read `README.md` (allow), read `.env` (deny), and run `git reset --hard`
+(deny). Then inspect the audit trail.
 
 ## Fail-closed test
 

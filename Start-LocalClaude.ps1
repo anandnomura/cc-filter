@@ -131,6 +131,27 @@ $settings | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $claudeSettings 
 
 $env:BAP_EDGE_API_KEY = (Get-Content -LiteralPath (Join-Path $runtimeDirectory 'edge-api-key.txt') -Raw).Trim()
 
+$managedSettings = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d\50-bap-edge.json'
+$managedEdgeDirectory = Join-Path $env:ProgramFiles 'BAP Edge'
+$usingManagedHooks = Test-Path -LiteralPath $managedSettings
+if ($usingManagedHooks) {
+    $managedCa = Join-Path $managedEdgeDirectory 'service-ca-bundle.pem'
+    $managedGrantKey = Join-Path $managedEdgeDirectory 'grant-public.pem'
+    foreach ($pair in @(
+        @{ Installed = $managedCa; Active = $caBundle; Label = 'CA bundle' },
+        @{ Installed = $managedGrantKey; Active = (Join-Path $runtimeDirectory 'grant-public.pem'); Label = 'grant public key' }
+    )) {
+        if (-not (Test-Path -LiteralPath $pair.Installed)) {
+            throw "Managed BAP Edge $($pair.Label) is missing: $($pair.Installed)"
+        }
+        $installedHash = (Get-FileHash -LiteralPath $pair.Installed -Algorithm SHA256).Hash
+        $activeHash = (Get-FileHash -LiteralPath $pair.Active -Algorithm SHA256).Hash
+        if ($installedHash -ne $activeHash) {
+            throw "Managed BAP Edge $($pair.Label) does not match the running $engine BAP Service. Re-run .\Install-ManagedSettings.ps1 -Runtime $engine from an elevated PowerShell window."
+        }
+    }
+}
+
 if ($VerifyHooksOnly) {
     Invoke-HookVerification -EdgeBinary $edgeBinary -EdgeConfig $edgeConfig
     Write-Host "PASS: all six Claude hooks are configured in $claudeSettings"
@@ -159,7 +180,13 @@ $env:ANTHROPIC_API_KEY = 'local-demo-key'
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
 Write-Host ''
-Write-Host "Local Claude is using BAP Edge hooks from $claudeSettings"
+if ($usingManagedHooks) {
+    Write-Host "Local Claude is using managed BAP Edge hooks from $managedSettings"
+    Write-Host "Managed hook executable: $managedEdgeDirectory\bap-edge.exe"
+    Write-Host 'User, project, and local setting sources are disabled for this launcher.'
+} else {
+    Write-Host "Local Claude is using repo-local BAP Edge hooks from $claudeSettings"
+}
 Write-Host 'ALLOW test: Call Bash exactly once with this exact command: git status --short'
 Write-Host 'DENY test:  Call Bash exactly once with this exact command: git reset --hard'
 Write-Host ''
@@ -167,9 +194,16 @@ Write-Host ''
 $defaultArguments = @(
     '--model', 'claude-3-5-sonnet-20241022',
     '--tools', 'Bash',
-    '--settings', $claudeSettings,
     '--system-prompt', 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the Bash tool. Never substitute example paths or simulate results. Never claim a command succeeded when its tool call was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.'
 )
+if ($usingManagedHooks) {
+    # Managed policy is always loaded independently. Excluding ordinary sources
+    # makes /status unambiguous and prevents unrelated user/project preferences
+    # from affecting this controlled local-LLM test session.
+    $defaultArguments += '--setting-sources='
+} else {
+    $defaultArguments += @('--settings', $claudeSettings)
+}
 if ($Print) { $defaultArguments += '--print' }
 if ($Prompt) { $defaultArguments += $Prompt }
 & $claudeExecutable @defaultArguments @ClaudeArguments

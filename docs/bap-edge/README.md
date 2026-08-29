@@ -61,7 +61,9 @@ claude
 Inside Claude Code check:
 
 1. `/status` lists an active managed settings source.
-2. `/hooks` lists the managed BAP Edge hooks and does not list project/user hooks.
+2. `/hooks` may show `0 hooks configured` because it lists editable hooks, not
+   administrator-managed policy hooks. Use `Test-ManagedSettings.ps1` for the
+   authoritative managed-hook test.
 3. `/permissions` shows that bypass mode is disabled.
 4. Ask Claude to read `README.md`; BAP should allow it.
 5. Ask Claude to read `.env` or run `git reset --hard`; BAP should deny it.

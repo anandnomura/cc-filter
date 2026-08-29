@@ -134,7 +134,8 @@ claude
 Inside Claude Code:
 
 1. `/status` — confirm a managed settings source.
-2. `/hooks` — confirm the six managed BAP hooks.
+2. `/hooks` — it may show zero editable hooks even while managed hooks are
+   active; rely on `Test-ManagedSettings.ps1` for the live managed-hook check.
 3. `/permissions` — confirm bypass mode is disabled.
 4. Ask: `Read README.md and summarize the BAP Edge introduction.` Expect allow.
 5. Ask: `Read .env.` Expect deny.

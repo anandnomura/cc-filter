@@ -83,7 +83,7 @@ Close every Claude process and open a non-administrator PowerShell.
 claude
 ```
 
-Inside Claude, validate `/status`, `/hooks`, and `/permissions`, then run the safe
+Inside Claude, validate `/status` and `/permissions`, then run the safe
 read, `.env` denial, and destructive-command denial cases documented in
 [testing.md](testing.md). The network BAP Service administrator verifies the
 correlated signed audit events.

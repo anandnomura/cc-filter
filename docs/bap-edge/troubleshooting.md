@@ -40,6 +40,32 @@ Run `Test-Bap.ps1`. Check the HTTPS URL, CA path, grant public key, service logs
 the inherited `BAP_EDGE_API_KEY`, and Cedar policy. Restart Claude after changing
 a machine environment variable. Failure is intentionally closed.
 
+If the error contains `certificate signed by unknown authority` after managed
+installation, the Program Files CA may come from a different local runtime than
+the service bound to port 8443. For example, Podman trust files cannot verify a
+Docker service initialized with a different development CA. Reinstall from an
+elevated PowerShell with the runtime that is actually serving BAP:
+
+```powershell
+.\Install-ManagedSettings.ps1 -Runtime Docker
+```
+
+Use `-Runtime Podman` instead only when Podman owns port 8443. The installer's
+`Auto` mode detects the live service by validating it against each runtime CA;
+the local launcher also refuses to start if the installed CA or grant public
+key differs from the active runtime.
+
+## Claude says `Ran 1 shell command` for a denied call
+
+The compact Claude activity label counts an attempted Bash tool call. It does
+not mean the command reached the operating system. For a BAP denial, expand the
+tool event and confirm that `PreToolUse:Bash` says `BAP EDGE BLOCKED THIS TOOL
+CALL; IT DID NOT EXECUTE`. The Claude session record will contain an error tool
+result with `toolDenialKind` set to `permission-rule`, and the BAP audit trail
+will contain `allowed: false`. A small local model may otherwise misdescribe or
+repeat an earlier tool result, so do not treat its prose as enforcement
+evidence.
+
 ## A repeated operation still calls the network
 
 The grant cache is exact-request and session-bound and lasts at most 30 seconds.

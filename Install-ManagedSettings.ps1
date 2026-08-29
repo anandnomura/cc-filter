@@ -12,13 +12,35 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
 $isLocalDevelopment = $ServiceUrl -eq 'https://127.0.0.1:8443'
+
+function Test-BapHealthWithCa {
+    param([Parameter(Mandatory)][string]$CaBundle)
+    if (-not (Test-Path -LiteralPath $CaBundle)) { return $false }
+    try {
+        $response = & curl.exe --silent --show-error --fail --max-time 3 --ssl-no-revoke --cacert $CaBundle "$ServiceUrl/healthz" 2>$null
+        return $LASTEXITCODE -eq 0 -and ($response | ConvertFrom-Json).status -eq 'ok'
+    } catch {
+        return $false
+    }
+}
+
 $binarySource = if ($EdgeBinaryPath) { $EdgeBinaryPath } else { Join-Path $PSScriptRoot 'dist\bap-edge-windows-amd64.exe' }
 $engine = ''
 $runtimeDirectory = ''
 if ($EdgeBinaryPath -and -not (Test-Path -LiteralPath $binarySource)) {
     throw "The supplied prebuilt Edge binary does not exist: $binarySource"
 }
-if ($isLocalDevelopment -or (-not $EdgeBinaryPath -and -not (Test-Path -LiteralPath $binarySource))) {
+if ($isLocalDevelopment -and $Runtime -eq 'Auto') {
+    foreach ($candidate in @('podman', 'docker')) {
+        $candidateRuntime = Get-BapRuntimeDirectory -Engine $candidate
+        if (Test-BapHealthWithCa -CaBundle (Join-Path $candidateRuntime 'dev-ca.pem')) {
+            $engine = $candidate
+            $runtimeDirectory = $candidateRuntime
+            break
+        }
+    }
+}
+if (($isLocalDevelopment -or (-not $EdgeBinaryPath -and -not (Test-Path -LiteralPath $binarySource))) -and -not $engine) {
     $engine = Get-BapContainerEngine -Runtime $Runtime
     $runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
 }
@@ -103,4 +125,5 @@ $managed | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $managedPath -Enc
 
 Write-Host "Installed BAP Edge at $binaryPath"
 Write-Host "Installed managed Claude policy at $managedPath"
-Write-Host 'Restart Claude Code, then run /status, /hooks, and /permissions to verify the managed source.'
+Write-Host 'Restart Claude Code, then run /status and /permissions to verify the managed source.'
+Write-Host 'The /hooks screen may show 0 editable hooks even while managed policy hooks are active; run Test-ManagedSettings.ps1 for an end-to-end check.'

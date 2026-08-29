@@ -105,7 +105,7 @@ curl.exe --cacert C:\approved\bap\company-ca.pem https://bap.company.example:844
 claude
 ```
 
-In Claude, check `/status`, `/hooks`, and `/permissions`; test safe read, protected
+In Claude, check `/status` and `/permissions`; test safe read, protected
 read, outside-workspace read, destructive command, and unknown tool. The Linux
 administrator then runs `bap-service audit verify` against the mounted service
 state and confirms one correlated session/workload/tool trail, cache source when
