@@ -1,0 +1,33 @@
+{
+  "": {
+    "entityTypes": {
+      "Agent": {
+        "memberOfTypes": [],
+        "shape": {"type": "Record", "attributes": {"enabled": {"type": "Boolean", "required": true}}}
+      },
+      "ToolInvocation": {
+        "memberOfTypes": [],
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "tool": {"type": "String", "required": true},
+            "target": {"type": "String", "required": true},
+            "path": {"type": "String", "required": true},
+            "command": {"type": "String", "required": true},
+            "protected": {"type": "Boolean", "required": true},
+            "outsideWorkspace": {"type": "Boolean", "required": true},
+            "destructive": {"type": "Boolean", "required": true}
+          }
+        }
+      }
+    },
+    "actions": {
+      "file.read": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "file.search": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "file.write": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "command.execute": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "network.access": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "mcp.invoke": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}}
+    }
+  }
+}

@@ -1,0 +1,7 @@
+.git
+.github
+.bap
+dist
+*.log
+config.yaml
+.claude

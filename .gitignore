@@ -1,6 +1,11 @@
 # Binaries
 cc-filter
 cc-filter.exe
+/bap-edge
+/bap-edge.exe
+/bap-service.exe
+dist/
+.bap/runtime/
 
 # Go build artifacts
 *.o

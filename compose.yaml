@@ -1,0 +1,16 @@
+services:
+  bap-service:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: bap-service:local
+    container_name: bap-service-local
+    ports:
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - ./.bap/runtime/docker:/var/lib/bap
+    restart: unless-stopped
+    environment:
+      BAP_DEVELOPMENT_TLS: "true"
+      BAP_EDGE_API_KEY: "${BAP_EDGE_API_KEY:?set BAP_EDGE_API_KEY}"
+      BAP_EDGE_PRINCIPAL: "${BAP_EDGE_PRINCIPAL:-local-developer}"

@@ -1,3 +1,23 @@
+# BAP Edge fork of cc-filter
+
+This fork adds a BAP Edge Policy Enforcement Point for Claude Code and a separate
+network-ready BAP Service Policy Decision Point. BAP Service implements the
+OpenID AuthZEN evaluation API and evaluates decisions with Cedar.
+
+**Start here:** [BAP Edge operator guide](docs/bap-edge/README.md)
+
+The operator guide includes the complete Docker/Podman build, HTTPS and key
+initialization, Windows managed-settings installation, standard-user bypass
+test, AuthZEN/Cedar acceptance test, audit verification, network deployment,
+and fork synchronization procedures. Containerized development builds do not
+need local Go; source-only company Windows builds use the documented approved
+native Go compiler path.
+
+The original cc-filter behavior and documentation remain below so this fork can
+continue to synchronize with `wissem/cc-filter`.
+
+---
+
 # cc-filter: Claude Code Sensitive Information Filter
 
 ```
