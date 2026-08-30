@@ -2,6 +2,7 @@ package audit
 
 import (
 	"bufio"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -98,15 +99,10 @@ func (s *Store) Append(event Event) error {
 	if err := s.initializeLocked(); err != nil {
 		return err
 	}
-	event.PreviousHash = s.lastHash
-	event.EventHash, event.Signature = "", ""
-	payload, err := json.Marshal(event)
+	event, err := SignEvent(event, s.lastHash, s.key)
 	if err != nil {
 		return err
 	}
-	event.Signature = hex.EncodeToString(ed25519.Sign(s.key, payload))
-	sum := sha256.Sum256(append(payload, []byte(event.Signature)...))
-	event.EventHash = hex.EncodeToString(sum[:])
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -134,6 +130,12 @@ func (s *Store) Append(event Event) error {
 	return nil
 }
 
+func (s *Store) Ready(_ context.Context) error { return s.Initialize() }
+
+func (s *Store) Events() ([]Event, error) {
+	return ReadAndVerify(s.path, s.key.Public().(ed25519.PublicKey))
+}
+
 func (s *Store) HasEvent(eventID string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,28 +161,51 @@ func ReadAndVerify(path string, key ed25519.PublicKey) ([]Event, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := VerifyEvents(events, key); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func SignEvent(event Event, previousHash string, key ed25519.PrivateKey) (Event, error) {
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
+	event.PreviousHash = previousHash
+	event.EventHash, event.Signature = "", ""
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return Event{}, err
+	}
+	event.Signature = hex.EncodeToString(ed25519.Sign(key, payload))
+	sum := sha256.Sum256(append(payload, []byte(event.Signature)...))
+	event.EventHash = hex.EncodeToString(sum[:])
+	return event, nil
+}
+
+func VerifyEvents(events []Event, key ed25519.PublicKey) error {
 	previous := ""
 	for index, stored := range events {
 		if stored.PreviousHash != previous {
-			return nil, fmt.Errorf("audit event %d breaks the hash chain", index+1)
+			return fmt.Errorf("audit event %d breaks the hash chain", index+1)
 		}
 		eventHash, signatureHex := stored.EventHash, stored.Signature
 		stored.EventHash, stored.Signature = "", ""
 		payload, err := json.Marshal(stored)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		signature, err := hex.DecodeString(signatureHex)
 		if err != nil || !ed25519.Verify(key, payload, signature) {
-			return nil, fmt.Errorf("audit event %d has an invalid signature", index+1)
+			return fmt.Errorf("audit event %d has an invalid signature", index+1)
 		}
 		sum := sha256.Sum256(append(payload, []byte(signatureHex)...))
 		if hex.EncodeToString(sum[:]) != eventHash {
-			return nil, fmt.Errorf("audit event %d has an invalid hash", index+1)
+			return fmt.Errorf("audit event %d has an invalid hash", index+1)
 		}
 		previous = eventHash
 	}
-	return events, nil
+	return nil
 }
 
 func read(path string) ([]Event, error) {

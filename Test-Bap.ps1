@@ -13,9 +13,23 @@ if ($LASTEXITCODE -ne 0) { throw 'Automated tests failed.' }
 $runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
 $caBundle = Join-Path $runtimeDirectory 'dev-ca.pem'
 Wait-BapHealth -CaBundle $caBundle
-$runtimeMount = "${runtimeDirectory}:/var/lib/bap"
-$baselineEvents = (& $engine run --rm --volume $runtimeMount bap-service:local audit list) | ConvertFrom-Json
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+    # Windows PowerShell surfaces native stderr as ErrorRecord objects when the
+    # script preference is Stop, even when Docker exits successfully.
+    $ErrorActionPreference = 'Continue'
+    $serviceLogs = & $engine logs bap-service-local 2>&1
+    $logsExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($logsExitCode -ne 0) { throw 'Could not read BAP Service container logs.' }
+if (($serviceLogs -join "`n") -notmatch 'MySQL storage initialized') { throw 'BAP Service is not using MySQL storage.' }
+Write-Host 'PASS: MySQL-backed service readiness'
+$baselineEvents = (& $engine exec bap-service-local bap-service audit list) | ConvertFrom-Json
 $baselineCount = if ($null -eq $baselineEvents) { 0 } else { @($baselineEvents).Count }
+$baselineProposals = (& $engine exec bap-service-local bap-service proposals list) | ConvertFrom-Json
+$baselineProposalCount = if ($null -eq $baselineProposals) { 0 } else { @($baselineProposals).Count }
 $metadata = (& curl.exe --silent --show-error --fail --ssl-no-revoke --cacert $caBundle 'https://127.0.0.1:8443/.well-known/authzen-configuration') | ConvertFrom-Json
 if (-not $metadata.access_evaluation_endpoint) { throw 'AuthZEN metadata is missing the evaluation endpoint.' }
 $unauthenticatedStatus = & curl.exe --silent --output NUL --write-out '%{http_code}' --ssl-no-revoke --cacert $caBundle -X POST -H 'Content-Type: application/json' --data '{}' 'https://127.0.0.1:8443/access/v1/evaluation'
@@ -53,6 +67,10 @@ foreach ($case in $cases) {
     if ($actual -ne $case.Want) { throw "$($case.Name): expected $($case.Want), got $actual" }
     Write-Host "PASS: $($case.Name) -> $actual"
 }
+$currentProposals = (& $engine exec bap-service-local bap-service proposals list) | ConvertFrom-Json
+$currentProposalCount = if ($null -eq $currentProposals) { 0 } else { @($currentProposals).Count }
+if ($currentProposalCount -ne $baselineProposalCount) { throw 'Explicitly forbidden test cases unexpectedly created a policy proposal.' }
+Write-Host 'PASS: explicit forbids did not create policy-bypass proposals'
 $replayInput = @{ hook_event_name = 'PreToolUse'; session_id = $testSession; tool_use_id = 'test-safe-workspace-read'; cwd = $PSScriptRoot; tool_name = 'Read'; tool_input = @{ file_path = 'README.md' } } | ConvertTo-Json -Compress -Depth 8
 $replay = $replayInput | & $edgeBinary --config $edgeConfig | ConvertFrom-Json
 if ($replay.hookSpecificOutput.permissionDecisionReason -notmatch 'centrally recorded') { throw 'Expected an exact retry to consume a cached grant with central audit acknowledgement.' }
@@ -62,9 +80,9 @@ $outcomeInput = @{ hook_event_name = 'PostToolUse'; session_id = $testSession; t
 $outcomeInput | & $edgeBinary --config $edgeConfig | Out-Null
 $outcomeInput | & $edgeBinary --config $edgeConfig | Out-Null
 
-& $engine run --rm --volume $runtimeMount bap-service:local audit verify | Out-Host
+& $engine exec bap-service-local bap-service audit verify | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'Signed audit-chain verification failed.' }
-$allEvents = (& $engine run --rm --volume $runtimeMount bap-service:local audit list) | ConvertFrom-Json
+$allEvents = (& $engine exec bap-service-local bap-service audit list) | ConvertFrom-Json
 $events = @($allEvents) | Select-Object -Skip $baselineCount
 $sources = @($events | ForEach-Object { $_.source })
 foreach ($requiredSource in @('pdp_evaluation', 'cached_grant_consumption', 'local_edge_filter', 'bap_edge_report')) {

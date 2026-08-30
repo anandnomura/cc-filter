@@ -23,7 +23,12 @@ type HookInput struct {
 	ToolInput     map[string]any `json:"tool_input"`
 }
 
-var destructiveCommand = regexp.MustCompile(`(?i)(^|[;&|]\s*)(rm\s+-[^\r\n]*r[^\r\n]*f|del\s+/[sqf]|remove-item[^\r\n]*-recurse|format\s+[a-z]:|git\s+(reset\s+--hard|clean\s+-[^\r\n]*f|push[^\r\n]*--force)|drop\s+(database|table)|shutdown|reboot)(\s|$)`)
+var (
+	destructiveCommand  = regexp.MustCompile(`(?i)(^|[;&|]\s*)(rm\s+-[^\r\n]*r[^\r\n]*f|del\s+/[sqf]|remove-item[^\r\n]*(-recurse|-force)|format\s+[a-z]:|diskpart|git\s+(reset\s+--hard|clean\s+-[^\r\n]*f|push[^\r\n]*--force)|drop\s+(database|table)|truncate\s+table|shutdown|reboot)(\s|$)`)
+	privilegedCommand   = regexp.MustCompile(`(?i)(^|[;&|]\s*)(sudo|runas|net\s+(user|localgroup)|sc(\.exe)?\s+(create|config)|schtasks(\.exe)?\s+/create|reg(\.exe)?\s+add\s+hklm|set-executionpolicy|start-process[^\r\n]*-verb\s+runas)(\s|$)`)
+	exfiltrationCommand = regexp.MustCompile(`(?i)(curl|wget|invoke-webrequest|invoke-restmethod)[^\r\n]*(--data|--form|--upload-file|-body\b|-infile\b|\s-[dft]\s)|(^|[;&|]\s*)(nc|ncat|netcat|scp|sftp|rsync)(\s|$)`)
+	obfuscatedCommand   = regexp.MustCompile(`(?i)(powershell|pwsh)[^\r\n]*(-e|-en|-enc|-enco|-encod|-encode|-encodedcommand)\s+[a-z0-9+/=]{8,}|base64\s+(-d|--decode)[^\r\n]*\|\s*(sh|bash|zsh|powershell|pwsh)`)
+)
 
 func Normalize(input HookInput, subjectID, workloadID string) (authzen.EvaluationRequest, error) {
 	workspace := input.CWD
@@ -45,7 +50,11 @@ func Normalize(input HookInput, subjectID, workloadID string) (authzen.Evaluatio
 		target = canonicalPath
 	}
 	protected := isProtected(canonicalPath)
+	securityControl := action == "file.write" && isSecurityControl(canonicalPath, workspace)
 	destructive := action == "command.execute" && destructiveCommand.MatchString(command)
+	privileged := action == "command.execute" && privilegedCommand.MatchString(command)
+	exfiltration := action == "command.execute" && exfiltrationCommand.MatchString(command)
+	obfuscated := action == "command.execute" && obfuscatedCommand.MatchString(command)
 	resourceID := hashID(action + "\x00" + target)
 
 	assertedUser := "unknown"
@@ -60,7 +69,8 @@ func Normalize(input HookInput, subjectID, workloadID string) (authzen.Evaluatio
 			ID:   resourceID,
 			Properties: map[string]any{
 				"tool": input.ToolName, "target": target, "path": canonicalPath, "command": command,
-				"protected": protected, "outsideWorkspace": outside, "destructive": destructive,
+				"protected": protected, "outsideWorkspace": outside, "securityControl": securityControl,
+				"destructive": destructive, "privileged": privileged, "exfiltration": exfiltration, "obfuscated": obfuscated,
 			},
 		},
 		Context: map[string]any{"session_id": input.SessionID, "workload_id": workloadID, "tool_use_id": input.ToolUseID, "workspace": workspace, "asserted_user": assertedUser},
@@ -80,6 +90,9 @@ func classify(input HookInput, workspace string) (action, target, pathValue, com
 		if pathValue == "" {
 			pathValue = stringField("notebook_path")
 		}
+		if input.ToolName == "NotebookEdit" {
+			return "notebook.write", pathValue, pathValue, ""
+		}
 		return "file.write", pathValue, pathValue, ""
 	case "Glob", "Grep", "Search":
 		pathValue = stringField("path")
@@ -95,14 +108,16 @@ func classify(input HookInput, workspace string) (action, target, pathValue, com
 		if parsed, err := url.Parse(target); err == nil && parsed.Hostname() != "" {
 			target = parsed.Scheme + "://" + parsed.Hostname()
 		}
-		return "network.access", target, "", ""
+		return "network.fetch", target, "", ""
 	case "WebSearch":
-		return "network.access", "web-search", "", ""
+		return "network.search", "web-search", "", ""
+	case "Task", "Agent":
+		return "agent.delegate", input.ToolName, "", ""
 	default:
 		if strings.HasPrefix(input.ToolName, "mcp__") {
 			return "mcp.invoke", input.ToolName, "", ""
 		}
-		return "tool.invoke", input.ToolName, "", ""
+		return "tool.unknown", input.ToolName, "", ""
 	}
 }
 
@@ -144,6 +159,21 @@ func isProtected(pathValue string) bool {
 		}
 	}
 	return strings.Contains(lower, "/.ssh/") || strings.Contains(lower, "/secrets/") || strings.Contains(base, "credential")
+}
+
+func isSecurityControl(pathValue, workspace string) bool {
+	if pathValue == "" {
+		return false
+	}
+	relative, err := filepath.Rel(workspace, pathValue)
+	if err != nil {
+		return true
+	}
+	relative = strings.ToLower(filepath.ToSlash(relative))
+	return relative == ".claude/settings.json" ||
+		relative == ".claude/settings.local.json" ||
+		strings.HasPrefix(relative, ".claude/hooks/") ||
+		strings.HasPrefix(relative, ".git/hooks/")
 }
 
 func hashID(value string) string {

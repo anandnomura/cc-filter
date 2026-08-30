@@ -33,12 +33,50 @@ func TestCedarDecisions(t *testing.T) {
 		t.Fatalf("protected resource code = %q, want EXPLICIT_FORBID", code)
 	}
 	base.Resource.Properties["protected"] = false
-	base.Action.Name = "tool.invoke"
+	base.Action.Name = "tool.unknown"
 	allowed, _, code, err = engine.Authorize(base)
 	if err != nil || allowed {
-		t.Fatalf("unknown action should default deny: allowed=%t err=%v", allowed, err)
+		t.Fatalf("unknown action should be explicitly denied: allowed=%t err=%v", allowed, err)
 	}
-	if code != "NO_MATCHING_POLICY" {
-		t.Fatalf("unknown action code = %q, want NO_MATCHING_POLICY", code)
+	if code != "EXPLICIT_FORBID" {
+		t.Fatalf("unknown action code = %q, want EXPLICIT_FORBID", code)
+	}
+
+	base.Action.Name = "network.fetch"
+	allowed, _, code, err = engine.Authorize(base)
+	if err != nil || allowed || code != "EXPLICIT_FORBID" {
+		t.Fatalf("unregistered network fetch should be explicitly denied: allowed=%t code=%q err=%v", allowed, code, err)
+	}
+
+	base.Action.Name = "file.write"
+	base.Resource.Properties["securityControl"] = true
+	allowed, _, code, err = engine.Authorize(base)
+	if err != nil || allowed || code != "EXPLICIT_FORBID" {
+		t.Fatalf("security-control write should be explicitly denied: allowed=%t code=%q err=%v", allowed, code, err)
+	}
+
+	base.Resource.Properties["securityControl"] = false
+	for _, risk := range []string{"destructive", "privileged", "exfiltration", "obfuscated"} {
+		base.Action.Name = "command.execute"
+		base.Resource.Properties[risk] = true
+		allowed, _, code, err = engine.Authorize(base)
+		if err != nil || allowed || code != "EXPLICIT_FORBID" {
+			t.Fatalf("%s command should be explicitly denied: allowed=%t code=%q err=%v", risk, allowed, code, err)
+		}
+		base.Resource.Properties[risk] = false
+	}
+
+	for _, action := range []string{"mcp.invoke", "agent.delegate"} {
+		base.Action.Name = action
+		allowed, _, code, err = engine.Authorize(base)
+		if err != nil || allowed || code != "EXPLICIT_FORBID" {
+			t.Fatalf("%s should be explicitly denied: allowed=%t code=%q err=%v", action, allowed, code, err)
+		}
+	}
+
+	base.Action.Name = "network.search"
+	allowed, _, code, err = engine.Authorize(base)
+	if err != nil || !allowed || code != "POLICY_PERMIT" {
+		t.Fatalf("network search should be allowed: allowed=%t code=%q err=%v", allowed, code, err)
 	}
 }

@@ -165,8 +165,8 @@ keys, audit events, proposals, or Edge state.
 
 Nothing under `.bap/runtime/<engine>` is committed. Docker and Podman use
 separate runtime directories because their Windows VM ownership mappings are not
-interchangeable. Each contains development TLS keys,
-separate grant/audit keys, the API credential, audit/proposal JSONL, and runtime
-markers. Built Edge binaries are under `dist/`. Administrator-managed files are
+interchangeable. Each contains development TLS keys, separate grant/audit keys,
+the API credential, generated local MySQL credentials/data, and runtime markers.
+Built Edge binaries are under `dist/`. Administrator-managed files are
 under `C:\Program Files\BAP Edge` and
 `C:\Program Files\ClaudeCode\managed-settings.d`.

@@ -1,5 +1,25 @@
 # Troubleshooting
 
+## Podman reports `Local MySQL did not become ready`
+
+Current startup uses the Linux-native Podman volume
+`bap-mysql-local-data`. Older startup code bind-mounted
+`.bap/runtime/podman/mysql` from Windows; MySQL could then abort with
+`Cannot change permissions ... Operation not permitted`. Re-run
+`Start-Bap.ps1 -Runtime Podman` with the current script. The obsolete host
+directory is no longer used and can remain as recovery evidence.
+
+Inspect a failure with:
+
+```powershell
+podman ps --all --filter "name=bap-mysql-local"
+podman logs --tail 100 bap-mysql-local
+podman volume inspect bap-mysql-local-data
+```
+
+The startup script now includes the MySQL log tail when the container exits,
+instead of waiting for only the generic readiness timeout.
+
 ## No Go executable
 
 Expected. Build and test scripts run `golang:1.23-bookworm` inside Podman or
@@ -77,7 +97,7 @@ evaluation, not the audit trail.
 
 ## Audit verification fails
 
-Stop the service and preserve `.bap/runtime/<engine>/audit.jsonl` plus the audit public
-key for investigation. Do not edit or silently discard the file. Verify that the
-correct audit-key mount is present. A signature/hash failure indicates wrong key
-material, corruption, or tampering.
+Stop the service and preserve the MySQL database/backup plus the audit public
+key for investigation. Do not edit or silently discard database rows. Verify
+that the correct audit-key mount is present. A signature/hash failure indicates
+wrong key material, corruption, or tampering.

@@ -85,9 +85,14 @@ Claude can continue reasoning but tool operations are denied.
 
 ## Read next
 
+- [MVP roadmap, readiness ledger, release gates, and next iteration](mvp-roadmap.md)
+- [Local laptop MVP acceptance test](local-laptop-mvp-test.md)
+- [Company internal-pilot MVP acceptance and go/no-go test](company-pilot-mvp-test.md)
+- [MVP technical architecture, trust boundaries, identity, APIs, and technologies](mvp-technical-architecture.md)
+- [Cedar MVP policy and Sonnet/Opus tool coverage plan](cedar-mvp-policy-plan.md)
 - [Architecture and request flow](architecture.md)
 - [Edge YAML and service environment reference](configuration.md)
-- [Storage model and when to introduce a database](storage.md)
+- [MySQL storage, local operation, and enterprise database switch](storage.md)
 - [Audit trail, integrity, privacy, and operations](audit-trail.md)
 - [Docker, Podman, managed-settings, and fail-closed tests](testing.md)
 - [New computer: download, build, initialize, install, and demonstrate](new-environment.md)

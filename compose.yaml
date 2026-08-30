@@ -1,4 +1,23 @@
 services:
+  mysql:
+    image: mysql:8.4
+    container_name: bap-mysql-local
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "${BAP_MYSQL_ROOT_PASSWORD:?set BAP_MYSQL_ROOT_PASSWORD}"
+      MYSQL_DATABASE: bap
+      MYSQL_USER: bap
+      MYSQL_PASSWORD: "${BAP_MYSQL_PASSWORD:?set BAP_MYSQL_PASSWORD}"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    volumes:
+      - bap-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --silent --host 127.0.0.1 --user bap --password=$$MYSQL_PASSWORD"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+      start_period: 15s
+
   bap-service:
     build:
       context: .
@@ -10,7 +29,15 @@ services:
     volumes:
       - ./.bap/runtime/docker:/var/lib/bap
     restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
     environment:
       BAP_DEVELOPMENT_TLS: "true"
       BAP_EDGE_API_KEY: "${BAP_EDGE_API_KEY:?set BAP_EDGE_API_KEY}"
       BAP_EDGE_PRINCIPAL: "${BAP_EDGE_PRINCIPAL:-local-developer}"
+      BAP_DATABASE_DSN: "bap:${BAP_MYSQL_PASSWORD:?set BAP_MYSQL_PASSWORD}@tcp(mysql:3306)/bap?charset=utf8mb4&parseTime=true&loc=UTC"
+      BAP_DATABASE_ALLOW_INSECURE: "true"
+
+volumes:
+  bap-mysql-data:

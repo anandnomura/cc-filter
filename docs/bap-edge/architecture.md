@@ -21,8 +21,8 @@ BAP Service / PDP
   - authenticates the edge credential
   - evaluates Cedar permit/forbid/default-deny policies
   - issues 30-second Ed25519 grants
-  - records signed, hash-chained audit events
-  - records missing-policy proposals for administrator review
+  - transactionally records signed, hash-chained audit events in MySQL
+  - records deduplicated missing-policy proposals in MySQL for administrator review
 ```
 
 BAP Edge lives in the fork root and `cmd/bap-edge`. BAP Service is intentionally
@@ -94,6 +94,7 @@ cause a service evaluation, but cannot forge a valid allow grant.
 ## AuthZEN and BAP endpoints
 
 - `GET /healthz` — unauthenticated liveness only
+- `GET /readyz` — unauthenticated MySQL-backed readiness
 - `GET /.well-known/authzen-configuration` — AuthZEN discovery
 - `POST /access/v1/evaluation` — authenticated AuthZEN evaluation
 - `POST /bap/v1/audit/grant-consumption` — authenticated cached-grant receipt

@@ -16,7 +16,11 @@
             "command": {"type": "String", "required": true},
             "protected": {"type": "Boolean", "required": true},
             "outsideWorkspace": {"type": "Boolean", "required": true},
-            "destructive": {"type": "Boolean", "required": true}
+            "securityControl": {"type": "Boolean", "required": true},
+            "destructive": {"type": "Boolean", "required": true},
+            "privileged": {"type": "Boolean", "required": true},
+            "exfiltration": {"type": "Boolean", "required": true},
+            "obfuscated": {"type": "Boolean", "required": true}
           }
         }
       }
@@ -25,9 +29,13 @@
       "file.read": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
       "file.search": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
       "file.write": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "notebook.write": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
       "command.execute": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
-      "network.access": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
-      "mcp.invoke": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}}
+      "network.fetch": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "network.search": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "mcp.invoke": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "agent.delegate": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "tool.unknown": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}}
     }
   }
 }

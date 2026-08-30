@@ -26,7 +26,8 @@ tool input bodies, tool output, file content, API keys, and secrets are excluded
 
 ## Integrity
 
-BAP Service appends events to `audit.jsonl`. Each event contains:
+BAP Service appends events to MySQL in a transaction that also advances the
+locked audit-chain head. Each event contains:
 
 - the previous event hash;
 - an event hash;
@@ -34,9 +35,9 @@ BAP Service appends events to `audit.jsonl`. Each event contains:
 - the Cedar policy SHA-256 for service decisions and cached grants.
 
 This detects event modification, insertion, and deletion/reordering inside the
-chain. Protect the audit volume and periodically export the last event hash to a
-separate log/SIEM; without an external checkpoint, truncating only the tail of a
-local file cannot be distinguished from restoring an older complete copy.
+chain. Protect and back up MySQL and periodically export the last event hash to a
+separate log/SIEM; without an external checkpoint, restoring an older internally
+consistent database copy cannot be distinguished from an authorized restore.
 
 The audit key is separate from the grant-signing key. Keep both private keys on
 BAP Service. Distribute only `audit-public.pem` to verifiers and
@@ -53,11 +54,12 @@ For Podman replace `Docker` with `Podman`. Verification occurs before records ar
 printed. A nonzero exit or `audit verification failed` message means the trail
 must be treated as potentially altered.
 
-Direct container commands are also available:
+Direct commands execute inside the running service container so they use its
+configured MySQL connection and mounted keys:
 
 ```powershell
-docker run --rm --volume "${PWD}\.bap\runtime\docker:/var/lib/bap" bap-service:local audit verify
-docker run --rm --volume "${PWD}\.bap\runtime\docker:/var/lib/bap" bap-service:local audit list
+docker exec bap-service-local bap-service audit verify
+docker exec bap-service-local bap-service audit list
 ```
 
 ## Availability behavior
@@ -73,7 +75,7 @@ corresponding spool file.
 
 ## Production storage
 
-Mount `/var/lib/bap` on durable, access-controlled storage. Back it up, ship
-events and chain checkpoints to a SIEM, alert on verification failures, restrict
-audit-key access to the BAP Service identity, and establish retention rules. A
-container's writable layer is not an acceptable audit system of record.
+Use company-managed MySQL with replication and point-in-time recovery. Back it
+up, restore-test it, ship events and chain checkpoints to a SIEM, alert on
+verification/readiness failures, restrict audit-key access to the BAP Service
+identity, and establish retention rules. See [MySQL storage](storage.md).

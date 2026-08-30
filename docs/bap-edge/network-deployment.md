@@ -18,14 +18,15 @@ does not contain generated private keys.
 
 `Start-BapService.sh` is a local HTTPS demonstration launcher. Production should
 use the explicit Podman/systemd/Kubernetes configuration below with company PKI,
-secret mounts, durable audit storage, and a managed API credential.
+secret mounts, company MySQL, and a managed API credential.
 
 ## Required production inputs
 
 - `/run/bap-tls/tls-cert.pem` and `/run/bap-tls/tls-key.pem` from company PKI;
 - `/run/bap-grants/grant-private.pem` and corresponding public key;
-- writable proposal storage at `/var/lib/bap`;
-- durable audit storage and a dedicated audit signing key;
+- company MySQL 8.4 with TLS, backup/restore, and a dedicated BAP schema/account;
+- a mounted MySQL DSN secret and CA bundle;
+- a dedicated audit signing key;
 - a dedicated Edge API key and registered principal (never an Anthropic key);
 - network firewall allowing edge clients to TCP 8443;
 - a stable DNS name present in the server certificate.
@@ -39,7 +40,9 @@ podman run -d --name bap-service \
   -p 8443:8443 \
   -v /etc/bap-service/tls:/run/bap-tls:ro,Z \
   -v /etc/bap-service/grants:/run/bap-grants:ro,Z \
-  -v bap-proposals:/var/lib/bap:Z \
+  -v /etc/bap-service/mysql-dsn:/run/secrets/bap-mysql-dsn:ro,Z \
+  -v /etc/bap-service/mysql-ca.pem:/run/secrets/bap-mysql-ca.pem:ro,Z \
+  -v bap-runtime:/var/lib/bap:Z \
   -e BAP_LISTEN_ADDRESS=:8443 \
   -e BAP_TLS_CERT_PATH=/run/bap-tls/tls-cert.pem \
   -e BAP_TLS_KEY_PATH=/run/bap-tls/tls-key.pem \
@@ -47,8 +50,9 @@ podman run -d --name bap-service \
   -e BAP_GRANT_PUBLIC_KEY_PATH=/run/bap-grants/grant-public.pem \
   -e BAP_AUDIT_PRIVATE_KEY_PATH=/run/bap-grants/audit-private.pem \
   -e BAP_AUDIT_PUBLIC_KEY_PATH=/run/bap-grants/audit-public.pem \
-  -e BAP_AUDIT_PATH=/var/lib/bap/audit.jsonl \
-  -e BAP_PROPOSAL_PATH=/var/lib/bap/policy-proposals.jsonl \
+  -e BAP_DATABASE_DSN_FILE=/run/secrets/bap-mysql-dsn \
+  -e BAP_DATABASE_TLS_CA_PATH=/run/secrets/bap-mysql-ca.pem \
+  -e BAP_DATABASE_TLS_SERVER_NAME=mysql.company.example \
   -e BAP_EDGE_API_KEY="$PROVISIONED_BAP_EDGE_API_KEY" \
   -e BAP_EDGE_PRINCIPAL="alice-workstation" \
   registry.company.example/security/bap-service:0.1
@@ -67,6 +71,8 @@ behind internal network controls and a secret manager, and move to mTLS or an
 enterprise identity token before broad deployment. AuthZEN intentionally leaves
 API authentication to the deployment.
 
-The `/var/lib/bap` mount is both proposal and audit state. Use durable storage,
-back it up, and export signed events plus chain checkpoints to the company SIEM.
-Keep the audit and grant private keys on read-only secret mounts.
+MySQL is the audit/proposal system of record. Keep `/var/lib/bap` only for local
+key/runtime needs, export signed events plus chain checkpoints to the company
+SIEM, and keep audit/grant private keys on read-only secret mounts. Follow the
+[enterprise MySQL procedure](storage.md) for schema grants, DSN/TLS configuration,
+cutover, validation, backup, and rotation.

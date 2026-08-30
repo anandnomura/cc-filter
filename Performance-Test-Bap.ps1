@@ -55,4 +55,4 @@ $p50 = $sorted[[Math]::Min($sorted.Count - 1, [Math]::Floor($sorted.Count * 0.50
 $p95 = $sorted[[Math]::Min($sorted.Count - 1, [Math]::Floor($sorted.Count * 0.95))]
 [ordered]@{ requests = $EdgeRequests; failures = 0; p50_ms = [Math]::Round($p50, 2); p95_ms = [Math]::Round($p95, 2) } | ConvertTo-Json
 Remove-Item -LiteralPath $edgeConfig -Force
-Write-Host 'Performance run complete. Results describe this machine and durable JSONL configuration; they are not a universal production capacity claim.'
+Write-Host 'Performance run complete. Results describe this machine and local MySQL configuration; they are not a universal production capacity claim.'

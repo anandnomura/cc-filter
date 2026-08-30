@@ -84,7 +84,11 @@ func cedarAttributes(properties map[string]any) map[string]any {
 		"command":          "",
 		"protected":        false,
 		"outsideWorkspace": false,
+		"securityControl":  false,
 		"destructive":      false,
+		"privileged":       false,
+		"exfiltration":     false,
+		"obfuscated":       false,
 	}
 	for key := range result {
 		if value, ok := properties[key]; ok {

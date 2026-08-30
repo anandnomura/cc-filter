@@ -14,6 +14,7 @@ cd C:\Users\User\pyprj\bap-edge
 .\Build-Bap.ps1 -Runtime Docker
 .\Start-Bap.ps1 -Runtime Docker
 .\Test-Bap.ps1 -Runtime Docker
+.\Test-DatabaseFailure.ps1 -Runtime Docker
 .\View-AuditTrail.ps1 -Runtime Docker -VerifyOnly
 ```
 
@@ -21,6 +22,10 @@ The test proves unit/integration tests, HTTPS, AuthZEN discovery, missing API-ke
 rejection, Cedar allow/deny, local denial auditing, per-session workload IDs,
 signed grants, centrally acknowledged cache reuse, post-tool outcomes, audit
 privacy, and signed-chain verification.
+
+The database-failure test stops local MySQL, proves `/readyz` returns 503 and a
+fresh evaluation cannot be authorized, restores MySQL, and requires readiness
+to recover.
 
 For component-only builds use `Build-BapEdge.ps1` on the Windows side and
 `Build-BapService.sh docker` or `Build-BapService.sh podman` on the Linux side.

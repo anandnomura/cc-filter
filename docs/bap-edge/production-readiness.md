@@ -3,6 +3,11 @@
 The repository is a functional, security-oriented reference implementation and
 distributed demonstrator. It is not yet an enterprise production control plane.
 
+For the prioritized path from the current implementation to a bounded internal
+pilot, use the [MVP roadmap and readiness ledger](mvp-roadmap.md). This page
+describes the broader enterprise target; the roadmap defines the next work
+packages and measurable release gates.
+
 ## Implemented and tested
 
 - admin-managed Claude hooks with lower-scope hooks/rules disabled;
@@ -21,6 +26,17 @@ distributed demonstrator. It is not yet an enterprise production control plane.
 
 ## Required before enterprise production
 
+### Supported Claude releases and complete policy coverage
+
+The local Qwen bridge is a development harness, not the company deployment
+target. Inventory every enabled built-in, MCP, plugin, and delegation tool for
+the exact approved Claude Code, Sonnet, and Opus releases. Normalize equivalent
+operations identically, default-deny unknown or malformed payloads, and run the
+same allow, forbid, bypass, and schema corpus against every supported
+combination. Model identity may be diagnostic metadata, but must not grant
+authority. The detailed design and delivery sequence are in the
+[Cedar MVP policy plan](cedar-mvp-policy-plan.md).
+
 ### 1. Replace interim identity
 
 The machine environment bearer key can be copied by a user who can inspect their
@@ -36,13 +52,14 @@ gateways must verify bounded grants and enforce action/resource constraints.
 Also require application allowlisting, managed Claude distribution, restricted
 local administration, and binary signing/attestation.
 
-### 3. Replace single-node JSONL audit throughput
+### 3. Operationalize and replicate MySQL audit storage
 
-The current serialized fsync path measured about 58 decisions/second on the
-development volume. Introduce a durable replicated log/event service that
-acknowledges only after quorum/WAL durability, supports idempotency and indexes,
-exports to SIEM/WORM storage, retains signatures, and publishes external chain
-checkpoints. Then make PDP replicas stateless and horizontally scalable.
+The pilot baseline now commits indexed, signed/hash-chained events to MySQL in a
+transaction and fails closed when the commit cannot complete. Deploy company
+managed MySQL with replication, point-in-time recovery, tested restore,
+retention, capacity/SLO measurements, external chain checkpoints, and
+SIEM/WORM export. Then run multiple stateless PDP replicas and prove concurrent
+chain-head behavior at expected peak load.
 
 ### 4. High availability and disaster recovery
 

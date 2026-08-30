@@ -69,6 +69,7 @@ production uses company PKI and the explicit deployment in
 ```powershell
 .\Demo-Bap.ps1 -Runtime Docker -KeepRunning
 .\Test-Bap.ps1 -Runtime Docker
+.\Test-DatabaseFailure.ps1 -Runtime Docker
 .\View-AuditTrail.ps1 -Runtime Docker -VerifyOnly
 ```
 
@@ -120,7 +121,7 @@ an exact hook is retried, and post-tool success/failure events.
 3. secret read denies;
 4. outside-workspace read denies;
 5. destructive command denies;
-6. unknown tool/default deny creates a proposal;
+6. unknown tool is explicitly denied and does not create a bypass proposal;
 7. exact retry consumes a cached grant only after central audit acknowledgement;
 8. post-tool outcome correlates to prior allowed authorization;
 9. audit covers PDP, cache, local denial, and outcome without plaintext command or

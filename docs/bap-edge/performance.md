@@ -12,13 +12,25 @@ Run against a started local service:
 
 The script compiles a disposable Windows load client, sends authenticated HTTPS
 AuthZEN evaluations, reports throughput/p50/p95/p99, then measures complete cold
-BAP Edge hook processes. Every service evaluation still signs and synchronously
-fsyncs an audit event; the test does not disable safety work to improve numbers.
+BAP Edge hook processes. Every service evaluation still signs and commits a
+MySQL audit transaction; the test does not disable safety work to improve numbers.
 
 ## Baseline from this development workstation
 
-Measured 2026-08-28 using the rootless Podman machine and its bind-mounted JSONL
-audit volume:
+The 2026-08-29 local MySQL 8.4 baseline uses a private Docker network and the
+durable signed-audit transaction on every service evaluation:
+
+| Path | Load | Failures | Result |
+|---|---|---:|---|
+| BAP Service + MySQL | 200 requests, concurrency 10 | 0 | 90.67 req/s; p50 103.22 ms; p95 142.60 ms; p99 170.85 ms |
+| Full cold Edge hook | 20 sequential new operations | 0 | p50 80.36 ms; p95 115.11 ms |
+
+This is a functional pilot baseline from one workstation, not a sizing result.
+Run a longer soak against the enterprise topology before setting an SLO or
+capacity target.
+
+The following is the historical 2026-08-28 JSONL baseline. It predates the MySQL
+pilot store and must not be used as the MySQL capacity result:
 
 | Path | Load | Failures | Result |
 |---|---|---:|---|
@@ -26,10 +38,10 @@ audit volume:
 | BAP Service | 500 requests, concurrency 25 | 0 | 58.56 req/s; p50 423.23 ms; p95 450.78 ms; p99 525.71 ms |
 | Full cold Edge hook | 100 sequential new operations | 0 | p50 84.12 ms; p95 92.96 ms |
 
-These are development measurements, not a capacity guarantee. The flat
-synchronous audit writer reaches roughly 58 decisions/second on this storage and
-queues concurrent callers behind durable fsync. Cedar and grant signing are not
-the observed bottleneck. A 10-sample Edge run also showed a 1.08-second p95
+These are development measurements, not a capacity guarantee. The former flat
+synchronous audit writer reached roughly 58 decisions/second on that storage.
+A sustained MySQL load/soak result is still required. A 10-sample
+Edge run also showed a 1.08-second p95
 outlier, which is why stable conclusions use the 100-sample result and production
 tests must cover endpoint security/AV behavior.
 

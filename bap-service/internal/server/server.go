@@ -16,7 +16,6 @@ import (
 
 	"cc-filter/bap-service/internal/audit"
 	"cc-filter/bap-service/internal/cedaradapter"
-	"cc-filter/bap-service/internal/proposals"
 	"cc-filter/internal/auditwire"
 	"cc-filter/internal/authzen"
 	"cc-filter/internal/grants"
@@ -28,25 +27,52 @@ type Server struct {
 	issuer     string
 	audience   string
 	grantTTL   time.Duration
-	proposals  *proposals.Store
-	audit      *audit.Store
+	proposals  ProposalStore
+	audit      AuditStore
 	apiKey     string
 	principal  string
 }
 
-func New(engine *cedaradapter.Engine, privateKey ed25519.PrivateKey, issuer, audience string, grantTTL time.Duration, proposalStore *proposals.Store, auditStore *audit.Store, apiKey, principal string) *Server {
+type ProposalStore interface {
+	Record(authzen.EvaluationRequest) (string, error)
+}
+
+type AuditStore interface {
+	Append(audit.Event) error
+	HasEvent(string) (bool, error)
+	HasAllowedOperation(string, string, string, string) (bool, error)
+	Ready(context.Context) error
+}
+
+func New(engine *cedaradapter.Engine, privateKey ed25519.PrivateKey, issuer, audience string, grantTTL time.Duration, proposalStore ProposalStore, auditStore AuditStore, apiKey, principal string) *Server {
 	return &Server{engine: engine, privateKey: privateKey, issuer: issuer, audience: audience, grantTTL: grantTTL, proposals: proposalStore, audit: auditStore, apiKey: apiKey, principal: principal}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /.well-known/authzen-configuration", s.metadata)
 	mux.Handle("POST /access/v1/evaluation", s.authenticate(http.HandlerFunc(s.evaluate)))
 	mux.Handle("POST /bap/v1/audit/grant-consumption", s.authenticate(http.HandlerFunc(s.auditGrantConsumption)))
 	mux.Handle("POST /bap/v1/audit/outcome", s.authenticate(http.HandlerFunc(s.auditOutcome)))
 	mux.Handle("POST /bap/v1/audit/edge-denial", s.authenticate(http.HandlerFunc(s.auditEdgeDenial)))
 	return requestLogging(mux)
+}
+
+func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
+	if s.audit == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "reason": "audit_unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.audit.Ready(ctx); err != nil {
+		log.Printf("readiness_error request_id=%s error=%q", requestID(r), err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "reason": "storage_unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

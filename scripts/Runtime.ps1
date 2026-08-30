@@ -29,14 +29,14 @@ function Get-BapRuntimeDirectory {
 
 function Wait-BapHealth {
     param(
-        [string]$Url = 'https://127.0.0.1:8443/healthz',
+        [string]$Url = 'https://127.0.0.1:8443/readyz',
         [string]$CaBundle = (Join-Path $PSScriptRoot '..\.bap\runtime\docker\dev-ca.pem'),
         [int]$Attempts = 30
     )
     for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
         try {
             $result = & curl.exe --silent --show-error --fail --ssl-no-revoke --cacert $CaBundle $Url 2>$null
-            if ($LASTEXITCODE -eq 0 -and ($result | ConvertFrom-Json).status -eq 'ok') { return }
+            if ($LASTEXITCODE -eq 0 -and ($result | ConvertFrom-Json).status -in @('ok', 'ready')) { return }
         } catch {
             Start-Sleep -Milliseconds 500
         }
