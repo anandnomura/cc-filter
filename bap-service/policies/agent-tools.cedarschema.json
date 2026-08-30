@@ -20,7 +20,15 @@
             "destructive": {"type": "Boolean", "required": true},
             "privileged": {"type": "Boolean", "required": true},
             "exfiltration": {"type": "Boolean", "required": true},
-            "obfuscated": {"type": "Boolean", "required": true}
+            "obfuscated": {"type": "Boolean", "required": true},
+            "shellApproved": {"type": "Boolean", "required": true},
+            "policyProfile": {"type": "String", "required": true},
+            "approvedNetwork": {"type": "Boolean", "required": true},
+            "approvedMCP": {"type": "Boolean", "required": true},
+            "approvedDelegate": {"type": "Boolean", "required": true},
+            "networkHost": {"type": "String", "required": true},
+            "mcpServer": {"type": "String", "required": true},
+            "mcpTool": {"type": "String", "required": true}
           }
         }
       }
@@ -35,7 +43,31 @@
       "network.search": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
       "mcp.invoke": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
       "agent.delegate": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
-      "tool.unknown": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}}
+      "tool.unknown": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "user.interact": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "session.plan": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "worktree.manage": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "code.intelligence": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "skill.invoke": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "tool.discover": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "mcp.resource.list": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "mcp.resource.read": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "mcp.server.wait": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "task.manage": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "task.read": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "task.control": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "schedule.manage": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "schedule.read": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "artifact.publish": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "workflow.execute": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "agent.observe": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "agent.message": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "agent.control": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "remote.trigger": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "notification.send": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "file.send": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "findings.report": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "feedback.prepare": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}}
     }
   }
 }

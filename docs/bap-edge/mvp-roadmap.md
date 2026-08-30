@@ -46,8 +46,8 @@ drift. Use these component views when ownership is split:
 
 | Component | Done now | Pilot blockers / next work |
 |---|---|---|
-| BAP Edge (endpoint PEP) | Six managed Claude hooks, local cc-filter, normalized AuthZEN requests, exact-request signed-grant cache, outcome retry spool, fail-closed behavior | Sonnet/Opus and full-tool certification; bounded cache cleanup/metrics; trace propagation and structured logs; per-device revocable identity; signed Windows release and endpoint application control |
-| BAP Service (network PDP) | Authenticated HTTPS/AuthZEN API, Cedar permit/forbid/default-deny, signed request-bound grants, MySQL audit/proposals, `/healthz` and database-backed `/readyz`, fail-closed database behavior | Versioned policy lifecycle; client registry/revocation; admin read/workflow APIs; OpenTelemetry/metrics; backup/restore/checkpoints/retention; UI; HA/DR and signed OCI release |
+| BAP Edge (endpoint PEP) | Six managed Claude hooks, local cc-filter, normalized AuthZEN requests, exact-request signed-grant cache, outcome retry spool, fail-closed behavior, W3C operation traces, privacy-safe JSONL | Sonnet/Opus and full-tool certification; bounded cache cleanup and spool metrics; OTLP export; per-device revocable identity; signed Windows release and endpoint application control |
+| BAP Service (network PDP) | Authenticated HTTPS/AuthZEN API, Cedar permit/forbid/default-deny, signed request-bound grants, MySQL audit/proposals with trace index, structured decision logs, bounded Prometheus metrics, `/healthz` and database-backed `/readyz`, fail-closed database behavior | Versioned policy lifecycle; client registry/revocation; admin read/workflow APIs; OpenTelemetry Collector export; backup/restore/checkpoints/retention; UI; HA/DR and signed OCI release |
 | Shared deployment contract | Company TLS and managed-settings design, correlation IDs, privacy-safe audit model, local Docker MySQL path, documented enterprise MySQL cutover | Company PKI/secret distribution, enterprise MySQL exercise, supported-version matrix, SLOs/alerts/runbooks, independent security review |
 
 The capability ledger below is authoritative when a summary conflicts with a
@@ -90,7 +90,7 @@ product documentation and pilot approval.
 | Permission cache | Only signed allow grants; exact request hash; central acknowledgement on reuse | Exact retry only; expired files are not proactively removed | Expiry cleanup, size/age limits, metrics, corruption tests | Bounded in-memory/disk cache with fleet telemetry | Secure semantics complete; hygiene missing |
 | Authorization audit | MySQL append-only events with transactional chain head, Ed25519 signatures, policy hash, indexed correlations, startup verification, and fail-closed commits | Local single MySQL instance; no backup/restore proof, external checkpoint, retention job, or SIEM export | Company managed MySQL, backup/restore test, retention, external checkpoints, searchable export | Replicated durable store plus SIEM/WORM archive | Pilot database baseline complete; operations blocker remains |
 | Outcome correlation | PostToolUse/PostToolUseFailure with idempotent retry and prior-allow check | User-local retry spool can be deleted | Queue depth/age metrics, alerts, retry limits, operational runbook | Durable endpoint/service messaging with delivery SLO | Complete baseline; observability missing |
-| End-to-end tracing | Session, workload, tool-use, request, decision, event, credential, and policy identifiers | No common trace ID, W3C propagation, OpenTelemetry, spans, or trace UI | Structured logs plus trace/span IDs across Edge and Service | Traces continue into MCP/API/database gateways and centralized observability | Correlation complete; tracing missing |
+| End-to-end tracing | Stable operation trace IDs, W3C `traceparent`, Edge/Service spans, response trace headers, signed-audit persistence and MySQL trace index | No direct OTLP export, sampling controls, downstream MCP/API propagation, or trace UI | Export to company collector and searchable correlated timeline | Traces continue into MCP/API/database gateways and centralized observability | Propagation complete; export/UI missing |
 | Safe learning | Sanitized MySQL proposals only for `NO_MATCHING_POLICY`; explicit forbids never propose bypass; duplicates increment evidence | No ownership, review transition API, approval, or policy-draft workflow | Proposal review states, admin API, audit, and manual policy draft/test flow | Governed recommendation models with explainability; never autonomous activation | Durable evidence baseline complete; workflow missing |
 | Service APIs | Health, AuthZEN evaluation, grant-consumption audit, outcome, and edge-denial endpoints | No admin API; runtime bearer credential model only | Separately authenticated read APIs for audit/proposals and controlled workflow APIs | RBAC/ABAC admin control plane with separation of duties | Runtime API complete; control plane missing |
 | UI | CLI scripts list and verify audit/proposals | No dashboard or investigation workflow | Read-only operations dashboard after admin APIs exist | Full trace, policy, proposal, identity, rollout, and incident UI | Not started |
@@ -108,11 +108,13 @@ Priority: P0 and required before the company pilot.
 
 Use the detailed [Cedar MVP policy and Claude tool coverage plan](cedar-mvp-policy-plan.md).
 
-The first hardening slice is implemented: actions are separated for notebook,
-network search/fetch, delegation, MCP, and unknown tools; unregistered risky
-families explicitly deny; security-control writes and four command-risk classes
-explicitly deny. Registry-backed MCP/network authorization, parsed shell
-analysis, identity attributes, policy profiles, and release certification remain.
+MVP-0A is implemented: the documented built-in tool inventory has owned action
+classification, malformed required fields fail closed, read-only and standard
+developer profiles exist, exact endpoint registries gate network/MCP/delegation,
+shell execution is restricted to a small safe classifier, stale-policy grants
+are rejected, and a data-driven corpus plus `Test-MVP0.ps1` certifies the local
+path. Central registry attributes, deeper shell parsing, identity attributes,
+company fixtures, and exact release certification remain.
 
 - inventory every company-enabled built-in tool, MCP tool, plugin, shell, and
   delegation mechanism in the approved Claude Code version;
@@ -138,6 +140,14 @@ Exit criteria:
 ### MVP-1: Stabilize the existing Edge and audit path
 
 Priority: P0. This is the next implementation slice.
+
+Implemented in the observability slice: stable operation trace IDs, W3C
+propagation, Edge and Service spans, signed-audit trace persistence, MySQL trace
+indexing, response trace headers, privacy-safe Edge JSONL, structured Service
+decision logs, `/metrics`, and automated trace/log/metric privacy checks.
+Remaining MVP-1 work is cache cleanup and bounds, retry-spool metrics and
+limits, direct OTLP export/sampling, collector integration, and expanded
+disk/corruption/slow-response failure tests.
 
 - add grant-cache expiry cleanup, maximum age, maximum entry count, and metrics;
 - add structured JSON operational logs without prompts, plaintext commands,
@@ -302,16 +312,15 @@ the ability to investigate an allowed operation.
 
 ## Immediate next iteration
 
-Implement MVP-0 and MVP-1 before starting the UI. The recommended change
-sequence is:
+Finish MVP-0 and the remaining MVP-1 work before starting the UI. The
+recommended change sequence is:
 
 1. company tool inventory and Sonnet/Opus hook fixtures;
 2. expanded normalization, schema, policy profiles, and forbid corpus;
-3. cache cleanup and bounded storage;
-4. shared trace context and audit schema evolution;
-5. structured privacy-safe logs;
-6. readiness, metrics, failure tests, and privacy tests;
-7. update this ledger with measured evidence.
+3. cache cleanup, bounded storage, and retry-spool metrics;
+4. OTLP export, sampling controls, and company collector integration;
+5. slow-service, disk, corruption, and telemetry-export failure tests;
+6. update this ledger with measured evidence.
 
 After MVP-1, implement the identity registry and revocation model in MVP-2. An
 admin UI built before those foundations would expose sensitive operational data

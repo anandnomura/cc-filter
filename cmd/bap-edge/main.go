@@ -17,6 +17,7 @@ import (
 	"cc-filter/internal/bapedge"
 	"cc-filter/internal/filter"
 	"cc-filter/internal/grants"
+	"cc-filter/internal/tracecontext"
 )
 
 func main() {
@@ -35,16 +36,20 @@ func main() {
 	if err != nil {
 		deny("BAP Edge configuration error: " + err.Error())
 	}
+	edgeLogger, _ := bapedge.NewEdgeLogger(config.StateDirectory)
 	localFilter, err := filter.New(configs.DefaultRulesYAML)
 	if err != nil {
 		deny("BAP Edge local filter failed to initialize")
 	}
 	if input.HookEventName == "UserPromptSubmit" {
+		promptTrace := tracecontext.NewRoot()
 		local := localFilter.Process(string(raw))
 		if local.Error != nil {
+			_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_filter_completed", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "deny", Source: "local_filter"})
 			fmt.Fprintln(os.Stderr, local.Error.Error())
 			os.Exit(2)
 		}
+		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_filter_completed", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "pass", Source: "local_filter"})
 		fmt.Print(local.Output)
 		return
 	}
@@ -64,6 +69,8 @@ func main() {
 	if err != nil {
 		deny("BAP Edge workload identity error: " + err.Error())
 	}
+	operationTrace := tracecontext.ForOperation(input.SessionID, workloadID, input.ToolUseID)
+	_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "hook_received", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName})
 	flushContext, cancelFlush := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelFlush()
 	if err := spool.Flush(flushContext, client); err != nil {
@@ -82,11 +89,16 @@ func main() {
 			outcome = "failure"
 		}
 		eventID := bapedge.AuditEventID("outcome", input.SessionID, workloadID, input.ToolUseID, outcome)
-		event := auditwire.Outcome{EventID: eventID, SessionID: input.SessionID, WorkloadID: workloadID, ToolUseID: input.ToolUseID, Tool: input.ToolName, Outcome: outcome}
+		event := auditwire.Outcome{EventID: eventID, SessionID: input.SessionID, WorkloadID: workloadID, ToolUseID: input.ToolUseID, Tool: input.ToolName, Outcome: outcome, TraceParent: operationTrace.TraceParent()}
 		if err := client.ReportOutcome(context.Background(), event); err != nil {
 			if queueErr := spool.QueueOutcome(event); queueErr != nil {
 				fmt.Fprintln(os.Stderr, "BAP Edge could not report or queue tool outcome:", queueErr)
+				_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "tool_outcome_queue_failed", Level: "error", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Decision: outcome, Source: "retry_spool"})
+			} else {
+				_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "tool_outcome_queued", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Decision: outcome, Source: "retry_spool"})
 			}
+		} else {
+			_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "tool_outcome_reported", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Decision: outcome, Source: "bap_service"})
 		}
 		return
 	}
@@ -103,18 +115,20 @@ func main() {
 		}
 		return
 	}
-	request, err := bapedge.Normalize(input, config.SubjectID, workloadID)
+	request, err := bapedge.NormalizeWithPolicy(input, config.SubjectID, workloadID, config.NormalizationPolicy())
 	if err != nil {
-		deny("BAP Edge could not normalize the requested operation")
+		deny("BAP Edge rejected malformed or unsupported tool input: " + err.Error())
 	}
+	_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "operation_normalized", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name})
 	if isDeny(local.Output) {
 		denialID := bapedge.AuditEventID("edge-denial", input.SessionID, workloadID, input.ToolUseID)
-		denial := auditwire.EdgeDenial{EventID: denialID, Request: request, Reason: "Denied by local cc-filter rules"}
+		denial := auditwire.EdgeDenial{EventID: denialID, Request: request, Reason: "Denied by local cc-filter rules", TraceParent: operationTrace.TraceParent()}
 		if err := client.ReportEdgeDenial(context.Background(), denial); err != nil {
 			if queueErr := spool.QueueEdgeDenial(denial); queueErr != nil {
 				fmt.Fprintln(os.Stderr, "BAP Edge could not report or queue local denial:", queueErr)
 			}
 		}
+		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: "deny", ReasonCode: "LOCAL_FILTER_DENY", Source: "local_filter"})
 		fmt.Print(local.Output)
 		return
 	}
@@ -128,22 +142,26 @@ func main() {
 	}
 	if cachedGrant, err := cache.Load(requestHash); err == nil && cachedGrant != "" {
 		if err := client.VerifyGrant(cachedGrant, requestHash); err == nil {
-			if err := client.AuditGrantConsumption(context.Background(), request, cachedGrant); err == nil {
+			if err := client.AuditGrantConsumption(context.Background(), request, cachedGrant, operationTrace); err == nil {
+				_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: "allow", ReasonCode: "CACHED_SIGNED_GRANT", Source: "signed_grant_cache"})
 				allow("Allowed by a cached, signed, request-bound BAP grant; consumption was centrally recorded")
 				return
 			}
 		}
 	}
 
-	decision, err := client.Evaluate(context.Background(), request)
+	decision, err := client.Evaluate(context.Background(), request, operationTrace)
 	if err != nil {
+		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", Level: "error", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: "deny", ReasonCode: "SERVICE_ERROR", Source: "fail_closed"})
 		deny("BAP authorization failed closed: " + err.Error())
 	}
 	reason, _ := decision.Context["reason"].(string)
+	reasonCode, _ := decision.Context["reason_code"].(string)
 	if !decision.Decision {
 		if reason == "" {
 			reason = "Denied by BAP policy"
 		}
+		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: "deny", ReasonCode: reasonCode, Source: "bap_service"})
 		deny(reason)
 	}
 	if grant, ok := decision.Context["grant"].(string); ok && grant != "" {
@@ -151,6 +169,7 @@ func main() {
 			deny("BAP Edge could not safely cache the signed grant")
 		}
 	}
+	_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: "allow", ReasonCode: reasonCode, Source: "bap_service"})
 	allow(reason)
 }
 

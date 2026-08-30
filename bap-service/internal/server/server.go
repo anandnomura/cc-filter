@@ -12,25 +12,33 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"cc-filter/bap-service/internal/audit"
 	"cc-filter/bap-service/internal/cedaradapter"
+	"cc-filter/bap-service/internal/metrics"
 	"cc-filter/internal/auditwire"
 	"cc-filter/internal/authzen"
 	"cc-filter/internal/grants"
+	"cc-filter/internal/tracecontext"
 )
 
 type Server struct {
-	engine     *cedaradapter.Engine
-	privateKey ed25519.PrivateKey
-	issuer     string
-	audience   string
-	grantTTL   time.Duration
-	proposals  ProposalStore
-	audit      AuditStore
-	apiKey     string
-	principal  string
+	engine              *cedaradapter.Engine
+	privateKey          ed25519.PrivateKey
+	issuer              string
+	audience            string
+	grantTTL            time.Duration
+	proposals           ProposalStore
+	audit               AuditStore
+	apiKey              string
+	principal           string
+	metrics             *metrics.Registry
+	readinessMu         sync.Mutex
+	readinessFailed     bool
+	lastReadinessLog    time.Time
+	readinessSuppressed uint64
 }
 
 type ProposalStore interface {
@@ -45,34 +53,74 @@ type AuditStore interface {
 }
 
 func New(engine *cedaradapter.Engine, privateKey ed25519.PrivateKey, issuer, audience string, grantTTL time.Duration, proposalStore ProposalStore, auditStore AuditStore, apiKey, principal string) *Server {
-	return &Server{engine: engine, privateKey: privateKey, issuer: issuer, audience: audience, grantTTL: grantTTL, proposals: proposalStore, audit: auditStore, apiKey: apiKey, principal: principal}
+	return &Server{engine: engine, privateKey: privateKey, issuer: issuer, audience: audience, grantTTL: grantTTL, proposals: proposalStore, audit: auditStore, apiKey: apiKey, principal: principal, metrics: metrics.New()}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.ready)
+	mux.HandleFunc("GET /metrics", s.prometheusMetrics)
 	mux.HandleFunc("GET /.well-known/authzen-configuration", s.metadata)
 	mux.Handle("POST /access/v1/evaluation", s.authenticate(http.HandlerFunc(s.evaluate)))
 	mux.Handle("POST /bap/v1/audit/grant-consumption", s.authenticate(http.HandlerFunc(s.auditGrantConsumption)))
 	mux.Handle("POST /bap/v1/audit/outcome", s.authenticate(http.HandlerFunc(s.auditOutcome)))
 	mux.Handle("POST /bap/v1/audit/edge-denial", s.authenticate(http.HandlerFunc(s.auditEdgeDenial)))
-	return requestLogging(mux)
+	return requestLogging(s.traceRequest(s.observeHTTP(mux)))
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	if s.audit == nil {
+		s.metrics.SetReady(false)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "reason": "audit_unavailable"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if err := s.audit.Ready(ctx); err != nil {
-		log.Printf("readiness_error request_id=%s error=%q", requestID(r), err)
+		s.metrics.SetReady(false)
+		s.noteReadinessFailure(r, err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "reason": "storage_unavailable"})
 		return
 	}
+	s.metrics.SetReady(true)
+	s.noteReadinessReady(r)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+func (s *Server) noteReadinessFailure(r *http.Request, err error) {
+	s.readinessMu.Lock()
+	defer s.readinessMu.Unlock()
+	now := time.Now()
+	s.readinessFailed = true
+	if !s.lastReadinessLog.IsZero() && now.Sub(s.lastReadinessLog) < 10*time.Second {
+		s.readinessSuppressed++
+		return
+	}
+	fields := map[string]any{"error": err.Error()}
+	if s.readinessSuppressed > 0 {
+		fields["suppressed_since_previous"] = s.readinessSuppressed
+	}
+	s.logEvent("readiness_error", r, fields)
+	s.lastReadinessLog = now
+	s.readinessSuppressed = 0
+}
+
+func (s *Server) noteReadinessReady(r *http.Request) {
+	s.readinessMu.Lock()
+	defer s.readinessMu.Unlock()
+	if !s.readinessFailed {
+		return
+	}
+	s.logEvent("readiness_recovered", r, map[string]any{"suppressed_readiness_errors": s.readinessSuppressed})
+	s.readinessFailed = false
+	s.lastReadinessLog = time.Time{}
+	s.readinessSuppressed = 0
+}
+
+func (s *Server) prometheusMetrics(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	s.metrics.WritePrometheus(w)
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -109,7 +157,7 @@ func (s *Server) evaluate(w http.ResponseWriter, r *http.Request) {
 
 	allowed, reason, reasonCode, err := s.engine.Authorize(request)
 	if err != nil {
-		log.Printf("cedar_error request_id=%s error=%q", requestID(r), err)
+		s.logEvent("cedar_error", r, map[string]any{"error": err.Error()})
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "evaluation_error"})
 		return
 	}
@@ -117,7 +165,7 @@ func (s *Server) evaluate(w http.ResponseWriter, r *http.Request) {
 	context := map[string]any{"reason": reason, "reason_code": reasonCode, "decision_id": decisionID, "policy_version": s.engine.PolicyVersion()}
 	if !allowed && reasonCode == "NO_MATCHING_POLICY" && s.proposals != nil {
 		if proposalID, err := s.proposals.Record(request); err != nil {
-			log.Printf("proposal_record_error request_id=%s error=%q", requestID(r), err)
+			s.logEvent("proposal_record_error", r, map[string]any{"error": err.Error()})
 		} else {
 			context["proposal_id"] = proposalID
 			context["proposal_status"] = "pending_admin_review"
@@ -146,17 +194,22 @@ func (s *Server) evaluate(w http.ResponseWriter, r *http.Request) {
 		context["grant_type"] = grants.Type
 		context["expires_at"] = time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339)
 	}
-	log.Printf("decision request_id=%s decision_id=%s subject=%q action=%q resource_type=%q allowed=%t",
-		requestID(r), decisionID, request.Subject.ID, request.Action.Name, request.Resource.Type, allowed)
 	if s.audit != nil {
 		allowedValue := allowed
-		event := authorizationEvent(request, "pdp_evaluation", decisionID, reasonCode, s.engine.PolicyVersion(), &allowedValue, caller)
+		event := authorizationEvent(request, "pdp_evaluation", decisionID, reasonCode, s.engine.PolicyVersion(), &allowedValue, caller, traceFrom(r.Context()))
 		if err := s.audit.Append(event); err != nil {
-			log.Printf("audit_write_error request_id=%s error=%q", requestID(r), err)
+			s.metrics.AuditFailure("authorization_decision")
+			s.logEvent("audit_write_error", r, map[string]any{"operation": "authorization_decision", "error": err.Error()})
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "audit_unavailable"})
 			return
 		}
 	}
+	s.metrics.Decision(allowed, reasonCode, "pdp_evaluation")
+	s.logEvent("authorization_committed", r, map[string]any{
+		"decision_id": decisionID, "action": request.Action.Name, "resource_type": request.Resource.Type,
+		"decision": map[bool]string{true: "allow", false: "deny"}[allowed], "reason_code": reasonCode,
+		"policy_version": s.engine.PolicyVersion(),
+	})
 	writeJSON(w, http.StatusOK, authzen.Decision{Decision: allowed, Context: context})
 }
 
@@ -180,16 +233,19 @@ func (s *Server) auditGrantConsumption(w http.ResponseWriter, r *http.Request) {
 	}
 	publicKey := s.privateKey.Public().(ed25519.PublicKey)
 	claims, err := grants.Verify(publicKey, consumption.Grant, s.audience, hash, time.Now().UTC())
-	if err != nil || claims.CredentialFingerprint != caller.Fingerprint || claims.Principal != caller.Principal {
+	if err != nil || claims.CredentialFingerprint != caller.Fingerprint || claims.Principal != caller.Principal || claims.PolicyVersion != s.engine.PolicyVersion() {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "invalid_grant"})
 		return
 	}
 	allowed := true
-	event := authorizationEvent(consumption.Request, "cached_grant_consumption", claims.DecisionID, "CACHED_SIGNED_GRANT", claims.PolicyVersion, &allowed, caller)
+	event := authorizationEvent(consumption.Request, "cached_grant_consumption", claims.DecisionID, "CACHED_SIGNED_GRANT", claims.PolicyVersion, &allowed, caller, traceFrom(r.Context()))
 	if err := s.audit.Append(event); err != nil {
+		s.metrics.AuditFailure("grant_consumption")
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
 		return
 	}
+	s.metrics.Decision(true, "CACHED_SIGNED_GRANT", "cached_grant_consumption")
+	s.logEvent("authorization_committed", r, map[string]any{"decision_id": claims.DecisionID, "decision": "allow", "reason_code": "CACHED_SIGNED_GRANT", "source": "cached_grant_consumption", "policy_version": claims.PolicyVersion})
 	writeJSON(w, http.StatusOK, map[string]any{"recorded": true, "event_id": event.EventID})
 }
 
@@ -222,14 +278,18 @@ func (s *Server) auditOutcome(w http.ResponseWriter, r *http.Request) {
 	}
 	event := audit.Event{
 		EventID: outcome.EventID, EventType: "tool_outcome", Source: "bap_edge_report",
+		TraceID: traceFrom(r.Context()).TraceID, SpanID: traceFrom(r.Context()).SpanID, ParentSpanID: traceFrom(r.Context()).ParentSpanID,
 		SessionID: outcome.SessionID, WorkloadID: outcome.WorkloadID, ToolUseID: outcome.ToolUseID,
 		Tool: outcome.Tool, Outcome: outcome.Outcome, Principal: caller.Principal,
 		CredentialFingerprint: caller.Fingerprint,
 	}
 	if err := s.audit.Append(event); err != nil {
+		s.metrics.AuditFailure("tool_outcome")
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
 		return
 	}
+	s.metrics.Outcome(outcome.Outcome)
+	s.logEvent("tool_outcome_committed", r, map[string]any{"outcome": outcome.Outcome})
 	writeJSON(w, http.StatusOK, map[string]any{"recorded": true, "event_id": event.EventID})
 }
 
@@ -254,16 +314,19 @@ func (s *Server) auditEdgeDenial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	allowed := false
-	event := authorizationEvent(denial.Request, "local_edge_filter", "", "LOCAL_FILTER_DENY", "embedded-cc-filter", &allowed, caller)
+	event := authorizationEvent(denial.Request, "local_edge_filter", "", "LOCAL_FILTER_DENY", "embedded-cc-filter", &allowed, caller, traceFrom(r.Context()))
 	event.EventID = denial.EventID
 	if err := s.audit.Append(event); err != nil {
+		s.metrics.AuditFailure("edge_denial")
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
 		return
 	}
+	s.metrics.Decision(false, "LOCAL_FILTER_DENY", "local_edge_filter")
+	s.logEvent("authorization_committed", r, map[string]any{"decision": "deny", "reason_code": "LOCAL_FILTER_DENY", "source": "local_edge_filter", "policy_version": "embedded-cc-filter"})
 	writeJSON(w, http.StatusOK, map[string]any{"recorded": true, "event_id": event.EventID})
 }
 
-func authorizationEvent(request authzen.EvaluationRequest, source, decisionID, reasonCode, policyVersion string, allowed *bool, caller callerIdentity) audit.Event {
+func authorizationEvent(request authzen.EvaluationRequest, source, decisionID, reasonCode, policyVersion string, allowed *bool, caller callerIdentity, trace tracecontext.Context) audit.Event {
 	tool, _ := request.Resource.Properties["tool"].(string)
 	sessionID, _ := request.Context["session_id"].(string)
 	toolUseID, _ := request.Context["tool_use_id"].(string)
@@ -271,6 +334,7 @@ func authorizationEvent(request authzen.EvaluationRequest, source, decisionID, r
 	workloadID, _ := request.Context["workload_id"].(string)
 	return audit.Event{
 		EventID: randomID(), EventType: "authorization_decision", Source: source,
+		TraceID: trace.TraceID, SpanID: trace.SpanID, ParentSpanID: trace.ParentSpanID,
 		ToolUseID: toolUseID, SessionID: sessionID, WorkloadID: workloadID, AssertedUser: assertedUser,
 		Principal: caller.Principal, CredentialFingerprint: caller.Fingerprint,
 		Subject: request.Subject.ID, Action: request.Action.Name, Tool: tool,
@@ -315,6 +379,8 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if provided == "" || len(provided) != len(s.apiKey) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.apiKey)) != 1 {
+			s.metrics.AuthenticationFailure()
+			s.logEvent("authentication_failed", r, nil)
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_client"})
 			return
@@ -341,6 +407,91 @@ func requestID(r *http.Request) string {
 		return value
 	}
 	return "not-provided"
+}
+
+type traceContextKey struct{}
+
+func traceFrom(ctx context.Context) tracecontext.Context {
+	trace, _ := ctx.Value(traceContextKey{}).(tracecontext.Context)
+	return trace
+}
+
+func (s *Server) traceRequest(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parent, ok := tracecontext.Parse(r.Header.Get("traceparent"))
+		var current tracecontext.Context
+		if ok {
+			current = parent.Child()
+		} else {
+			current = tracecontext.NewRoot()
+		}
+		w.Header().Set("traceparent", current.TraceParent())
+		w.Header().Set("X-Trace-ID", current.TraceID)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), traceContextKey{}, current)))
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusRecorder) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func (s *Server) observeHTTP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		recorder := &statusRecorder{ResponseWriter: w}
+		next.ServeHTTP(recorder, r)
+		status := recorder.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if r.URL.Path != "/metrics" {
+			s.metrics.ObserveHTTP(metricRoute(r.URL.Path), r.Method, status, time.Since(started))
+		}
+	})
+}
+
+func metricRoute(path string) string {
+	switch path {
+	case "/healthz", "/readyz", "/metrics", "/.well-known/authzen-configuration",
+		"/access/v1/evaluation", "/bap/v1/audit/grant-consumption", "/bap/v1/audit/outcome", "/bap/v1/audit/edge-denial":
+		return path
+	default:
+		return "other"
+	}
+}
+
+func (s *Server) logEvent(event string, r *http.Request, fields map[string]any) {
+	trace := traceFrom(r.Context())
+	entry := map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"level":     "info", "event": event, "request_id": requestID(r),
+		"trace_id": trace.TraceID, "span_id": trace.SpanID, "parent_span_id": trace.ParentSpanID,
+	}
+	if strings.HasSuffix(event, "error") || event == "authentication_failed" {
+		entry["level"] = "error"
+	}
+	for name, value := range fields {
+		entry[name] = value
+	}
+	encoded, err := json.Marshal(entry)
+	if err == nil {
+		log.Print(string(encoded))
+	}
 }
 
 func randomID() string {

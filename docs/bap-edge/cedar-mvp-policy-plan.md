@@ -11,13 +11,9 @@ tools and compose inputs differently. Every supported Claude Code release,
 Sonnet model, and Opus model therefore needs the same tool-contract and bypass
 conformance suite.
 
-## Current policy is not an MVP policy
+## Current implementation: MVP-0A foundation
 
-The current policy proves Cedar/AuthZEN integration but is deliberately broad.
-It permits every modeled non-protected, in-workspace, non-destructive file
-write, command, network request, and MCP invocation for one hard-coded agent.
-
-The first hardening slice now:
+The model-independent MVP-0A foundation now:
 
 - separates notebook writes, network search, network fetch, delegation, MCP,
   and unknown actions;
@@ -26,28 +22,43 @@ The first hardening slice now:
 - explicitly forbids writes to Claude managed settings/hooks and Git hooks;
 - classifies and forbids destructive, privileged, likely-exfiltration, and
   common encoded command forms; and
-- tests each new action and risk classification.
+- tests each new action and risk classification;
+- owns a registry entry for the current documented Claude built-in tool names,
+  with higher-impact families explicitly denied until a policy slice exists;
+- fails closed when required security-relevant fields are absent, empty, or
+  have the wrong JSON type;
+- separates `read-only` and `standard-developer` Cedar profiles;
+- permits WebFetch, MCP, and delegation only through exact administrator-owned
+  registries (HTTPS DNS destinations only; no IP or wildcard MCP permit);
+- permits shell execution only for a deliberately small classifier of
+  inspection/build/test commands and denies shell operators, wrappers, and
+  unclassified executables; and
+- runs a version-controlled data fixture corpus plus end-to-end acceptance via
+  `Test-MVP0.ps1`.
 
 Remaining limitations include:
 
 - the Cedar Agent entity is always constructed with `enabled: true`;
 - Cedar context is empty even though AuthZEN context contains correlation data;
-- all MCP tools still collapse to a forbidden `mcp.invoke` without server,
-  method, or mutation classification;
-- WebFetch is forbidden until a managed domain/method registry exists;
+- MCP names are split into server and tool but do not yet have centrally owned
+  read/mutate, tenant, data-classification, owner, or expiry metadata;
+- WebFetch has an endpoint registry and HTTPS/DNS validation, but redirect and
+  resolved-address enforcement must also exist at the network/resource layer;
 - Bash policy still depends on regular-expression risk classifiers rather than
   a parsed command and executable/argument classification;
-- unrecognized tools are explicitly denied, but there is no supported-tool
-  inventory or release compatibility report;
-- delegation/subagent tools are explicitly denied, but parent authority and
-  policy-ceiling propagation are not implemented;
+- the documented tool inventory is represented, but exact company Claude Code
+  release payloads and compatibility reports are not yet captured;
+- approved delegation types can be named, but parent authority, recursion,
+  fan-out, and policy-ceiling propagation are not implemented;
 - file rules distinguish protected/outside/destructive but not repository
   control files, generated areas, source, tests, infrastructure, or policy;
-- there are no role, group, device, environment, repository, or risk-tier
-  attributes;
+- there are no service-derived role, group, device, environment, repository,
+  or risk-tier attributes;
 - the policy has focused engine tests rather than a company policy corpus.
 
-This is suitable for the demonstrator, not the company pilot.
+This is a strong certification foundation, not the final company-pilot gate.
+The exact company Claude Code/Sonnet/Opus fixtures, company registry content,
+shell inventory, and security review remain required.
 
 ## Supported client and model contract
 

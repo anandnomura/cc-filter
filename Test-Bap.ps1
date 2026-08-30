@@ -37,7 +37,7 @@ if ($unauthenticatedStatus -ne '401') { throw "Expected unauthenticated evaluati
 Write-Host 'PASS: unauthenticated authorization request -> 401'
 
 $edgeBinary = Join-Path $PSScriptRoot 'dist\bap-edge-windows-amd64.exe'
-if (-not (Test-Path -LiteralPath $edgeBinary)) { & (Join-Path $PSScriptRoot 'Build-Bap.ps1') -Runtime $Runtime }
+& (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime $Runtime
 $edgeConfig = Join-Path $runtimeDirectory 'test-edge.yaml'
 $publicKey = (Join-Path $runtimeDirectory 'grant-public.pem').Replace('\', '\\')
 $caPath = $caBundle.Replace('\', '\\')
@@ -47,6 +47,7 @@ service_url: "https://127.0.0.1:8443"
 public_key_path: "$publicKey"
 ca_bundle_path: "$caPath"
 subject_id: "claude-code-local"
+policy_profile: "standard-developer"
 timeout_ms: 3000
 api_key_env: "BAP_EDGE_API_KEY"
 state_directory: "$((Join-Path $runtimeDirectory 'test-edge-state').Replace('\', '\\'))"
@@ -56,7 +57,10 @@ $cases = @(
     @{ Name = 'safe workspace read'; Want = 'allow'; Tool = 'Read'; Input = @{ file_path = 'README.md' } },
     @{ Name = 'secret read'; Want = 'deny'; Tool = 'Read'; Input = @{ file_path = '.env' } },
     @{ Name = 'outside-workspace read'; Want = 'deny'; Tool = 'Read'; Input = @{ file_path = '..\outside.txt' } },
+    @{ Name = 'safe classified command'; Want = 'allow'; Tool = 'Bash'; Input = @{ command = 'git status --short' } },
     @{ Name = 'destructive command'; Want = 'deny'; Tool = 'Bash'; Input = @{ command = 'git reset --hard' } },
+    @{ Name = 'unclassified command'; Want = 'deny'; Tool = 'Bash'; Input = @{ command = 'python -c "print(1)"' } },
+    @{ Name = 'malformed read'; Want = 'deny'; Tool = 'Read'; Input = @{} },
     @{ Name = 'unknown tool'; Want = 'deny'; Tool = 'UnknownTool'; Input = @{} }
 )
 $testSession = 'test-session-' + [Guid]::NewGuid().ToString('N')
@@ -93,8 +97,20 @@ if (@($events | Where-Object { $_.source -in @('pdp_evaluation', 'cached_grant_c
 if (@($events | Where-Object { -not $_.workload_id -or -not $_.credential_fingerprint -or -not $_.signature }).Count -gt 0) {
     throw 'One or more audit events is missing workload, credential fingerprint, or signature data.'
 }
+if (@($events | Where-Object { -not $_.trace_id -or -not $_.span_id -or -not $_.parent_span_id }).Count -gt 0) {
+    throw 'One or more audit events is missing W3C trace correlation data.'
+}
+$safeOperationTraces = @($events | Where-Object { $_.tool_use_id -eq 'test-safe-workspace-read' } | ForEach-Object { $_.trace_id } | Sort-Object -Unique)
+if ($safeOperationTraces.Count -ne 1) { throw 'Authorization, cache consumption, and outcome did not share one operation trace ID.' }
 if (($events | ConvertTo-Json -Depth 10) -match 'git reset --hard') { throw 'Audit trail contains plaintext command content.' }
 if (@($events | Where-Object { 'target_summary' -in $_.PSObject.Properties.Name -and $_.target_summary -match '^[A-Za-z]:\\' }).Count -gt 0) { throw 'Audit trail contains an absolute Windows target path.' }
-Write-Host 'PASS: signed audit trail covers PDP, cache, local denial, and tool outcome without command plaintext'
+$edgeLogPath = Join-Path $runtimeDirectory 'test-edge-state\observability\edge.jsonl'
+if (-not (Test-Path -LiteralPath $edgeLogPath)) { throw 'BAP Edge structured observability log was not created.' }
+$edgeLog = Get-Content -LiteralPath $edgeLogPath -Raw
+if ($edgeLog -match 'git reset --hard|README\.md|\.env') { throw 'BAP Edge observability log contains command or path content.' }
+if ($edgeLog -notmatch 'authorization_result' -or $edgeLog -notmatch [regex]::Escape($safeOperationTraces[0])) { throw 'BAP Edge observability log is missing authorization or trace correlation.' }
+$metrics = & curl.exe --silent --show-error --fail --ssl-no-revoke --cacert $caBundle 'https://127.0.0.1:8443/metrics'
+if (($metrics -join "`n") -notmatch 'bap_authorization_decisions_total' -or ($metrics -join "`n") -notmatch 'bap_http_request_duration_seconds') { throw 'Prometheus authorization or latency metrics are missing.' }
+Write-Host 'PASS: trace-correlated signed audit, privacy-safe Edge logs, and bounded Prometheus metrics'
 Remove-Item -LiteralPath $edgeConfig -Force
-Write-Host 'PASS: code, Cedar, API authentication, workload IDs, grants, cache audit, outcomes, HTTPS, AuthZEN, and end-to-end decisions.'
+Write-Host 'PASS: code, Cedar, API authentication, workload IDs, grants, cache audit, outcomes, tracing, metrics, HTTPS, AuthZEN, and end-to-end decisions.'

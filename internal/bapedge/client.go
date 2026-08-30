@@ -20,6 +20,7 @@ import (
 	"cc-filter/internal/auditwire"
 	"cc-filter/internal/authzen"
 	"cc-filter/internal/grants"
+	"cc-filter/internal/tracecontext"
 )
 
 type Client struct {
@@ -90,7 +91,7 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) Evaluate(ctx context.Context, request authzen.EvaluationRequest) (authzen.Decision, error) {
+func (c *Client) Evaluate(ctx context.Context, request authzen.EvaluationRequest, trace tracecontext.Context) (authzen.Decision, error) {
 	body, err := json.Marshal(request)
 	if err != nil {
 		return authzen.Decision{}, err
@@ -102,6 +103,7 @@ func (c *Client) Evaluate(ctx context.Context, request authzen.EvaluationRequest
 	httpRequest.Header.Set("Content-Type", "application/json")
 	c.authorize(httpRequest)
 	httpRequest.Header.Set("X-Request-ID", requestID())
+	applyTrace(httpRequest, trace.TraceParent())
 	response, err := c.http.Do(httpRequest)
 	if err != nil {
 		return authzen.Decision{}, fmt.Errorf("call BAP Service: %w", err)
@@ -132,7 +134,7 @@ func (c *Client) Evaluate(ctx context.Context, request authzen.EvaluationRequest
 	return decision, nil
 }
 
-func (c *Client) post(ctx context.Context, path string, value any) error {
+func (c *Client) post(ctx context.Context, path string, value any, traceParent string) error {
 	body, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -143,6 +145,7 @@ func (c *Client) post(ctx context.Context, path string, value any) error {
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Request-ID", requestID())
+	applyTrace(request, traceParent)
 	c.authorize(request)
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -155,16 +158,22 @@ func (c *Client) post(ctx context.Context, path string, value any) error {
 	return nil
 }
 
-func (c *Client) AuditGrantConsumption(ctx context.Context, request authzen.EvaluationRequest, grant string) error {
-	return c.post(ctx, "/bap/v1/audit/grant-consumption", auditwire.GrantConsumption{Request: request, Grant: grant})
+func (c *Client) AuditGrantConsumption(ctx context.Context, request authzen.EvaluationRequest, grant string, trace tracecontext.Context) error {
+	return c.post(ctx, "/bap/v1/audit/grant-consumption", auditwire.GrantConsumption{Request: request, Grant: grant, TraceParent: trace.TraceParent()}, trace.TraceParent())
 }
 
 func (c *Client) ReportOutcome(ctx context.Context, outcome auditwire.Outcome) error {
-	return c.post(ctx, "/bap/v1/audit/outcome", outcome)
+	return c.post(ctx, "/bap/v1/audit/outcome", outcome, outcome.TraceParent)
 }
 
 func (c *Client) ReportEdgeDenial(ctx context.Context, denial auditwire.EdgeDenial) error {
-	return c.post(ctx, "/bap/v1/audit/edge-denial", denial)
+	return c.post(ctx, "/bap/v1/audit/edge-denial", denial, denial.TraceParent)
+}
+
+func applyTrace(request *http.Request, traceParent string) {
+	if _, ok := tracecontext.Parse(traceParent); ok {
+		request.Header.Set("traceparent", traceParent)
+	}
 }
 
 func (c *Client) authorize(request *http.Request) {

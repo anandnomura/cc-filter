@@ -31,6 +31,11 @@ secret mounts, company MySQL, and a managed API credential.
 - network firewall allowing edge clients to TCP 8443;
 - a stable DNS name present in the server certificate.
 
+Expose `/metrics` only to the approved Prometheus-compatible scraper through a
+network policy, service mesh, or monitoring proxy. Forward Service JSON stdout
+and endpoint Edge JSONL through approved log agents as described in
+[end-to-end observability](observability.md).
+
 Example Podman command:
 
 ```sh

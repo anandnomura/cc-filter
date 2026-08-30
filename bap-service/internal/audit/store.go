@@ -18,6 +18,9 @@ type Event struct {
 	EventID               string    `json:"event_id"`
 	EventType             string    `json:"event_type"`
 	Timestamp             time.Time `json:"timestamp"`
+	TraceID               string    `json:"trace_id,omitempty"`
+	SpanID                string    `json:"span_id,omitempty"`
+	ParentSpanID          string    `json:"parent_span_id,omitempty"`
 	Source                string    `json:"source,omitempty"`
 	ToolUseID             string    `json:"tool_use_id,omitempty"`
 	SessionID             string    `json:"session_id,omitempty"`

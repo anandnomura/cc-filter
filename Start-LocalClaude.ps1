@@ -83,10 +83,8 @@ if (-not (Test-BapHealth -CaBundle $caBundle)) {
     & (Join-Path $PSScriptRoot 'Start-Bap.ps1') -Runtime $engine
 }
 
-if (-not (Test-Path -LiteralPath $edgeBinary)) {
-    Write-Host 'BAP Edge is not built; building it now...'
-    & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime $engine
-}
+Write-Host 'Building BAP Edge from the current source...'
+& (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime $engine
 
 $requiredRuntimeFiles = @('dev-ca.pem', 'grant-public.pem', 'edge-api-key.txt')
 foreach ($name in $requiredRuntimeFiles) {
@@ -108,6 +106,7 @@ service_url: "https://127.0.0.1:8443"
 public_key_path: "$publicKey"
 ca_bundle_path: "$caPath"
 subject_id: "claude-code-local"
+policy_profile: "standard-developer"
 timeout_ms: 3000
 cache_directory: "$statePath"
 state_directory: "$statePath"

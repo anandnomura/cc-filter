@@ -89,6 +89,14 @@ func cedarAttributes(properties map[string]any) map[string]any {
 		"privileged":       false,
 		"exfiltration":     false,
 		"obfuscated":       false,
+		"shellApproved":    false,
+		"policyProfile":    "standard-developer",
+		"approvedNetwork":  false,
+		"approvedMCP":      false,
+		"approvedDelegate": false,
+		"networkHost":      "",
+		"mcpServer":        "",
+		"mcpTool":          "",
 	}
 	for key := range result {
 		if value, ok := properties[key]; ok {

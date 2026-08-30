@@ -34,6 +34,7 @@ service_url: "https://127.0.0.1:8443"
 public_key_path: "$publicKey"
 ca_bundle_path: "$escapedCA"
 subject_id: "claude-code-local"
+policy_profile: "standard-developer"
 api_key_env: "BAP_EDGE_API_KEY"
 state_directory: "$state"
 timeout_ms: 5000

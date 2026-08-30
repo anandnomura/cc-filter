@@ -22,7 +22,7 @@ import (
 	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 type Config struct {
 	DSN                   string
@@ -156,6 +156,9 @@ func (s *Store) migrate(ctx context.Context) error {
 			event_id VARCHAR(128) NOT NULL,
 			event_type VARCHAR(64) NOT NULL,
 			timestamp_utc DATETIME(6) NOT NULL,
+			trace_id CHAR(32) NOT NULL DEFAULT '',
+			span_id CHAR(16) NOT NULL DEFAULT '',
+			parent_span_id CHAR(16) NOT NULL DEFAULT '',
 			session_id VARCHAR(255) NOT NULL DEFAULT '',
 			workload_id VARCHAR(255) NOT NULL DEFAULT '',
 			tool_use_id VARCHAR(255) NOT NULL DEFAULT '',
@@ -168,6 +171,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			UNIQUE KEY uq_bap_audit_event_id (event_id),
 			UNIQUE KEY uq_bap_audit_event_hash (event_hash),
 			KEY ix_bap_audit_operation (session_id(64), workload_id(64), tool_use_id(64), credential_fingerprint(64), event_type, allowed),
+			KEY ix_bap_audit_trace (trace_id, timestamp_utc),
 			KEY ix_bap_audit_timestamp (timestamp_utc)
 		) ENGINE=InnoDB`,
 		`CREATE TABLE IF NOT EXISTS bap_policy_proposals (
@@ -183,20 +187,56 @@ func (s *Store) migrate(ctx context.Context) error {
 			KEY ix_bap_proposal_status_last_seen (status, last_seen),
 			KEY ix_bap_proposal_occurrences (occurrences)
 		) ENGINE=InnoDB`,
-		`INSERT IGNORE INTO bap_schema_migrations (version, applied_at) VALUES (?, UTC_TIMESTAMP(6))`,
+		`INSERT IGNORE INTO bap_schema_migrations (version, applied_at) VALUES (1, UTC_TIMESTAMP(6))`,
 	}
-	for index, statement := range statements {
-		var err error
-		if index == len(statements)-1 {
-			_, err = s.db.ExecContext(ctx, statement, schemaVersion)
-		} else {
-			_, err = s.db.ExecContext(ctx, statement)
-		}
-		if err != nil {
+	for _, statement := range statements {
+		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return err
 		}
 	}
-	return nil
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{"trace_id", "CHAR(32) NOT NULL DEFAULT '' AFTER timestamp_utc"},
+		{"span_id", "CHAR(16) NOT NULL DEFAULT '' AFTER trace_id"},
+		{"parent_span_id", "CHAR(16) NOT NULL DEFAULT '' AFTER span_id"},
+	} {
+		if err := s.ensureAuditColumn(ctx, column.name, column.definition); err != nil {
+			return err
+		}
+	}
+	if err := s.ensureAuditIndex(ctx, "ix_bap_audit_trace", "(trace_id, timestamp_utc)"); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT IGNORE INTO bap_schema_migrations (version, applied_at) VALUES (?, UTC_TIMESTAMP(6))`, schemaVersion)
+	return err
+}
+
+func (s *Store) ensureAuditColumn(ctx context.Context, name, definition string) error {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema = DATABASE() AND table_name = 'bap_audit_events' AND column_name = ?
+	)`, name).Scan(&exists)
+	if err != nil || exists {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `ALTER TABLE bap_audit_events ADD COLUMN `+name+` `+definition)
+	return err
+}
+
+func (s *Store) ensureAuditIndex(ctx context.Context, name, definition string) error {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM information_schema.statistics
+		WHERE table_schema = DATABASE() AND table_name = 'bap_audit_events' AND index_name = ?
+	)`, name).Scan(&exists)
+	if err != nil || exists {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `CREATE INDEX `+name+` ON bap_audit_events `+definition)
+	return err
 }
 
 func (s *Store) Append(event audit.Event) error {
@@ -234,9 +274,9 @@ func (s *Store) Append(event audit.Event) error {
 		allowed = *event.Allowed
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO bap_audit_events
-		(event_id, event_type, timestamp_utc, session_id, workload_id, tool_use_id, credential_fingerprint, allowed, previous_hash, event_hash, signature, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		event.EventID, event.EventType, event.Timestamp.UTC(), event.SessionID, event.WorkloadID,
+		(event_id, event_type, timestamp_utc, trace_id, span_id, parent_span_id, session_id, workload_id, tool_use_id, credential_fingerprint, allowed, previous_hash, event_hash, signature, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.EventID, event.EventType, event.Timestamp.UTC(), event.TraceID, event.SpanID, event.ParentSpanID, event.SessionID, event.WorkloadID,
 		event.ToolUseID, event.CredentialFingerprint, allowed, event.PreviousHash, event.EventHash, event.Signature, payload)
 	if err != nil {
 		return err

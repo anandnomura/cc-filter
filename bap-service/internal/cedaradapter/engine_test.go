@@ -47,6 +47,12 @@ func TestCedarDecisions(t *testing.T) {
 	if err != nil || allowed || code != "EXPLICIT_FORBID" {
 		t.Fatalf("unregistered network fetch should be explicitly denied: allowed=%t code=%q err=%v", allowed, code, err)
 	}
+	base.Resource.Properties["approvedNetwork"] = true
+	allowed, _, code, err = engine.Authorize(base)
+	if err != nil || !allowed || code != "POLICY_PERMIT" {
+		t.Fatalf("registered network fetch should be allowed: allowed=%t code=%q err=%v", allowed, code, err)
+	}
+	base.Resource.Properties["approvedNetwork"] = false
 
 	base.Action.Name = "file.write"
 	base.Resource.Properties["securityControl"] = true
@@ -73,6 +79,33 @@ func TestCedarDecisions(t *testing.T) {
 			t.Fatalf("%s should be explicitly denied: allowed=%t code=%q err=%v", action, allowed, code, err)
 		}
 	}
+	base.Action.Name = "mcp.invoke"
+	base.Resource.Properties["approvedMCP"] = true
+	allowed, _, code, err = engine.Authorize(base)
+	if err != nil || !allowed || code != "POLICY_PERMIT" {
+		t.Fatalf("approved MCP should permit: allowed=%t code=%q err=%v", allowed, code, err)
+	}
+	base.Resource.Properties["approvedMCP"] = false
+	base.Action.Name = "agent.delegate"
+	base.Resource.Properties["approvedDelegate"] = true
+	allowed, _, code, err = engine.Authorize(base)
+	if err != nil || !allowed || code != "POLICY_PERMIT" {
+		t.Fatalf("approved delegation should permit: allowed=%t code=%q err=%v", allowed, code, err)
+	}
+	base.Resource.Properties["approvedDelegate"] = false
+
+	base.Action.Name = "command.execute"
+	base.Resource.Properties["shellApproved"] = true
+	allowed, _, code, err = engine.Authorize(base)
+	if err != nil || !allowed || code != "POLICY_PERMIT" {
+		t.Fatalf("classified safe shell should permit: allowed=%t code=%q err=%v", allowed, code, err)
+	}
+	base.Resource.Properties["policyProfile"] = "read-only"
+	allowed, _, code, err = engine.Authorize(base)
+	if err != nil || allowed || code != "EXPLICIT_FORBID" {
+		t.Fatalf("read-only shell should forbid: allowed=%t code=%q err=%v", allowed, code, err)
+	}
+	base.Resource.Properties["policyProfile"] = "standard-developer"
 
 	base.Action.Name = "network.search"
 	allowed, _, code, err = engine.Authorize(base)

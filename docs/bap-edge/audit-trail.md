@@ -24,6 +24,11 @@ fingerprint, and correlation IDs. File targets are workspace-relative when
 possible. Commands are stored only as SHA-256 summaries. Prompts, command text,
 tool input bodies, tool output, file content, API keys, and secrets are excluded.
 
+New events also include a W3C-compatible `trace_id`, the BAP Service `span_id`,
+and its Edge `parent_span_id`. MySQL indexes trace ID and timestamp, allowing an
+authorization, exact cached-grant retry, and PostToolUse outcome to be rebuilt
+as one operation trace. See [end-to-end observability](observability.md).
+
 ## Integrity
 
 BAP Service appends events to MySQL in a transaction that also advances the

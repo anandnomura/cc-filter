@@ -1,0 +1,22 @@
+[
+  {"name":"read workspace file","tool":"Read","input":{"file_path":"src/app.go"},"action":"file.read"},
+  {"name":"read missing path","tool":"Read","input":{},"error":true},
+  {"name":"read wrong path type","tool":"Read","input":{"file_path":12},"error":true},
+  {"name":"write source","tool":"Write","input":{"file_path":"src/app.go","content":"package app"},"action":"file.write"},
+  {"name":"write missing content","tool":"Write","input":{"file_path":"src/app.go"},"error":true},
+  {"name":"edit wrong old string type","tool":"Edit","input":{"file_path":"src/app.go","old_string":7,"new_string":"x"},"error":true},
+  {"name":"safe git inspection","tool":"Bash","input":{"command":"git status --short"},"action":"command.execute","shell_approved":true},
+  {"name":"destructive git reset","tool":"Bash","input":{"command":"git reset --hard"},"action":"command.execute","destructive":true},
+  {"name":"shell chaining bypass","tool":"Bash","input":{"command":"git status; git reset --hard"},"action":"command.execute","destructive":true},
+  {"name":"encoded PowerShell","tool":"PowerShell","input":{"command":"powershell -EncodedCommand ZQBjAGgAbwA="},"action":"command.execute","obfuscated":true},
+  {"name":"approved HTTPS destination","tool":"WebFetch","input":{"url":"https://docs.example.test/a","prompt":"summarize"},"action":"network.fetch","approved_network":true},
+  {"name":"HTTP destination","tool":"WebFetch","input":{"url":"http://docs.example.test/a","prompt":"summarize"},"error":true},
+  {"name":"IP literal destination","tool":"WebFetch","input":{"url":"https://127.0.0.1/a","prompt":"summarize"},"error":true},
+  {"name":"approved MCP exact tool","tool":"mcp__github__search_code","input":{"query":"bap"},"action":"mcp.invoke","approved_mcp":true,"mcp_server":"github","mcp_tool":"search_code"},
+  {"name":"unregistered MCP tool","tool":"mcp__github__delete_repository","input":{"name":"x"},"action":"mcp.invoke","mcp_server":"github","mcp_tool":"delete_repository"},
+  {"name":"malformed MCP name","tool":"mcp__github__","input":{},"error":true},
+  {"name":"approved subagent type","tool":"Agent","input":{"prompt":"inspect","description":"review","subagent_type":"Explore"},"action":"agent.delegate","approved_delegate":true},
+  {"name":"unknown future tool","tool":"FutureTool","input":{},"action":"tool.unknown"},
+  {"name":"question array","tool":"AskUserQuestion","input":{"questions":[{"question":"Continue?"}]},"action":"user.interact"},
+  {"name":"question malformed","tool":"AskUserQuestion","input":{"questions":"Continue?"},"error":true}
+]

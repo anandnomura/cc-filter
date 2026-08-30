@@ -20,8 +20,9 @@ cd C:\Users\User\pyprj\bap-edge
 
 The test proves unit/integration tests, HTTPS, AuthZEN discovery, missing API-key
 rejection, Cedar allow/deny, local denial auditing, per-session workload IDs,
-signed grants, centrally acknowledged cache reuse, post-tool outcomes, audit
-privacy, and signed-chain verification.
+signed grants, centrally acknowledged cache reuse, post-tool outcomes, W3C trace
+correlation, privacy-safe Edge JSONL, bounded Prometheus metrics, audit privacy,
+and signed-chain verification.
 
 The database-failure test stops local MySQL, proves `/readyz` returns 503 and a
 fresh evaluation cannot be authorized, restores MySQL, and requires readiness

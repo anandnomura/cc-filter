@@ -9,6 +9,10 @@ service_url: "https://127.0.0.1:8443"
 public_key_path: "C:\\Program Files\\BAP Edge\\grant-public.pem"
 ca_bundle_path: "C:\\Program Files\\BAP Edge\\service-ca-bundle.pem"
 subject_id: "claude-code-local"
+policy_profile: "standard-developer"
+allowed_network_domains: []
+approved_mcp_tools: []
+approved_subagent_types: []
 timeout_ms: 3000
 cache_directory: ""
 state_directory: ""
@@ -21,14 +25,35 @@ api_key_env: "BAP_EDGE_API_KEY"
 | `public_key_path` | Ed25519 grant verification public key |
 | `ca_bundle_path` | Private/company CA bundle; omit when system trust is sufficient |
 | `subject_id` | Cedar/AuthZEN agent subject configured by the administrator |
+| `policy_profile` | `standard-developer` or the more restrictive `read-only`; defaults to `standard-developer` |
+| `allowed_network_domains` | Exact DNS names or `*.example.com` subdomain entries permitted for HTTPS `WebFetch`; IP literals and HTTP fail closed |
+| `approved_mcp_tools` | Exact full names such as `mcp__github__search_code`; wildcards are not accepted |
+| `approved_subagent_types` | Exact administrator-approved `Agent.subagent_type` values |
 | `timeout_ms` | Per-service-call timeout; defaults to 3000 |
 | `cache_directory` | Signed grant cache; empty uses the OS user cache |
-| `state_directory` | Session mappings and outcome retry spool; empty uses OS user cache |
+| `state_directory` | Session mappings, outcome retry spool, and privacy-safe Edge observability JSONL; empty uses OS user cache |
 | `api_key_env` | Name—not value—of the dedicated credential environment variable |
 
 The secret is deliberately absent from YAML. The installer provisions
 `BAP_EDGE_API_KEY` as a machine environment variable. A network secret-management
 agent may inject the named variable instead.
+
+The three registries are empty by default. Add entries only as an administrator
+after an owner has classified the destination/tool/agent. For example:
+
+```yaml
+allowed_network_domains:
+  - "docs.company.example"
+  - "*.packages.company.example"
+approved_mcp_tools:
+  - "mcp__company_source__search_code"
+approved_subagent_types:
+  - "Explore"
+```
+
+These values are currently asserted by the administrator-protected Edge
+configuration. This is acceptable only for the bounded standard-user pilot;
+the enterprise target moves registry lookup and device identity to BAP Service.
 
 ## BAP Service environment
 

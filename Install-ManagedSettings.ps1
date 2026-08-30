@@ -91,6 +91,7 @@ service_url: "$ServiceUrl"
 public_key_path: "$($publicKeyPath.Replace('\', '\\'))"
 ca_bundle_path: "$($configuredCaPath.Replace('\', '\\'))"
 subject_id: "claude-code-local"
+policy_profile: "standard-developer"
 timeout_ms: 3000
 cache_directory: ""
 state_directory: ""

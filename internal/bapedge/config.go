@@ -9,14 +9,18 @@ import (
 )
 
 type Config struct {
-	ServiceURL     string `yaml:"service_url"`
-	PublicKeyPath  string `yaml:"public_key_path"`
-	CABundlePath   string `yaml:"ca_bundle_path,omitempty"`
-	CacheDirectory string `yaml:"cache_directory,omitempty"`
-	StateDirectory string `yaml:"state_directory,omitempty"`
-	APIKeyEnv      string `yaml:"api_key_env"`
-	SubjectID      string `yaml:"subject_id"`
-	TimeoutMS      int    `yaml:"timeout_ms"`
+	ServiceURL            string   `yaml:"service_url"`
+	PublicKeyPath         string   `yaml:"public_key_path"`
+	CABundlePath          string   `yaml:"ca_bundle_path,omitempty"`
+	CacheDirectory        string   `yaml:"cache_directory,omitempty"`
+	StateDirectory        string   `yaml:"state_directory,omitempty"`
+	APIKeyEnv             string   `yaml:"api_key_env"`
+	SubjectID             string   `yaml:"subject_id"`
+	TimeoutMS             int      `yaml:"timeout_ms"`
+	PolicyProfile         string   `yaml:"policy_profile,omitempty"`
+	AllowedNetworkDomains []string `yaml:"allowed_network_domains,omitempty"`
+	ApprovedMCPTools      []string `yaml:"approved_mcp_tools,omitempty"`
+	ApprovedSubagentTypes []string `yaml:"approved_subagent_types,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -40,7 +44,17 @@ func LoadConfig(path string) (Config, error) {
 	if config.TimeoutMS <= 0 {
 		config.TimeoutMS = 3000
 	}
+	if config.PolicyProfile == "" {
+		config.PolicyProfile = "standard-developer"
+	}
+	if config.PolicyProfile != "standard-developer" && config.PolicyProfile != "read-only" {
+		return Config{}, fmt.Errorf("policy_profile must be standard-developer or read-only")
+	}
 	return config, nil
+}
+
+func (c Config) NormalizationPolicy() NormalizationPolicy {
+	return NormalizationPolicy{Profile: c.PolicyProfile, AllowedNetworkDomains: c.AllowedNetworkDomains, ApprovedMCPTools: c.ApprovedMCPTools, ApprovedSubagentTypes: c.ApprovedSubagentTypes}
 }
 
 func (c Config) Timeout() time.Duration { return time.Duration(c.TimeoutMS) * time.Millisecond }
