@@ -37,7 +37,7 @@ if ($Runtime -eq 'Native') {
     if ($RequireCompanyFixtures) {
         Write-Host 'PASS: required exact company Claude Code/model fixtures are certified.'
     } else {
-        Write-Host 'PENDING: run with -RequireCompanyFixtures after capturing the exact company Claude Code/model versions.'
+        Write-Host "PENDING: follow README.md 'Capture and certify company Claude fixtures without containers', then run .\Test-MVP0.ps1 -Runtime Native -RequireCompanyFixtures."
     }
     exit 0
 }

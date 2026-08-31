@@ -50,6 +50,8 @@ All notable changes to cc-filter are documented in this file.
 - Added `Test-MVP0.ps1 -Runtime Native` for container-free company testing of
   portable Go, signed-policy, native Service/Edge, prompt, and fixture checks,
   with explicit reporting of MySQL/container-only checks that were not run
+- Added container-free native company fixture capture and documented an exact
+  Sonnet/Opus allow, explicit-forbid, and manual-only six-capture baseline
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call
