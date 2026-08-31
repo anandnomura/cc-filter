@@ -1,14 +1,15 @@
 # BAP Edge operator guide
 
-This is the starting page. You do not need Go installed. Podman or Docker runs a
-pinned Go toolchain for builds and tests.
+This is the starting page. Podman/Docker can run the pinned Go toolchain, or an
+approved local Go 1.23.12+ installation can build the components without a
+container runtime.
 
 BAP Edge and BAP Service have independent build scripts. The combined
 `Build-Bap.ps1` exists only for local development and acceptance testing.
 
 For a completely new computer, follow [download-to-first-test](new-environment.md).
-For company Windows with source-only ingress and no containers, follow
-[native Windows Edge build](company-windows-build.md).
+For company Windows with source-only ingress and optional/no containers, follow
+[native and controlled company builds](company-windows-build.md).
 For an automated case-by-case demonstration run:
 
 ```powershell
@@ -42,6 +43,27 @@ View current Service, Edge, lease, kill-switch, and audit-queue posture with:
 | BAP Edge | repository root and `cmd/bap-edge` | Developer workstation | Endpoint data plane, local PDP/PEP, signed-bundle verification, local Cedar decisions, workload/session binding, audit retry |
 | BAP Service | `bap-service/` | Local container for development; company network for production | Rule control plane, signed bundle distribution, version/revocation directives, audit ingestion, legacy AuthZEN migration API |
 | Cedar policies | `bap-service/policies/` | BAP Service only | Human-readable allow and forbid rules |
+
+## Compilation quick reference
+
+Run these commands from the repository root. Native builds use the dependencies
+already checked into `vendor/` and require Go 1.23.12 or newer.
+
+| Artifact | Command | Output |
+|---|---|---|
+| BAP Edge, Windows AMD64 | `.\Build-BapEdge.ps1 -Runtime Native` | `dist\bap-edge-windows-amd64.exe` |
+| BAP Edge, Windows AMD64 + Linux AMD64/ARM64 | `.\Build-BapEdge.ps1 -Runtime Native -Targets All` | `dist\bap-edge-*` |
+| BAP Service, Linux AMD64 binary | `.\Build-BapService-Native.ps1 -Architecture amd64` | `dist\bap-service-linux-amd64` |
+| BAP Service, Linux AMD64 + ARM64 binaries | `.\Build-BapService-Native.ps1 -Architecture All` | `dist\bap-service-linux-*` |
+| Default Edge + Service binaries | `.\Build-Bap.ps1 -Runtime Native` | Windows Edge and Linux AMD64 Service under `dist\` |
+| BAP Service OCI image | `.\Build-BapService.ps1 -Runtime Docker` | local image `bap-service:local` |
+| Automatic build | `.\Build-Bap.ps1 -Runtime Auto` | OCI artifacts when a runtime works; native binaries otherwise |
+
+Windows Go can cross-compile the Linux binaries because both components use
+pure Go with `CGO_ENABLED=0`. The Linux binaries do not run on Windows, and Go
+alone does not package an OCI image. See the
+[company build guide](company-windows-build.md) for checksums, internal
+digest-pinned base images, signing, packaging, and installation.
 
 ## Five-minute local setup on Windows
 

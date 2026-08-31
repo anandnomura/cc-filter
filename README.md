@@ -29,6 +29,8 @@ clean source commit, use `Build-CompanyArtifacts.ps1` and the
 If containers are unavailable, `Build-BapEdge.ps1 -Runtime Native` builds the
 Windows Edge and `Build-BapService-Native.ps1 -Architecture amd64` cross-builds
 the Linux Service binary using an installed Go 1.23.12+ toolchain.
+The complete per-component command/output table is in the
+[operator compilation quick reference](docs/bap-edge/README.md#compilation-quick-reference).
 
 The original cc-filter behavior and documentation remain below so this fork can
 continue to synchronize with `wissem/cc-filter`.

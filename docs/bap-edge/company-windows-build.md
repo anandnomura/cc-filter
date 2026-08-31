@@ -185,9 +185,10 @@ dist\bap-edge-windows-amd64.exe
 The default Edge-only command does not compile BAP Service. `-Targets All`
 additionally cross-compiles the Linux Edge binaries.
 
-`Build-Bap.ps1 -Runtime Native` follows the same fallback, but intentionally
-builds only BAP Edge and prints a warning: BAP Service is deployed as a Linux OCI
-image and must be built in a Docker/Podman or separate Linux build pipeline.
+`Build-Bap.ps1 -Runtime Native` builds the Windows Edge executable and the Linux
+AMD64 Service executable. It prints a warning that these are raw binaries: the
+final BAP Service OCI image must still be created in a Docker/Podman or separate
+Linux packaging pipeline.
 
 ## 4. Install the locally compiled Edge
 
