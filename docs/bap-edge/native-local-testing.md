@@ -50,7 +50,7 @@ For a one-command, non-interactive local classifier check, run:
 The launcher:
 
 1. builds missing Windows Edge and Service EXEs with native Go;
-2. creates isolated state under `.bap\native-local`;
+2. creates a unique retained run under `.bap\native-local\runs`;
 3. generates a dedicated local API key plus development TLS/signing keys;
 4. starts `bap-service-windows-amd64.exe` hidden on loopback HTTPS;
 5. writes the Edge YAML with the matching CA, bundle key, state, and credential;
@@ -73,9 +73,18 @@ If port 8443 is occupied, select another loopback port:
 .\Start-BapNativeLocal.bat -Port 18443
 ```
 
-Service logs are `.bap\native-local\bap-service.stdout.log` and
-`.bap\native-local\bap-service.stderr.log`. This mode intentionally uses the
-development JSONL audit/proposal store when `BAP_DATABASE_DSN` is unset.
+The exact current run directory is printed by the launcher and written to
+`.bap\native-local\latest-run.txt`. Service logs are
+`bap-service.stdout.log` and `bap-service.stderr.log` inside that run. This mode
+intentionally uses the development JSONL audit/proposal store when
+`BAP_DATABASE_DSN` is unset.
+
+Every invocation gets separate TLS/signing keys, policy state, audit chain,
+Edge state, and logs. This prevents simultaneous or previous test Services from
+writing competing heads into one JSONL audit chain. Runs are retained rather
+than silently deleted so a failed chain remains available for investigation.
+Older state directly under `.bap\native-local\service-state` is no longer used
+by the launcher.
 
 ## Hooks installed for the local session
 

@@ -235,7 +235,6 @@ func promptAdvisoryOutput(parentOutput string) {
 	hookOutput["hookEventName"] = "UserPromptSubmit"
 	hookOutput["additionalContext"] = appendHookMessage(hookOutput["additionalContext"], message)
 	value["hookSpecificOutput"] = hookOutput
-	value["systemMessage"] = appendHookMessage(value["systemMessage"], message)
 	_ = json.NewEncoder(os.Stdout).Encode(value)
 }
 
@@ -286,12 +285,6 @@ func hookDecisionWithPrefix(decision, reason, prefix string) {
 	value := map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName": "PreToolUse", "permissionDecision": decision, "permissionDecisionReason": reason,
 	}}
-	if decision == "deny" {
-		// Claude's compact TUI labels attempted tool calls as "Ran" even when a
-		// PreToolUse hook denies them. systemMessage makes the enforcement result
-		// visible independently of the model's interpretation of the tool error.
-		value["systemMessage"] = reason
-	}
 	_ = json.NewEncoder(os.Stdout).Encode(value)
 }
 

@@ -1,4 +1,6 @@
+[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
+    [Alias('Uninstall')][switch]$Undo,
     [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
     [string]$ServiceUrl = 'https://127.0.0.1:8443',
     [string]$GrantPublicKeyPath = '',
@@ -17,6 +19,55 @@ $ErrorActionPreference = 'Stop'
 $isLocalDevelopment = $ServiceUrl -eq 'https://127.0.0.1:8443'
 if (($ClientCertificatePath -and -not $ClientKeyPath) -or ($ClientKeyPath -and -not $ClientCertificatePath)) {
     throw 'Provide both -ClientCertificatePath and -ClientKeyPath for mutual TLS.'
+}
+
+$installDirectory = Join-Path $env:ProgramFiles 'BAP Edge'
+$managedDirectory = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d'
+$binaryPath = Join-Path $installDirectory 'bap-edge.exe'
+$managedPath = Join-Path $managedDirectory '50-bap-edge.json'
+
+if ($Undo) {
+    if (-not (Test-Path -LiteralPath $managedPath -PathType Leaf)) {
+        Write-Host "BAP managed settings are already absent: $managedPath"
+        Write-Host 'No installed binaries, configuration, certificates, or credentials were changed.'
+        exit 0
+    }
+
+    try {
+        $installedManagedSettings = Get-Content -LiteralPath $managedPath -Raw | ConvertFrom-Json
+        $managedOnlyProperty = $installedManagedSettings.PSObject.Properties['allowManagedHooksOnly']
+        $preToolProperty = $installedManagedSettings.hooks.PSObject.Properties['PreToolUse']
+        $preToolGroups = if ($null -ne $preToolProperty) { @($preToolProperty.Value) } else { @() }
+        $ownsDropIn = $null -ne $managedOnlyProperty -and $managedOnlyProperty.Value -eq $true
+        $ownsDropIn = $ownsDropIn -and @(
+            foreach ($group in $preToolGroups) {
+                foreach ($handler in @($group.hooks)) {
+                    $commandProperty = $handler.PSObject.Properties['command']
+                    if ($null -ne $commandProperty -and $commandProperty.Value -like "*$binaryPath*") { $true }
+                }
+            }
+        ).Count -gt 0
+    } catch {
+        throw "Refusing to remove an unreadable managed-settings file: $managedPath"
+    }
+    if (-not $ownsDropIn) {
+        throw "Refusing to remove $managedPath because it is not recognizable as the BAP-managed drop-in."
+    }
+
+    if (-not $PSCmdlet.ShouldProcess($managedPath, 'Remove the BAP managed Claude settings drop-in')) {
+        Write-Host 'No managed settings were removed.'
+        exit 0
+    }
+    Remove-Item -LiteralPath $managedPath -Force
+    if (Test-Path -LiteralPath $managedPath) {
+        throw "BAP managed-settings removal did not complete: $managedPath still exists."
+    }
+    Write-Host "Removed BAP managed Claude settings: $managedPath"
+    Write-Host "Retained BAP Edge files at $installDirectory and retained the machine BAP_EDGE_API_KEY."
+    Write-Host 'Managed-to-native transition is ready. Close every existing Claude Code session, then run .\Start-BapNativeLocal.bat from a normal PowerShell window.'
+    Write-Host 'The native launcher will create a new isolated run; it will not reuse an older development audit chain.'
+    Write-Host 'Re-run Install-ManagedSettings.ps1 to restore managed enforcement.'
+    exit 0
 }
 
 function Test-BapHealthWithCa {
@@ -80,16 +131,12 @@ if (-not $ApiKey -and -not $ClientCertificatePath) {
     throw 'Provide a per-device mTLS identity or the local-development BAP Edge -ApiKey. Do not use an Anthropic API key.'
 }
 
-$installDirectory = Join-Path $env:ProgramFiles 'BAP Edge'
-$managedDirectory = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d'
-$binaryPath = Join-Path $installDirectory 'bap-edge.exe'
 $configPath = Join-Path $installDirectory 'bap-edge.yaml'
 $publicKeyPath = Join-Path $installDirectory 'grant-public.pem'
 $bundlePublicKeyPath = Join-Path $installDirectory 'bundle-public.pem'
 $installedCaPath = Join-Path $installDirectory 'service-ca-bundle.pem'
 $installedClientCertificatePath = Join-Path $installDirectory 'client-certificate.pem'
 $installedClientKeyPath = Join-Path $installDirectory 'client-key.pem'
-$managedPath = Join-Path $managedDirectory '50-bap-edge.json'
 
 New-Item -ItemType Directory -Force -Path $installDirectory, $managedDirectory | Out-Null
 Copy-Item -LiteralPath $binarySource -Destination $binaryPath -Force

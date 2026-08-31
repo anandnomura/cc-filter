@@ -38,6 +38,10 @@ hooks, run `Start-BapNativeLocal.bat` and follow the
 
 ## Build/test commands
 
+For the complete Go/Docker/Podman × Windows/Linux scenario matrix, prerequisites,
+expected artifacts, and acceptance checks, use the
+[authoritative build and test matrix](docs/bap-edge/deployment-test-matrix.md).
+
 Run these from the repository root.
 
 ### Build
@@ -109,6 +113,12 @@ launcher with a bare `claude` command.
 # Managed hooks + local model: run once as Administrator after Edge changes
 .\Install-ManagedSettings.ps1 -Runtime Docker
 
+# Administrator undo: remove only the BAP managed-settings drop-in
+.\Install-ManagedSettings.ps1 -Undo
+
+# Preview the undo target without changing anything
+.\Install-ManagedSettings.ps1 -Undo -WhatIf
+
 # Managed hooks + local model: normal non-admin launch (start ccbridge first)
 .\start-local-claude.bat -Runtime Docker -Model qwen-1.5b-local
 
@@ -141,6 +151,17 @@ for local models with an 8K context window. When managed hooks are installed,
 `allowManagedHooksOnly` intentionally makes `Start-BapNativeLocal.bat`
 inapplicable; use `start-local-claude.bat` so the managed Edge and its matching
 port-8443 Service are used.
+
+Each unmanaged native launch uses a separate retained directory under
+`.bap\native-local\runs`; `.bap\native-local\latest-run.txt` points to the most
+recent one. Native test Services therefore never share a JSONL audit chain.
+
+`Install-ManagedSettings.ps1 -Undo` verifies and removes only
+`50-bap-edge.json`. It retains the installed Edge files, trust material, and
+machine credential so an administrator can restore enforcement by rerunning the
+normal install command. It is the supported transition to unmanaged native
+testing: restart all Claude sessions, then run `Start-BapNativeLocal.bat`, which
+creates a new isolated run instead of reusing an older audit chain.
 
 The original cc-filter behavior and documentation remain below so this fork can
 continue to synchronize with `wissem/cc-filter`.

@@ -35,6 +35,18 @@ All notable changes to cc-filter are documented in this file.
   kubectl client now receive the same signed manual-only intent advisory
 - Native local-hook launch now refuses to mix with `allowManagedHooksOnly`, and
   the managed local-model launcher detects a stale installed Edge binary
+- Launcher diagnostics now stop cleanly without a PowerShell stack trace;
+  Claude EXE/CMD discovery and company-mode removal of local bridge overrides
+  no longer assume a particular installation shape or API-key variable
+- Added administrator-only `Install-ManagedSettings.ps1 -Undo`, which verifies
+  and removes only BAP's managed-settings drop-in while retaining reinstallable
+  Edge files, trust material, and the machine credential
+- Native one-click tests now use retained per-run Service/Edge state, keys,
+  logs, and JSONL audit chains, preventing concurrent or stale development runs
+  from creating competing audit-chain heads
+- Removed duplicate Claude hook notices by emitting denial text only through
+  `permissionDecisionReason` and prompt guidance only through
+  `additionalContext`, while preserving any parent cc-filter message
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call

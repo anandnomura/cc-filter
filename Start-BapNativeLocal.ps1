@@ -16,7 +16,31 @@ $ErrorActionPreference = 'Stop'
 
 $managedSettingsPath = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d\50-bap-edge.json'
 if (-not $VerifyOnly -and (Test-Path -LiteralPath $managedSettingsPath)) {
-    throw "Managed BAP hooks are installed at $managedSettingsPath. Claude will ignore this launcher's project-local hooks because allowManagedHooksOnly is enabled. For local-model testing, build/install the managed artifacts and use .\start-local-claude.bat. See README.md 'Build/test commands'."
+    [Console]::WriteLine("BAP launch stopped: managed hooks are installed at $managedSettingsPath.")
+    [Console]::WriteLine("Claude would ignore this launcher's project-local hooks because allowManagedHooksOnly is enabled.")
+    if ($UseCompanyClaude) {
+        [Console]::WriteLine('Use the company-managed BAP Service and launch the company-authenticated Claude Code normally.')
+    } else {
+        [Console]::WriteLine('For local-model testing run: .\start-local-claude.bat -Runtime Docker -Model qwen-1.5b-local')
+    }
+    [Console]::WriteLine("See README.md 'Build/test commands'.")
+    exit 2
+}
+
+function Get-ClaudeExecutablePath {
+    foreach ($name in @('claude.exe', 'claude.cmd', 'claude')) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -eq $command) { continue }
+        foreach ($propertyName in @('Path', 'Source', 'Definition')) {
+            $property = $command.PSObject.Properties[$propertyName]
+            if ($null -ne $property -and $property.Value -and (Test-Path -LiteralPath $property.Value -PathType Leaf)) {
+                return (Resolve-Path -LiteralPath $property.Value).Path
+            }
+        }
+    }
+    $fallback = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
+    if (Test-Path -LiteralPath $fallback -PathType Leaf) { return (Resolve-Path -LiteralPath $fallback).Path }
+    return $null
 }
 
 function ConvertTo-YamlPath {
@@ -130,14 +154,18 @@ foreach ($binary in @($edgeBinary, $serviceBinary)) {
     if (-not (Test-Path -LiteralPath $binary)) { throw "Required native executable is missing: $binary" }
 }
 
-$runtimeDirectory = Join-Path $PSScriptRoot '.bap\native-local'
+$runtimeRoot = Join-Path $PSScriptRoot '.bap\native-local'
+$runID = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffZ') + "-$PID-" + [Guid]::NewGuid().ToString('N').Substring(0, 8)
+$runtimeDirectory = Join-Path (Join-Path $runtimeRoot 'runs') $runID
 $serviceState = Join-Path $runtimeDirectory 'service-state'
 $edgeState = Join-Path $runtimeDirectory 'edge-state'
 $edgeConfig = Join-Path $runtimeDirectory 'bap-edge.yaml'
 $apiKeyPath = Join-Path $runtimeDirectory 'edge-api-key.txt'
 $stdoutLog = Join-Path $runtimeDirectory 'bap-service.stdout.log'
 $stderrLog = Join-Path $runtimeDirectory 'bap-service.stderr.log'
-New-Item -ItemType Directory -Force -Path $runtimeDirectory, $serviceState, $edgeState | Out-Null
+New-Item -ItemType Directory -Force -Path $runtimeRoot, $runtimeDirectory, $serviceState, $edgeState | Out-Null
+$runtimeDirectory | Set-Content -LiteralPath (Join-Path $runtimeRoot 'latest-run.txt') -Encoding utf8
+Write-Host "Native test run state: $runtimeDirectory"
 
 if (-not (Test-Path -LiteralPath $apiKeyPath)) {
     $random = New-Object byte[] 32
@@ -239,10 +267,9 @@ try {
     Write-Host "Local hooks written to $settingsPath"
     Write-Host 'Launching Claude. Run /hooks and confirm six hooks with source Local.'
 
-    $claudeCommand = Get-Command claude -ErrorAction SilentlyContinue
-    $claudeExecutable = if ($claudeCommand) { $claudeCommand.Source } else { Join-Path $env:USERPROFILE '.local\bin\claude.exe' }
-    if (-not (Test-Path -LiteralPath $claudeExecutable)) {
-        throw "Claude Code was not found on PATH or at $claudeExecutable"
+    $claudeExecutable = Get-ClaudeExecutablePath
+    if (-not $claudeExecutable) {
+        throw 'Claude Code was not found on PATH or at %USERPROFILE%\.local\bin\claude.exe'
     }
 
     $effectiveModel = $Model
@@ -261,7 +288,8 @@ try {
         # Do not inherit local bridge overrides into the company-authenticated
         # Claude session. Claude Code uses its normal company login/config.
         Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
-        if ($env:ANTHROPIC_API_KEY -eq 'local-demo-key') {
+        $processAnthropicKey = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY', 'Process')
+        if ($processAnthropicKey -eq 'local-demo-key') {
             Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
         }
         Write-Host 'Claude provider: company Claude Code authentication'
@@ -286,6 +314,7 @@ try {
         Stop-Process -Id $serviceProcess.Id -Force
         $serviceProcess.WaitForExit()
     }
+    Write-Host "Native test run state retained at $runtimeDirectory"
 }
 
 if ($claudeExitCode -ne 0) { exit $claudeExitCode }

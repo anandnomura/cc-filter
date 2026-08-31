@@ -99,3 +99,9 @@ Stop the service and preserve the MySQL database/backup plus the audit public
 key for investigation. Do not edit or silently discard database rows. Verify
 that the correct audit-key mount is present. A signature/hash failure indicates
 wrong key material, corruption, or tampering.
+
+For the unmanaged native one-click test only, each launcher invocation uses a
+new directory under `.bap\native-local\runs`. A corrupt older development chain
+is retained but cannot prevent a new isolated run from starting. Use
+`.bap\native-local\latest-run.txt` to locate the current run. Do not repair an
+old chain by editing or truncating `audit.jsonl`.

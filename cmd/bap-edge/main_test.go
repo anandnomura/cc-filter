@@ -48,7 +48,30 @@ func TestPromptAdvisoryIsUserPromptContextNotAuthorization(t *testing.T) {
 			t.Fatalf("advisory is missing %q: %s", expected, context)
 		}
 	}
-	if output["parentField"] != true || !strings.Contains(output["systemMessage"].(string), "parent message") {
+	if output["parentField"] != true || output["systemMessage"] != "parent message" {
 		t.Fatalf("parent cc-filter output was not preserved: %#v", output)
+	}
+}
+
+func TestPreToolDenialUsesOneClaudeMessageChannel(t *testing.T) {
+	original := os.Stdout
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writeEnd
+	hookDecisionWithPrefix("deny", "signed policy forbid applied", "BAP blocked: ")
+	_ = writeEnd.Close()
+	os.Stdout = original
+	var output map[string]any
+	if err := json.NewDecoder(readEnd).Decode(&output); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := output["systemMessage"]; exists {
+		t.Fatal("PreToolUse denial duplicated permissionDecisionReason through systemMessage")
+	}
+	hookOutput := output["hookSpecificOutput"].(map[string]any)
+	if hookOutput["permissionDecisionReason"] != "BAP blocked: signed policy forbid applied" {
+		t.Fatalf("unexpected denial output: %#v", output)
 	}
 }

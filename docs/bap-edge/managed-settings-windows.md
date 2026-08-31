@@ -127,6 +127,40 @@ unambiguous, but it is not the security boundary: a developer can omit that CLI
 flag, while the administrator-controlled managed-only settings still enforce
 the hooks and permission rules.
 
+## Administrator undo and reinstall
+
+From an elevated PowerShell window, remove only the BAP-owned managed-settings
+drop-in with:
+
+```powershell
+.\Install-ManagedSettings.ps1 -Undo
+```
+
+Preview the validated target without removing it using:
+
+```powershell
+.\Install-ManagedSettings.ps1 -Undo -WhatIf
+```
+
+The command validates that `50-bap-edge.json` enables managed-only hooks and
+points to the installed BAP Edge executable before deleting it. It does not
+delete the Edge executable, YAML, certificates, public keys, or machine
+`BAP_EDGE_API_KEY`. Restart every Claude Code session afterward. Until the
+normal install command is rerun, BAP managed enforcement is not active.
+
+Undo is also the supported transition to unmanaged native testing. After it
+confirms removal, close all existing Claude sessions and run
+`Start-BapNativeLocal.bat` from a normal PowerShell window. The native launcher
+creates a fresh retained run directory, so stale or corrupt development audit
+state from an older run is not reused.
+
+To restore it, run the normal installation command again from an elevated
+PowerShell window, then restart Claude Code:
+
+```powershell
+.\Install-ManagedSettings.ps1 -Runtime Docker
+```
+
 Test an allowed request:
 
 ```text

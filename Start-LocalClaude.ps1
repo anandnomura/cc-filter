@@ -14,6 +14,22 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
 
+function Get-ClaudeExecutablePath {
+    foreach ($name in @('claude.exe', 'claude.cmd', 'claude')) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -eq $command) { continue }
+        foreach ($propertyName in @('Path', 'Source', 'Definition')) {
+            $property = $command.PSObject.Properties[$propertyName]
+            if ($null -ne $property -and $property.Value -and (Test-Path -LiteralPath $property.Value -PathType Leaf)) {
+                return (Resolve-Path -LiteralPath $property.Value).Path
+            }
+        }
+    }
+    $fallback = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
+    if (Test-Path -LiteralPath $fallback -PathType Leaf) { return (Resolve-Path -LiteralPath $fallback).Path }
+    return $null
+}
+
 function ConvertTo-YamlPath {
     param([Parameter(Mandatory)][string]$Path)
     return $Path.Replace('\', '\\')
@@ -170,14 +186,9 @@ if ($VerifyHooksOnly) {
     exit 0
 }
 
-$claude = Get-Command claude -ErrorAction SilentlyContinue
-if ($claude) {
-    $claudeExecutable = $claude.Source
-} else {
-    $claudeExecutable = Join-Path $env:USERPROFILE '.local\bin\claude.exe'
-}
-if (-not (Test-Path -LiteralPath $claudeExecutable)) {
-    throw "Claude Code was not found on PATH or at $claudeExecutable"
+$claudeExecutable = Get-ClaudeExecutablePath
+if (-not $claudeExecutable) {
+    throw 'Claude Code was not found on PATH or at %USERPROFILE%\.local\bin\claude.exe'
 }
 
 if (-not $UseCompanyClaude) {
@@ -189,6 +200,12 @@ if (-not $UseCompanyClaude) {
     }
     $env:ANTHROPIC_BASE_URL = 'http://127.0.0.1:8080'
     $env:ANTHROPIC_API_KEY = 'local-demo-key'
+} else {
+    Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
+    $processAnthropicKey = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY', 'Process')
+    if ($processAnthropicKey -eq 'local-demo-key') {
+        Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+    }
 }
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
