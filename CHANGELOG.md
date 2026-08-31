@@ -5,6 +5,12 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Native Windows Go fallback and explicit cross-compilation scripts for BAP Edge
+  and Linux BAP Service when Docker/Podman is unavailable
+- Versioned company artifact build with internal digest-pinned base-image inputs,
+  checksums, source manifest, and GitHub build provenance
+- Bounded grant cache and durable audit spool with atomic delivery claims,
+  stale-claim recovery, privacy-safe spool metrics, and status reporting
 - BAP Service-owned, versioned policy source and dedicated Ed25519-signed policy bundles
 - Authenticated Edge synchronization with update, force-update, and kill-switch directives
 - Local BAP Edge Cedar decisions with expiry, offline lease, rollback, equivocation, and default-deny checks

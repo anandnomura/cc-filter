@@ -112,6 +112,19 @@ Current bounded metrics include:
 - `bap_tool_outcomes_total` by success/failure;
 - `bap_http_request_duration_seconds` by known route, method, and status.
 
+Each Edge state directory also contains an atomically updated Prometheus
+textfile at `observability/edge.prom` with:
+
+- `bap_edge_audit_spool_depth`;
+- `bap_edge_audit_spool_bytes`;
+- `bap_edge_audit_spool_oldest_age_seconds`.
+
+These gauges contain no tool names, paths, prompts, identifiers, or event
+payloads. `Show-BapStatus.ps1` displays the same queue depth, byte count, and
+oldest age for every discovered Edge state. The spool rejects new events at
+10,000 entries or 64 MiB without deleting existing evidence; an authorization
+that cannot first durably spool its local decision fails closed.
+
 Protect `/metrics` with a network policy or monitoring proxy in the company
 environment. It contains no credentials or high-cardinality identifiers, but it
 still reveals service security posture.
@@ -139,7 +152,8 @@ index signed audit events for investigation. Alert on readiness zero,
 authentication/audit failures, deny-rate anomalies, latency SLO violations, and
 old outcome-spool entries.
 
-W3C propagation and span persistence are implemented. Direct OTLP export to an
-OpenTelemetry Collector, trace sampling controls, Edge spool metrics, and a
-central trace UI remain future work. Claude's hidden chain-of-thought and
-provider-internal execution are intentionally outside BAP's telemetry boundary.
+W3C propagation, span persistence, and Edge spool textfile metrics are
+implemented. Direct OTLP export to an OpenTelemetry Collector, trace sampling
+controls, collector wiring, and a central trace UI remain future work. Claude's
+hidden chain-of-thought and provider-internal execution are intentionally
+outside BAP's telemetry boundary.

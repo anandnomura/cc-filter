@@ -20,9 +20,16 @@ import (
 	"cc-filter/internal/tracecontext"
 )
 
+var version = "dev"
+
 func main() {
 	configPath := flag.String("config", defaultConfigPath(), "administrator-controlled BAP Edge configuration")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 	raw, err := io.ReadAll(bufio.NewReaderSize(os.Stdin, 1<<20))
 	if err != nil {
 		deny("BAP Edge could not read the Claude hook request")
@@ -84,6 +91,7 @@ func main() {
 	if err := spool.Flush(flushContext, client); err != nil {
 		fmt.Fprintln(os.Stderr, "BAP Edge retained queued audit events:", err)
 	}
+	_ = spool.WriteMetrics(time.Now().UTC())
 
 	if input.HookEventName == "SessionStart" {
 		if _, err := bapedge.EnsurePolicy(context.Background(), client, policyStore, edgeInstanceID, true, time.Now().UTC()); err != nil {
@@ -108,6 +116,7 @@ func main() {
 		} else {
 			_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "tool_outcome_reported", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Decision: outcome, Source: "bap_service"})
 		}
+		_ = spool.WriteMetrics(time.Now().UTC())
 		return
 	}
 
@@ -143,6 +152,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "BAP Edge could not report or queue local denial:", queueErr)
 			}
 		}
+		_ = spool.WriteMetrics(time.Now().UTC())
 		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: "deny", ReasonCode: "LOCAL_FILTER_DENY", Source: "local_filter"})
 		fmt.Print(local.Output)
 		return
@@ -163,6 +173,7 @@ func main() {
 	if _, err := spool.RecordEdgeDecision(context.Background(), client, auditDecision); err != nil {
 		deny("BAP Edge could not durably record its local authorization decision")
 	}
+	_ = spool.WriteMetrics(time.Now().UTC())
 	result := "deny"
 	if decision.Allowed {
 		result = "allow"

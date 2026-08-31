@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"cc-filter/internal/auditwire"
 )
 
 func TestEdgeLoggerWritesBoundedEvent(t *testing.T) {
@@ -25,6 +28,33 @@ func TestEdgeLoggerWritesBoundedEvent(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("log missing %s: %s", expected, text)
 		}
+	}
+}
+
+func TestAuditSpoolWritesPrivacySafePrometheusMetrics(t *testing.T) {
+	directory := t.TempDir()
+	spool, err := NewAuditSpool(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := spool.QueueOutcome(auditwire.Outcome{EventID: "private-id-123", Tool: "SensitiveTool", Outcome: "success"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := spool.WriteMetrics(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(directory, "observability", "edge.prom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expected := range []string{"bap_edge_audit_spool_depth 1", "bap_edge_audit_spool_bytes", "bap_edge_audit_spool_oldest_age_seconds"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("metrics missing %q:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(text, "SensitiveTool") || strings.Contains(text, "private-id-123") {
+		t.Fatalf("metrics leaked audit fields: %s", text)
 	}
 }
 

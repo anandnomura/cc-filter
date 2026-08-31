@@ -1,4 +1,8 @@
-FROM docker.io/library/golang:1.23-bookworm AS build
+ARG GO_BUILD_IMAGE=docker.io/library/golang:1.23-bookworm
+ARG RUNTIME_IMAGE=docker.io/library/debian:bookworm-slim
+
+FROM ${GO_BUILD_IMAGE} AS build
+ARG BAP_VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor ./vendor
@@ -8,9 +12,12 @@ COPY bap-service ./bap-service
 COPY configs ./configs
 COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux go test -mod=vendor ./bap-service/... ./internal/authzen ./internal/auditwire ./internal/grants && \
-    CGO_ENABLED=0 GOOS=linux go build -mod=vendor -trimpath -ldflags="-s -w" -o /out/bap-service ./bap-service/cmd
+    CGO_ENABLED=0 GOOS=linux go build -mod=vendor -trimpath -ldflags="-s -w -X main.version=${BAP_VERSION}" -o /out/bap-service ./bap-service/cmd
 
-FROM docker.io/library/debian:bookworm-slim
+FROM ${RUNTIME_IMAGE}
+ARG BAP_VERSION=dev
+LABEL org.opencontainers.image.title="BAP Service" \
+      org.opencontainers.image.version="${BAP_VERSION}"
 RUN useradd --system --uid 10001 --home-dir /var/lib/bap bap
 WORKDIR /app
 COPY --from=build /out/bap-service /usr/local/bin/bap-service

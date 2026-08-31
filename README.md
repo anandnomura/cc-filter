@@ -23,6 +23,13 @@ and fork synchronization procedures. Containerized development builds do not
 need local Go; source-only company Windows builds use the documented approved
 native Go compiler path.
 
+For a controlled company build using internal, digest-pinned base images and a
+clean source commit, use `Build-CompanyArtifacts.ps1` and the
+[company build guide](docs/bap-edge/company-windows-build.md).
+If containers are unavailable, `Build-BapEdge.ps1 -Runtime Native` builds the
+Windows Edge and `Build-BapService-Native.ps1 -Architecture amd64` cross-builds
+the Linux Service binary using an installed Go 1.23.12+ toolchain.
+
 The original cc-filter behavior and documentation remain below so this fork can
 continue to synchronize with `wissem/cc-filter`.
 

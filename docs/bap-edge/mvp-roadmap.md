@@ -148,11 +148,16 @@ Implemented in the observability slice: stable operation trace IDs, W3C
 propagation, Edge and Service spans, signed-audit trace persistence, MySQL trace
 indexing, response trace headers, privacy-safe Edge JSONL, structured Service
 decision logs, `/metrics`, and automated trace/log/metric privacy checks.
-Remaining MVP-1 work is cache cleanup and bounds, retry-spool metrics and
-limits, direct OTLP export/sampling, collector integration, and expanded
+The cache/spool hardening slice added one-hour grant-cache expiry, entry/byte
+bounds, path-safe keys, a 10,000-entry/64-MiB audit-spool ceiling, atomic queue
+writes, concurrency-safe delivery claims, stale-claim recovery, privacy-safe
+Edge Prometheus textfile gauges, and focused tests. Remaining MVP-1 work is
+direct OTLP export/sampling, collector integration, and expanded
 disk/corruption/slow-response failure tests.
 
-- add grant-cache expiry cleanup, maximum age, maximum entry count, and metrics;
+- add grant-cache expiry cleanup, maximum age, maximum entry count, and metrics
+  (**expiry and bounds complete for the legacy grant cache; no cache metric is
+  exported because current signed-bundle decisions do not use grants**);
 - add structured JSON operational logs without prompts, plaintext commands,
   file contents, absolute outside paths, or credentials;
 - introduce `trace_id`, `span_id`, and `parent_span_id` fields and propagate
@@ -160,7 +165,8 @@ disk/corruption/slow-response failure tests.
 - persist trace correlation in signed audit records;
 - add readiness separate from liveness and report policy/audit readiness;
 - expose Prometheus-format metrics for decisions, latency, cache source, deny
-  reason, authentication failure, audit failure, and retry-spool age/depth;
+  reason, authentication failure, audit failure, and retry-spool age/depth
+  (**complete except direct collection/export of the Edge textfile**);
 - add automated tests for cache expiry/cleanup, trace propagation, log privacy,
   service outage, slow response, corrupted grants, and disk-write failure.
 

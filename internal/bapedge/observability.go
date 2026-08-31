@@ -2,6 +2,7 @@ package bapedge
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -69,4 +70,50 @@ func (l *EdgeLogger) Log(event EdgeEvent) error {
 		return err
 	}
 	return file.Close()
+}
+
+func (s *AuditSpool) WriteMetrics(now time.Time) error {
+	stats, err := s.Stats(now)
+	if err != nil {
+		return err
+	}
+	directory := filepath.Join(filepath.Dir(s.directory), "observability")
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return err
+	}
+	data := []byte(fmt.Sprintf(`# HELP bap_edge_audit_spool_depth Number of durable audit events awaiting acknowledgement.
+# TYPE bap_edge_audit_spool_depth gauge
+bap_edge_audit_spool_depth %d
+# HELP bap_edge_audit_spool_bytes Bytes occupied by durable audit events awaiting acknowledgement.
+# TYPE bap_edge_audit_spool_bytes gauge
+bap_edge_audit_spool_bytes %d
+# HELP bap_edge_audit_spool_oldest_age_seconds Age of the oldest durable audit event awaiting acknowledgement.
+# TYPE bap_edge_audit_spool_oldest_age_seconds gauge
+bap_edge_audit_spool_oldest_age_seconds %.0f
+`, stats.Depth, stats.Bytes, stats.OldestAge.Seconds()))
+	temporary, err := os.CreateTemp(directory, "edge-metrics-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	destination := filepath.Join(directory, "edge.prom")
+	if err := os.Rename(temporaryPath, destination); err == nil {
+		return nil
+	}
+	if err := os.Remove(destination); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(temporaryPath, destination)
 }

@@ -7,58 +7,72 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
-  build:
-    name: Build Binaries
+  binaries:
+    name: Build ${{ matrix.component }} ${{ matrix.goos }}-${{ matrix.goarch }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        goos: [linux, darwin, windows]
+        component: [bap-edge, bap-service]
+        goos: [linux, windows]
         goarch: [amd64, arm64]
         exclude:
+          - component: bap-service
+            goos: windows
           - goos: windows
             goarch: arm64
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23.12'
+          cache: true
 
-      - name: Build binary
+      - name: Test
+        run: go test -mod=vendor ./...
+
+      - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          LDFLAGS="-X main.version=$VERSION"
-          if [ "$GOOS" = "windows" ]; then
-            go build -ldflags "$LDFLAGS" -o cc-filter-${{ matrix.goos }}-${{ matrix.goarch }}.exe
-          else
-            go build -ldflags "$LDFLAGS" -o cc-filter-${{ matrix.goos }}-${{ matrix.goarch }}
-          fi
+          set -eu
+          package="./cmd/bap-edge"
+          if [ "${{ matrix.component }}" = "bap-service" ]; then package="./bap-service/cmd"; fi
+          suffix=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then suffix=".exe"; fi
+          output="${{ matrix.component }}-${{ matrix.goos }}-${{ matrix.goarch }}${suffix}"
+          go build -mod=vendor -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o "${output}" "${package}"
+          sha256sum "${output}" > "${output}.sha256"
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/attest-build-provenance@v2
         with:
-          name: cc-filter-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: cc-filter-*
+          subject-path: '${{ matrix.component }}-${{ matrix.goos }}-${{ matrix.goarch }}*'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.component }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            ${{ matrix.component }}-${{ matrix.goos }}-${{ matrix.goarch }}*
 
   release:
-    name: Create Release
-    needs: build
+    name: Publish release
+    needs: binaries
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         with:
-          files: cc-filter-*
+          generate_release_notes: true
+          files: |
+            bap-edge-*
+            bap-service-*

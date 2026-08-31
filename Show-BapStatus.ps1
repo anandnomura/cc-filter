@@ -65,7 +65,12 @@ foreach ($entry in $candidates.GetEnumerator()) {
         $instancePath = Join-Path $entry.Value 'edge-instance.json'
         $instanceID = if (Test-Path -LiteralPath $instancePath) { (Get-Content -LiteralPath $instancePath -Raw | ConvertFrom-Json).id } else { 'missing' }
         $spoolPath = Join-Path $entry.Value 'audit-spool'
-        $queued = if (Test-Path -LiteralPath $spoolPath) { @(Get-ChildItem -LiteralPath $spoolPath -Filter '*.json' -File).Count } else { 0 }
+        $spoolFiles = @(if (Test-Path -LiteralPath $spoolPath) { Get-ChildItem -LiteralPath $spoolPath -File | Where-Object Extension -In @('.json', '.sending') })
+        $queued = $spoolFiles.Count
+        $spoolBytes = if ($queued -gt 0) { ($spoolFiles | Measure-Object -Property Length -Sum).Sum } else { 0 }
+        $oldestSpoolSeconds = if ($queued -gt 0) {
+            [Math]::Max(0, [Math]::Floor(($now - (($spoolFiles | Sort-Object LastWriteTimeUtc | Select-Object -First 1).LastWriteTimeUtc)).TotalSeconds))
+        } else { 0 }
         $rows += [pscustomobject]@{
             Edge = $entry.Key
             Version = $edgeBundle.version
@@ -76,6 +81,8 @@ foreach ($entry in $candidates.GetEnumerator()) {
             LeaseValid = $offlineRemaining -ge 0 -and $now -lt ([DateTime]$edgeBundle.expires_at).ToUniversalTime()
             KillSwitch = $edgeBundle.kill_switch
             AuditQueued = $queued
+            AuditBytes = $spoolBytes
+            AuditOldestSeconds = $oldestSpoolSeconds
             InstanceID = $instanceID
             StateDirectory = $entry.Value
         }
@@ -88,7 +95,9 @@ Write-Host 'BAP Edge data planes' -ForegroundColor Cyan
 if ($rows.Count -eq 0) {
     Write-Host 'No initialized Edge policy state was found.'
 } else {
-    $rows | Format-Table Edge,Version,DigestMatchesService,LastSyncUTC,RefreshInSeconds,OfflineLeaseSeconds,LeaseValid,KillSwitch,AuditQueued -AutoSize
+    $rows | Format-Table Edge,Version,DigestMatchesService,LastSyncUTC,RefreshInSeconds,OfflineLeaseSeconds,LeaseValid,KillSwitch,AuditQueued,AuditBytes,AuditOldestSeconds -AutoSize
+    Write-Host 'Edge durable audit queues' -ForegroundColor Cyan
+    $rows | Format-Table Edge,AuditQueued,AuditBytes,AuditOldestSeconds -AutoSize
     Write-Host 'Edge identities and state locations' -ForegroundColor Cyan
     $rows | Select-Object Edge,InstanceID,StateDirectory | Format-List
 }

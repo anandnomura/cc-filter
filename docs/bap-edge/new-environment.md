@@ -87,8 +87,12 @@ If company policy allows source but prohibits importing an executable, install
 an approved Go 1.23.12+ compiler and build the Windows Edge inside the boundary:
 
 ```powershell
-.\Build-BapEdge-Native.ps1
+.\Build-BapEdge.ps1 -Runtime Native
 ```
+
+`-Runtime Auto` also falls back to native Go when Docker and Podman are both
+unavailable. This fallback builds BAP Edge; the Linux BAP Service image still
+needs the company container/Linux build pipeline.
 
 Dependencies are included under `vendor/`, so this build does not require a
 public Go module download. It does not build BAP Service or Linux binaries. Then

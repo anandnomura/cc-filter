@@ -24,7 +24,10 @@ import (
 	"cc-filter/internal/policybundle"
 )
 
+var version = "dev"
+
 func main() {
+	log.Printf("starting BAP Service version=%s", version)
 	address := env("BAP_LISTEN_ADDRESS", ":8080")
 	policyPath := env("BAP_POLICY_PATH", "policies/agent-tools.cedar")
 	keyDirectory := env("BAP_STATE_DIRECTORY", env("BAP_KEY_DIRECTORY", ".bap/runtime"))

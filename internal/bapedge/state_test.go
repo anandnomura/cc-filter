@@ -6,8 +6,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"cc-filter/internal/auditwire"
 )
@@ -63,5 +65,59 @@ func TestAuditSpoolRetriesAndDeletesOnlyAfterAcknowledgement(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(directory, "audit-spool"))
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("acknowledged event remained in spool: entries=%d err=%v", len(entries), err)
+	}
+}
+
+func TestAuditSpoolEnforcesBoundsWithoutDeletingEvidence(t *testing.T) {
+	directory := t.TempDir()
+	spool, err := NewAuditSpool(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spool.maxEntries = 1
+	first := auditwire.Outcome{EventID: "first", Tool: "Read", Outcome: "success"}
+	second := auditwire.Outcome{EventID: "second", Tool: "Read", Outcome: "success"}
+	if err := spool.QueueOutcome(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := spool.QueueOutcome(second); err == nil {
+		t.Fatal("spool accepted an event past its configured bound")
+	}
+	stats, err := spool.Stats(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Depth != 1 || stats.Bytes == 0 {
+		t.Fatalf("unexpected spool stats: %+v", stats)
+	}
+}
+
+func TestAuditSpoolRecoversStaleClaim(t *testing.T) {
+	directory := t.TempDir()
+	spool, err := NewAuditSpool(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := spool.QueueOutcome(auditwire.Outcome{EventID: "event", Tool: "Read", Outcome: "success"}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(directory, "audit-spool"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("queued entries=%d err=%v", len(entries), err)
+	}
+	queuePath := filepath.Join(directory, "audit-spool", entries[0].Name())
+	claimPath := strings.TrimSuffix(queuePath, ".json") + ".sending"
+	if err := os.Rename(queuePath, claimPath); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-auditClaimStaleAfter - time.Minute)
+	if err := os.Chtimes(claimPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewAuditSpool(directory); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(queuePath); err != nil {
+		t.Fatalf("stale claim was not recovered: %v", err)
 	}
 }

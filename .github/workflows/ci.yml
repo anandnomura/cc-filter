@@ -2,23 +2,36 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, bap-edge]
   pull_request:
-    branches: [main]
+    branches: [main, bap-edge]
+
+permissions:
+  contents: read
 
 jobs:
   test:
-    name: Test
+    name: Test and build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23.12'
+          cache: true
 
-      - name: Build
-        run: go build ./...
+      - name: Verify vendored dependencies
+        run: go mod verify
 
       - name: Test
-        run: go test ./...
+        run: go test -mod=vendor -race ./...
+
+      - name: Build BAP Edge
+        run: CGO_ENABLED=0 go build -mod=vendor -trimpath -o /tmp/bap-edge ./cmd/bap-edge
+
+      - name: Build BAP Service
+        run: CGO_ENABLED=0 go build -mod=vendor -trimpath -o /tmp/bap-service ./bap-service/cmd
+
+      - name: Vet
+        run: go vet -mod=vendor ./...
