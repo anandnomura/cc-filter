@@ -8,21 +8,20 @@ Official Claude Code
         |
         | Claude session_id + tool_use_id
         v
-BAP Edge / PEP
+BAP Edge / data plane / local PDP + PEP
   - inherited cc-filter hard blocks and redaction
   - random per-session workload_id
-  - exact-operation signed-grant cache
+  - signed policy bundle verification and rollback state
+  - local command classification and Cedar evaluation
   - durable outcome/denial retry spool
         |
-        | HTTPS + dedicated BAP bearer credential
-        | AuthZEN request / BAP audit extensions
+        | authenticated HTTPS policy sync and asynchronous audit
         v
-BAP Service / PDP
+BAP Service / control plane
   - authenticates the edge credential
-  - evaluates Cedar permit/forbid/default-deny policies
-  - issues 30-second Ed25519 grants
-  - transactionally records signed, hash-chained audit events in MySQL
-  - records deduplicated missing-policy proposals in MySQL for administrator review
+  - validates, versions, signs, distributes, expires, and revokes rules
+  - sends update, forced-update, and kill-switch directives
+  - transactionally records delivered signed/hash-chained audit events in MySQL
 ```
 
 BAP Edge lives in the fork root and `cmd/bap-edge`. BAP Service is intentionally
@@ -47,27 +46,29 @@ impersonate its registered principal. Use one key per user/device, protect its
 delivery, and replace it with mTLS or an enterprise identity token later. A
 shared key identifies the shared deployment, not an individual human.
 
-## PreToolUse authorization flow
+## Policy synchronization and PreToolUse flow
 
 1. The admin-managed hook invokes BAP Edge with Claude's JSON.
-2. Edge loads or creates the session workload ID and retries queued audit events.
-3. Inherited cc-filter rules run. A local denial remains a denial and is reported
-   centrally; if the service is offline it is queued for later delivery.
-4. Edge normalizes the tool into an AuthZEN subject/action/resource/context.
-5. For an exact cached grant, Edge verifies signature, audience, complete request
-   hash, and expiry locally.
-6. Before a cached grant can authorize execution, Edge calls
-   `POST /bap/v1/audit/grant-consumption`. Service re-verifies the grant and its
-   credential binding, durably records the event, and acknowledges it. No
-   acknowledgement means no cached authorization.
-7. On cache miss or failed acknowledgement, Edge calls the AuthZEN
-   `POST /access/v1/evaluation` endpoint.
-8. BAP Service evaluates Cedar. Before returning a decision it writes the signed
-   audit event. An allowed decision carries a short-lived request-bound grant.
-9. Edge independently verifies the grant and returns allow or deny to Claude.
+2. Edge loads or creates its persistent instance ID and session workload ID,
+   then retries queued audit events.
+3. At SessionStart, when no policy exists, or after `refresh_after_seconds`,
+   Edge calls `POST /bap/v1/edge/sync` with its installed version/digest/epoch.
+4. Edge verifies the returned Ed25519 envelope, Cedar, schema, expiry, minimum
+   protocol, version, digest, and revocation epoch before atomic activation.
+5. Inherited cc-filter rules run. A local denial remains a denial and is queued
+   for central reporting.
+6. Edge normalizes the raw tool contract without creating a command allow.
+7. The signed bundle classifies command/network/MCP/delegation eligibility;
+   unknown or ambiguous inputs remain unapproved.
+8. Edge evaluates the bundled Cedar policy locally. Explicit forbids override
+   permits and no matching permit denies.
+9. Edge durably spools the local decision, attempts asynchronous central audit
+   delivery, and returns allow or deny to Claude.
 
-If BAP Service is unavailable, a fresh operation fails closed. Claude can still
-reason and answer without tools.
+If BAP Service is temporarily unavailable, a verified bundle remains usable only
+until `max_offline_seconds`. After that lease, missing synchronization fails
+closed. The development policy refreshes after 15 minutes and permits at most
+one hour offline.
 
 ## Post-tool outcome flow
 
@@ -79,27 +80,38 @@ delete their spool, which is why this interim identity model is not equivalent t
 an OS service or protected workload identity; authorization events remain
 central and fail-closed.
 
-## Cache semantics
+## Policy state semantics
 
-The cache stores only service-signed allow grants—not generic allow decisions.
-The cache key hashes the complete AuthZEN request, including session,
-workload, and tool-use IDs. Consequently it is normally used for an exact hook
-retry, not to authorize a different invocation. Each reuse still contacts BAP
-Service for the audit acknowledgement. Caching avoids Cedar re-evaluation but
-does not create an audit blind spot.
+The local state contains only a signed control-plane bundle, its highest
+accepted version/digest/revocation epoch, last successful synchronization, and
+queued audit. A lower version or epoch is rollback; a different digest under the
+same version is equivocation. Both deny. Deleting policy state forces a new
+synchronization and cannot create an allow.
 
-The current lifetime is 30 seconds. A user may delete or corrupt the cache and
-cause a service evaluation, but cannot forge a valid allow grant.
+Rules may be approved for up to 30 days, while refresh and offline leases are
+much shorter. These are policy lifetimes, not reusable tool grants.
+
+## Client/model compatibility evidence
+
+Model names never grant authority. Exact Claude Code, Sonnet, and Opus
+combinations are compatibility evidence: Edge captures only privacy-safe hook
+schema shapes and local results, then certification regenerates representative
+inputs and replays normalization and bundled Cedar. A manifest binds every
+fixture hash to the active policy version/digest and requires equivalent
+decisions across required model families. Unknown schemas fail certification
+and remain default deny at runtime.
 
 ## AuthZEN and BAP endpoints
 
 - `GET /healthz` — unauthenticated liveness only
 - `GET /readyz` — unauthenticated MySQL-backed readiness
 - `GET /.well-known/authzen-configuration` — AuthZEN discovery
-- `POST /access/v1/evaluation` — authenticated AuthZEN evaluation
-- `POST /bap/v1/audit/grant-consumption` — authenticated cached-grant receipt
+- `POST /bap/v1/edge/sync` — authenticated signed policy synchronization
+- `POST /bap/v1/audit/edge-decision` — asynchronous local decision ingestion
 - `POST /bap/v1/audit/outcome` — authenticated post-tool outcome
 - `POST /bap/v1/audit/edge-denial` — authenticated local-filter denial
+- `POST /access/v1/evaluation` and grant consumption — legacy migration APIs,
+  not used by the local traffic-decision path
 
 The evaluation request and `decision` response follow AuthZEN Authorization API
 1.0. Grant, decision ID, reason code, and proposal fields are documented BAP

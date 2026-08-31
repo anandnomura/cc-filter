@@ -3,7 +3,11 @@ package bapedge
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"cc-filter/internal/policybundle"
 )
 
 type toolContractCase struct {
@@ -11,6 +15,7 @@ type toolContractCase struct {
 	Tool             string         `json:"tool"`
 	Input            map[string]any `json:"input"`
 	Action           string         `json:"action"`
+	Decision         string         `json:"decision"`
 	Error            bool           `json:"error"`
 	ShellApproved    bool           `json:"shell_approved"`
 	Destructive      bool           `json:"destructive"`
@@ -32,6 +37,23 @@ func TestMVP0ToolContractCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := t.TempDir()
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	sourceData, err := os.ReadFile(filepath.Join("..", "..", "bap-service", "policies", "edge-policy-source.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := policybundle.LoadSource(sourceData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cedarPolicy, err := os.ReadFile(filepath.Join("..", "..", "bap-service", "policies", "agent-tools.cedar"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := policybundle.Build(source, cedarPolicy, now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	policy := NormalizationPolicy{
 		Profile: "standard-developer", AllowedNetworkDomains: []string{"*.example.test"},
 		ApprovedMCPTools: []string{"mcp__github__search_code"}, ApprovedSubagentTypes: []string{"Explore"},
@@ -50,6 +72,20 @@ func TestMVP0ToolContractCorpus(t *testing.T) {
 			}
 			if request.Action.Name != test.Action {
 				t.Fatalf("action=%q want=%q", request.Action.Name, test.Action)
+			}
+			if test.Decision == "" {
+				t.Fatal("fixture is missing its expected local policy decision")
+			}
+			decision, err := policybundle.Authorize(bundle, request, now.Add(time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			actualDecision := "deny"
+			if decision.Allowed {
+				actualDecision = "allow"
+			}
+			if actualDecision != test.Decision {
+				t.Fatalf("decision=%s reason=%s want=%s", actualDecision, decision.ReasonCode, test.Decision)
 			}
 			properties := request.Resource.Properties
 			assertBool := func(name string, want bool) {

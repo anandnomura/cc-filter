@@ -56,9 +56,9 @@ online revocation service. It does not disable certificate-chain verification.
 
 ## All tool calls are denied
 
-Run `Test-Bap.ps1`. Check the HTTPS URL, CA path, grant public key, service logs,
-the inherited `BAP_EDGE_API_KEY`, and Cedar policy. Restart Claude after changing
-a machine environment variable. Failure is intentionally closed.
+Run `Test-Bap.ps1`. Check the HTTPS URL, CA path, bundle public key, service
+logs, inherited credential or mTLS identity, local policy state, and bundle
+expiry/offline lease. Restart Claude after changing machine configuration.
 
 If the error contains `certificate signed by unknown authority` after managed
 installation, the Program Files CA may come from a different local runtime than
@@ -72,8 +72,7 @@ elevated PowerShell with the runtime that is actually serving BAP:
 
 Use `-Runtime Podman` instead only when Podman owns port 8443. The installer's
 `Auto` mode detects the live service by validating it against each runtime CA;
-the local launcher also refuses to start if the installed CA or grant public
-key differs from the active runtime.
+the local launcher also checks installed CA and bundle verification material.
 
 ## Claude says `Ran 1 shell command` for a denied call
 
@@ -86,14 +85,13 @@ will contain `allowed: false`. A small local model may otherwise misdescribe or
 repeat an earlier tool result, so do not treat its prose as enforcement
 evidence.
 
-## A repeated operation still calls the network
+## A repeated operation does or does not call the network
 
-The grant cache is exact-request and session-bound and lasts at most 30 seconds.
-A different path, action, command, tool-use ID, session, workload, expired grant,
-or changed context is a cache miss. Deleting the user cache is safe and merely
-causes another PDP call. Even an exact cache hit makes a lightweight service call
-so grant consumption is centrally verified and audited; it skips Cedar policy
-evaluation, not the audit trail.
+Traffic decisions do not call BAP Service while the signed bundle is fresh.
+Edge synchronizes at SessionStart, when policy is missing, and after
+`refresh_after_seconds`; audit delivery is asynchronous. Deleting local policy
+state forces synchronization. Once `max_offline_seconds` elapses without a
+successful sync, operations deny until the control plane is reachable.
 
 ## Audit verification fails
 

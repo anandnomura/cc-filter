@@ -11,14 +11,15 @@ Run against a started local service:
 ```
 
 The script compiles a disposable Windows load client, sends authenticated HTTPS
-AuthZEN evaluations, reports throughput/p50/p95/p99, then measures complete cold
-BAP Edge hook processes. Every service evaluation still signs and commits a
-MySQL audit transaction; the test does not disable safety work to improve numbers.
+policy synchronization requests, reports throughput/p50/p95/p99, then measures
+complete BAP Edge hook processes making local signed-policy decisions. Audit
+delivery remains enabled.
 
-## Baseline from this development workstation
+## Historical baseline from the former per-operation service path
 
-The 2026-08-29 local MySQL 8.4 baseline uses a private Docker network and the
-durable signed-audit transaction on every service evaluation:
+The 2026-08-29 numbers predate local traffic decisions. Retain them only for
+comparison; rerun `Performance-Test-Bap.ps1` to establish policy-sync and local
+decision baselines for the current architecture.
 
 | Path | Load | Failures | Result |
 |---|---|---:|---|
@@ -45,11 +46,12 @@ Edge run also showed a 1.08-second p95
 outlier, which is why stable conclusions use the 100-sample result and production
 tests must cover endpoint security/AV behavior.
 
-## Interpreting cache performance
+## Interpreting local-decision performance
 
-An exact cached grant skips Cedar evaluation but still calls the service for a
-durable, authenticated consumption event. It reduces policy computation and
-response size; it intentionally does not eliminate the network/audit latency.
+While a bundle is fresh, the decision itself performs no control-plane round
+trip. Edge still durably spools the audit record and attempts asynchronous
+delivery. Separate sync and Edge measurements distinguish control-plane rollout
+capacity from endpoint decision latency.
 
 ## Production load gate
 

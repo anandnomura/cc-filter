@@ -5,6 +5,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -19,6 +22,7 @@ import (
 	"cc-filter/internal/auditwire"
 	"cc-filter/internal/authzen"
 	"cc-filter/internal/grants"
+	"cc-filter/internal/policybundle"
 )
 
 type recordingAuditStore struct{ events []audit.Event }
@@ -26,6 +30,67 @@ type recordingAuditStore struct{ events []audit.Event }
 func (s *recordingAuditStore) Append(event audit.Event) error {
 	s.events = append(s.events, event)
 	return nil
+}
+
+func TestPolicySyncAuthenticationAndDirectives(t *testing.T) {
+	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	now := time.Now().UTC()
+	bundle := policybundle.Bundle{SchemaVersion: policybundle.SchemaVersion, Version: 7, RulesDigest: "sha256:rules", IssuedAt: now, ExpiresAt: now.Add(time.Hour), RefreshAfterSeconds: 60, MaxOfflineSeconds: 300, MinimumEdgeVersion: "1", RevocationEpoch: 4, ForceUpdate: true, PolicyProfile: "standard-developer", CedarPolicy: "forbid(principal, action, resource);"}
+	envelope, err := policybundle.Sign(privateKey, "test", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Server{apiKey: "test-api-key", principal: "device", metrics: metrics.New(), audit: &recordingAuditStore{}}
+	service.SetPolicyBundle(bundle, envelope)
+	testServer := httptest.NewServer(service.Handler())
+	defer testServer.Close()
+
+	requestSync := func(apiKey string, installed uint64, digest string, epoch uint64) (int, policybundle.SyncResponse) {
+		body, _ := json.Marshal(policybundle.SyncRequest{EdgeInstanceID: "edge-1", EdgeVersion: "1", InstalledVersion: installed, InstalledDigest: digest, RevocationEpoch: epoch, Nonce: "nonce"})
+		request, _ := http.NewRequest(http.MethodPost, testServer.URL+"/bap/v1/edge/sync", bytes.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+apiKey)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var value policybundle.SyncResponse
+		_ = json.NewDecoder(response.Body).Decode(&value)
+		return response.StatusCode, value
+	}
+	if status, _ := requestSync("wrong", 0, "", 0); status != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated sync status=%d", status)
+	}
+	service.policyBundle.ForceUpdate = false
+	if status, response := requestSync("test-api-key", 1, "sha256:old", 1); status != http.StatusOK || response.Directive != "UPDATE" {
+		t.Fatalf("stale normal sync status=%d response=%#v", status, response)
+	}
+	service.policyBundle.ForceUpdate = true
+	if status, response := requestSync("test-api-key", 1, "sha256:old", 1); status != http.StatusOK || response.Directive != "UPDATE_REQUIRED" {
+		t.Fatalf("stale forced sync status=%d response=%#v", status, response)
+	}
+	if status, response := requestSync("test-api-key", 7, "sha256:rules", 4); status != http.StatusOK || response.Directive != "CURRENT" {
+		t.Fatalf("current sync status=%d response=%#v", status, response)
+	}
+	service.policyBundle.KillSwitch = true
+	if _, response := requestSync("test-api-key", 7, "sha256:rules", 4); response.Directive != "KILL_SWITCH" {
+		t.Fatalf("kill switch directive=%q", response.Directive)
+	}
+}
+
+func TestMutualTLSIdentityTakesAuthorityFromVerifiedCertificate(t *testing.T) {
+	service := &Server{apiKey: "bearer-is-not-required", principal: "bearer", metrics: metrics.New()}
+	var caller callerIdentity
+	handler := service.authenticate(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		caller = callerFrom(request.Context())
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/bap/v1/edge/sync", nil)
+	request.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{Raw: []byte("device-certificate"), Subject: pkix.Name{CommonName: "device-42"}}}}
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	if caller.Principal != "device-42" || caller.Fingerprint == "" {
+		t.Fatalf("mTLS identity was not derived from certificate: %#v", caller)
+	}
 }
 func (s *recordingAuditStore) HasEvent(string) (bool, error) { return false, nil }
 func (s *recordingAuditStore) HasAllowedOperation(string, string, string, string) (bool, error) {

@@ -24,3 +24,15 @@ type EdgeDenial struct {
 	Reason      string                    `json:"reason"`
 	TraceParent string                    `json:"traceparent,omitempty"`
 }
+
+type EdgeDecision struct {
+	EventID       string                    `json:"event_id"`
+	Request       authzen.EvaluationRequest `json:"request"`
+	Allowed       bool                      `json:"allowed"`
+	ReasonCode    string                    `json:"reason_code"`
+	PolicyVersion string                    `json:"policy_version"`
+	BundleVersion uint64                    `json:"bundle_version"`
+	BundleDigest  string                    `json:"bundle_digest"`
+	RuleIDs       []string                  `json:"rule_ids,omitempty"`
+	TraceParent   string                    `json:"traceparent,omitempty"`
+}

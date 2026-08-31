@@ -2,19 +2,33 @@
 
 ## BAP Edge YAML
 
+Policy profiles and command/network/MCP/delegation allow registries are not
+endpoint configuration. Unknown YAML fields are rejected; these values arrive
+only in a verified BAP Service policy bundle.
+
+Fixture capture is disabled unless `Capture-ClaudeFixtures.ps1` sets all five
+process-scoped variables below. They are evidence metadata, not authority, and
+are never configured machine-wide:
+
+| Variable | Purpose |
+|---|---|
+| `BAP_FIXTURE_CAPTURE_DIRECTORY` | Opt-in destination for privacy-safe fixtures |
+| `BAP_FIXTURE_SCENARIO` | Reviewed stable scenario identifier |
+| `BAP_FIXTURE_MODEL` | Exact model label under certification |
+| `BAP_FIXTURE_CLAUDE_VERSION` | Exact `claude --version` output |
+| `BAP_FIXTURE_EXPECTED_DECISION` | Reviewed `allow` or `deny` expectation |
+
 The managed Windows installer writes `C:\Program Files\BAP Edge\bap-edge.yaml`:
 
 ```yaml
 service_url: "https://127.0.0.1:8443"
 public_key_path: "C:\\Program Files\\BAP Edge\\grant-public.pem"
+bundle_public_key_path: "C:\\Program Files\\BAP Edge\\bundle-public.pem"
 ca_bundle_path: "C:\\Program Files\\BAP Edge\\service-ca-bundle.pem"
+client_certificate_path: ""
+client_key_path: ""
 subject_id: "claude-code-local"
-policy_profile: "standard-developer"
-allowed_network_domains: []
-approved_mcp_tools: []
-approved_subagent_types: []
 timeout_ms: 3000
-cache_directory: ""
 state_directory: ""
 api_key_env: "BAP_EDGE_API_KEY"
 ```
@@ -22,38 +36,28 @@ api_key_env: "BAP_EDGE_API_KEY"
 | Setting | Meaning |
 |---|---|
 | `service_url` | BAP Service base URL; network URLs must use HTTPS |
-| `public_key_path` | Ed25519 grant verification public key |
+| `public_key_path` | Optional legacy Ed25519 grant verification key; not used for local traffic decisions |
+| `bundle_public_key_path` | Ed25519 policy-bundle verification public key |
 | `ca_bundle_path` | Private/company CA bundle; omit when system trust is sufficient |
+| `client_certificate_path`, `client_key_path` | Optional per-device mTLS identity; configure both together |
 | `subject_id` | Cedar/AuthZEN agent subject configured by the administrator |
-| `policy_profile` | `standard-developer` or the more restrictive `read-only`; defaults to `standard-developer` |
-| `allowed_network_domains` | Exact DNS names or `*.example.com` subdomain entries permitted for HTTPS `WebFetch`; IP literals and HTTP fail closed |
-| `approved_mcp_tools` | Exact full names such as `mcp__github__search_code`; wildcards are not accepted |
-| `approved_subagent_types` | Exact administrator-approved `Agent.subagent_type` values |
 | `timeout_ms` | Per-service-call timeout; defaults to 3000 |
-| `cache_directory` | Signed grant cache; empty uses the OS user cache |
-| `state_directory` | Session mappings, outcome retry spool, and privacy-safe Edge observability JSONL; empty uses OS user cache |
+| `state_directory` | Signed bundle/rollback state, synchronization lease, instance/session mappings, audit retry spool, and privacy-safe logs; empty uses OS user cache |
 | `api_key_env` | Name—not value—of the dedicated credential environment variable |
 
 The secret is deliberately absent from YAML. The installer provisions
 `BAP_EDGE_API_KEY` as a machine environment variable. A network secret-management
 agent may inject the named variable instead.
 
-The three registries are empty by default. Add entries only as an administrator
-after an owner has classified the destination/tool/agent. For example:
+Policy profile and command/network/MCP/delegation registries no longer belong in
+endpoint YAML. Administrators modify the control-plane source:
 
-```yaml
-allowed_network_domains:
-  - "docs.company.example"
-  - "*.packages.company.example"
-approved_mcp_tools:
-  - "mcp__company_source__search_code"
-approved_subagent_types:
-  - "Explore"
+```text
+bap-service/policies/edge-policy-source.json
 ```
 
-These values are currently asserted by the administrator-protected Edge
-configuration. This is acceptable only for the bounded standard-user pilot;
-the enterprise target moves registry lookup and device identity to BAP Service.
+Changing rule content requires incrementing its `version`. Reusing a version
+with different content is rejected as equivocation.
 
 ## BAP Service environment
 
@@ -66,6 +70,10 @@ the enterprise target moves registry lookup and device identity to BAP Service.
 | `BAP_DEVELOPMENT_TLS` | `false` | Generate/use local development TLS only |
 | `BAP_GRANT_PRIVATE_KEY_PATH` | under key directory | Grant signing key |
 | `BAP_GRANT_PUBLIC_KEY_PATH` | under key directory | Grant public key |
+| `BAP_BUNDLE_PRIVATE_KEY_PATH` | under key directory | Dedicated policy-bundle signing key |
+| `BAP_BUNDLE_PUBLIC_KEY_PATH` | under key directory | Policy-bundle public key distributed to Edge |
+| `BAP_BUNDLE_SOURCE_PATH` | `policies/edge-policy-source.json` | Versioned control-plane rule source |
+| `BAP_CLIENT_CA_PATH` | empty | When set, require Edge mTLS certificates chaining to this CA |
 | `BAP_AUDIT_PRIVATE_KEY_PATH` | under key directory | Audit signing key |
 | `BAP_AUDIT_PUBLIC_KEY_PATH` | under key directory | Audit verification key |
 | `BAP_DATABASE_DSN` | empty | MySQL Go-driver DSN; use only when secret injection is protected |
@@ -78,11 +86,11 @@ the enterprise target moves registry lookup and device identity to BAP Service.
 | `BAP_DATABASE_CONNECTION_MAX_LIFETIME_SECONDS` | `300` | MySQL connection lifetime |
 | `BAP_AUDIT_PATH` | `audit.jsonl` under key directory | Development fallback only when no MySQL DSN is set |
 | `BAP_PROPOSAL_PATH` | `policy-proposals.jsonl` | Development fallback only when no MySQL DSN is set |
-| `BAP_EDGE_API_KEY` | required | Dedicated Edge bearer credential |
+| `BAP_EDGE_API_KEY` | required unless mTLS is configured | Dedicated local-development Edge bearer credential |
 | `BAP_EDGE_PRINCIPAL` | `local-user` | Registered name for that credential |
 
 `BAP_ALLOW_KEY_GENERATION=true` is development-only. Normal service startup
-refuses to invent a missing grant authority. Use the explicit initialization
+refuses to invent a missing signing authority. Use the explicit initialization
 command or company secret provisioning.
 
 Network MySQL requires verified TLS. The service rejects a DSN without TLS

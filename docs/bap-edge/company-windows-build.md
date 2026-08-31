@@ -65,6 +65,7 @@ Open PowerShell as Administrator:
   -ServiceUrl 'https://bap.company.example' `
   -EdgeBinaryPath '.\dist\bap-edge-windows-amd64.exe' `
   -GrantPublicKeyPath 'C:\approved\bap\grant-public.pem' `
+  -BundlePublicKeyPath 'C:\approved\bap\bundle-public.pem' `
   -CaBundlePath 'C:\approved\bap\company-ca.pem' `
   -ApiKey $env:PROVISIONED_BAP_EDGE_API_KEY
 ```

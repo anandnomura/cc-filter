@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "version": 1,
+  "valid_for_seconds": 2592000,
+  "refresh_after_seconds": 900,
+  "max_offline_seconds": 3600,
+  "minimum_edge_version": "1",
+  "revocation_epoch": 1,
+  "force_update": false,
+  "kill_switch": false,
+  "policy_profile": "standard-developer",
+  "allowed_network_domains": [],
+  "approved_mcp_tools": [],
+  "approved_subagent_types": [],
+  "command_rules": [
+    {"id":"command.git.status","executable":"git","subcommand":"status","effect":"eligible-for-permit","argument_patterns":[],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.status.short","executable":"git","subcommand":"status","effect":"eligible-for-permit","argument_patterns":["--short"],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.diff","executable":"git","subcommand":"diff","effect":"eligible-for-permit","argument_patterns":[],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.diff.stat","executable":"git","subcommand":"diff","effect":"eligible-for-permit","argument_patterns":["--stat"],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.log","executable":"git","subcommand":"log","effect":"eligible-for-permit","argument_patterns":[],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.log.oneline","executable":"git","subcommand":"log","effect":"eligible-for-permit","argument_patterns":["--oneline"],"allow_additional_arguments":true,"additional_argument_pattern":"-[0-9]+","profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.show","executable":"git","subcommand":"show","effect":"eligible-for-permit","argument_patterns":[],"allow_additional_arguments":true,"additional_argument_pattern":"(?:--stat|--oneline|HEAD)","profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.branch","executable":"git","subcommand":"branch","effect":"eligible-for-permit","argument_patterns":[],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.branch.current","executable":"git","subcommand":"branch","effect":"eligible-for-permit","argument_patterns":["--show-current"],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.revparse","executable":"git","subcommand":"rev-parse","effect":"eligible-for-permit","argument_patterns":[],"allow_additional_arguments":true,"additional_argument_pattern":"(?:--show-toplevel|--is-inside-work-tree|HEAD)","profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.rg.files","executable":"rg","effect":"eligible-for-permit","argument_patterns":["--files"],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.ls","executable":"ls","effect":"eligible-for-permit","argument_patterns":[],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.ls.flags","executable":"ls","effect":"eligible-for-permit","argument_patterns":["-(?:a|l|al|la)"],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.go.test","executable":"go","subcommand":"test","effect":"eligible-for-permit","argument_patterns":[],"allow_additional_arguments":true,"additional_argument_pattern":"(?:\\./\\.\\.|\\./[A-Za-z0-9_./-]*|-[A-Za-z0-9_=./-]+)","profiles":["standard-developer"],"owner":"developer-platform","approval":"MVP0"},
+    {"id":"command.git.reset.hard","executable":"git","subcommand":"reset","effect":"forbid","argument_patterns":["--hard"],"profiles":["standard-developer","read-only"],"owner":"security","approval":"MVP0"}
+  ]
+}

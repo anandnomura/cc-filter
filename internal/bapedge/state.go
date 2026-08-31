@@ -118,6 +118,29 @@ func (s *AuditSpool) QueueEdgeDenial(value auditwire.EdgeDenial) error {
 	return s.queue("edge-denial", value)
 }
 
+func (s *AuditSpool) QueueEdgeDecision(value auditwire.EdgeDecision) error {
+	return s.queue("edge-decision", value)
+}
+
+func (s *AuditSpool) RecordEdgeDecision(ctx context.Context, client *Client, value auditwire.EdgeDecision) (bool, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return false, err
+	}
+	data, _ := json.Marshal(queuedAudit{Kind: "edge-decision", Payload: payload})
+	path := filepath.Join(s.directory, randomHex(16)+".json")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return false, err
+	}
+	if err := client.ReportEdgeDecision(ctx, value); err != nil {
+		return false, nil
+	}
+	if err := os.Remove(path); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
 func (s *AuditSpool) queue(kind string, value any) error {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -159,6 +182,12 @@ func (s *AuditSpool) Flush(ctx context.Context, client *Client) error {
 				return err
 			}
 			err = client.ReportEdgeDenial(ctx, value)
+		case "edge-decision":
+			var value auditwire.EdgeDecision
+			if err := json.Unmarshal(queued.Payload, &value); err != nil {
+				return err
+			}
+			err = client.ReportEdgeDecision(ctx, value)
 		default:
 			return fmt.Errorf("unknown queued audit kind %q", queued.Kind)
 		}

@@ -19,7 +19,7 @@ $mount = "$($PSScriptRoot):/src"
 & $engine run --rm --volume $mount --workdir /src --env CGO_ENABLED=0 --env GOOS=windows --env GOARCH=amd64 docker.io/library/golang:1.23-bookworm go build -mod=vendor -trimpath -o dist/bap-perftest-windows-amd64.exe ./cmd/bap-perftest
 if ($LASTEXITCODE -ne 0) { throw 'Could not compile the performance client.' }
 
-Write-Host "BAP Service load: $ServiceRequests requests at concurrency $ServiceConcurrency"
+Write-Host "BAP Service policy-sync load: $ServiceRequests requests at concurrency $ServiceConcurrency"
 & $loadBinary -url https://127.0.0.1:8443 -ca $caPath -requests $ServiceRequests -concurrency $ServiceConcurrency
 if ($LASTEXITCODE -ne 0) { throw 'BAP Service performance run had failures.' }
 
@@ -32,15 +32,15 @@ $state = (Join-Path $runtimeDirectory 'performance-edge-state').Replace('\', '\\
 @"
 service_url: "https://127.0.0.1:8443"
 public_key_path: "$publicKey"
+bundle_public_key_path: "$((Join-Path $runtimeDirectory 'bundle-public.pem').Replace('\', '\\'))"
 ca_bundle_path: "$escapedCA"
 subject_id: "claude-code-local"
-policy_profile: "standard-developer"
 api_key_env: "BAP_EDGE_API_KEY"
 state_directory: "$state"
 timeout_ms: 5000
 "@ | Set-Content -LiteralPath $edgeConfig -Encoding utf8
 
-Write-Host "Full BAP Edge cold authorization path: $EdgeRequests sequential hook processes"
+Write-Host "Full BAP Edge local-decision path: $EdgeRequests sequential hook processes"
 $samples = New-Object System.Collections.Generic.List[double]
 $session = 'edge-performance-' + [Guid]::NewGuid().ToString('N')
 for ($index = 0; $index -lt $EdgeRequests; $index++) {

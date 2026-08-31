@@ -15,9 +15,9 @@ and standard Users receive read/execute only.
 Re-run the installer after rebuilding or updating BAP Edge. The managed hook
 executes the copy under Program Files, not the development binary under `dist`.
 
-For a network BAP Service, pass `-EdgeBinaryPath`, `-GrantPublicKeyPath`,
-`-CaBundlePath`, and `-ApiKey`. The Windows endpoint then needs no Podman, Docker,
-Go runtime, or Linux binary.
+For a network BAP Service, pass `-EdgeBinaryPath`, `-BundlePublicKeyPath`,
+`-CaBundlePath`, and either the mTLS identity paths or
+the development `-ApiKey`. The endpoint then needs no container or Go runtime.
 
 ## Enforced Claude settings
 
@@ -32,11 +32,10 @@ Go runtime, or Linux binary.
 - Six administrator-owned hooks cover session creation/cleanup, authorization,
   successful and failed tool outcomes, and prompt filtering.
 
-The installer also sets the dedicated `BAP_EDGE_API_KEY` as a machine environment
-variable. Restart Claude Code after installation so it inherits the value. This
-key is separate from the Anthropic key. In the interim bearer model, a user who
-can read their process environment may copy it; mTLS/workload identity is the
-planned stronger replacement.
+For local development the installer sets `BAP_EDGE_API_KEY` as a machine
+environment variable. It is separate from the Anthropic key. Network pilot
+deployment should instead use the supported per-device mTLS paths; enrollment,
+hardware-backed key storage, and revocation remain follow-up controls.
 
 Managed policy outranks command-line, local, project, and user settings. Run:
 
@@ -66,7 +65,7 @@ cd C:\Users\User\pyprj\bap-edge
 ```
 
 Then open **PowerShell as Administrator** and install the current Edge binary,
-configuration, CA, grant verification key, machine credential, and managed
+configuration, CA, bundle/legacy grant verification keys, credential, and managed
 Claude settings:
 
 ```powershell
@@ -160,8 +159,8 @@ Verify the signed audit trail from PowerShell:
 .\View-AuditTrail.ps1 -Runtime Docker
 ```
 
-The destructive request must have `"allowed": false` and
-`"reason_code": "EXPLICIT_FORBID"`.
+The destructive request must have `"allowed": false` and a local signed-policy
+forbid reason.
 
 Finally, prove fail-closed behavior:
 
@@ -169,9 +168,10 @@ Finally, prove fail-closed behavior:
 .\Stop-Bap.ps1 -Runtime Docker
 ```
 
-Start a fresh Claude session and request `git status --short`. Even this safe
-operation must be denied because the policy service is unavailable. Restore
-normal operation afterward:
+With a freshly synchronized bundle, `git status --short` may remain allowed
+through the configured maximum-offline lease. With no bundle or after that
+lease expires, the same operation must deny until synchronization succeeds.
+Restore normal control-plane operation afterward:
 
 ```powershell
 .\Start-Bap.ps1 -Runtime Docker

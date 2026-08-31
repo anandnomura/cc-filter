@@ -94,6 +94,7 @@ Windows administrator:
   -ServiceUrl 'https://bap.company.example:8443' `
   -EdgeBinaryPath '.\dist\bap-edge-windows-amd64.exe' `
   -GrantPublicKeyPath 'C:\approved\bap\grant-public.pem' `
+  -BundlePublicKeyPath 'C:\approved\bap\bundle-public.pem' `
   -CaBundlePath 'C:\approved\bap\company-ca.pem' `
   -ApiKey $env:PROVISIONED_BAP_EDGE_API_KEY
 ```
@@ -116,14 +117,15 @@ an exact hook is retried, and post-tool success/failure events.
 
 `Test-Bap.ps1` must report all of these as `PASS`:
 
-1. unauthenticated AuthZEN request returns 401;
+1. unauthenticated policy synchronization returns 401;
 2. safe workspace read allows;
 3. secret read denies;
 4. outside-workspace read denies;
 5. destructive command denies;
 6. unknown tool is explicitly denied and does not create a bypass proposal;
-7. exact retry consumes a cached grant only after central audit acknowledgement;
-8. post-tool outcome correlates to prior allowed authorization;
-9. audit covers PDP, cache, local denial, and outcome without plaintext command or
+7. centrally configured `ls -al` allows from the signed bundle;
+8. exact retry receives the same local signed-policy result without a decision round trip;
+9. post-tool outcome correlates to prior allowed authorization;
+10. audit covers Edge policy decisions, local denial, and outcome without plaintext command or
    absolute path;
-10. the dedicated-key signed hash chain verifies.
+11. the dedicated-key signed hash chain verifies.

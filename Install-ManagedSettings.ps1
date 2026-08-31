@@ -2,7 +2,10 @@ param(
     [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
     [string]$ServiceUrl = 'https://127.0.0.1:8443',
     [string]$GrantPublicKeyPath = '',
+    [string]$BundlePublicKeyPath = '',
     [string]$CaBundlePath = '',
+    [string]$ClientCertificatePath = '',
+    [string]$ClientKeyPath = '',
     [string]$ApiKey = '',
     [string]$EdgeBinaryPath = ''
 )
@@ -12,6 +15,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
 $isLocalDevelopment = $ServiceUrl -eq 'https://127.0.0.1:8443'
+if (($ClientCertificatePath -and -not $ClientKeyPath) -or ($ClientKeyPath -and -not $ClientCertificatePath)) {
+    throw 'Provide both -ClientCertificatePath and -ClientKeyPath for mutual TLS.'
+}
 
 function Test-BapHealthWithCa {
     param([Parameter(Mandatory)][string]$CaBundle)
@@ -27,6 +33,8 @@ function Test-BapHealthWithCa {
 $binarySource = if ($EdgeBinaryPath) { $EdgeBinaryPath } else { Join-Path $PSScriptRoot 'dist\bap-edge-windows-amd64.exe' }
 $engine = ''
 $runtimeDirectory = ''
+$localPublicKey = ''
+$localBundlePublicKey = ''
 if ($EdgeBinaryPath -and -not (Test-Path -LiteralPath $binarySource)) {
     throw "The supplied prebuilt Edge binary does not exist: $binarySource"
 }
@@ -44,27 +52,32 @@ if (($isLocalDevelopment -or (-not $EdgeBinaryPath -and -not (Test-Path -Literal
     $engine = Get-BapContainerEngine -Runtime $Runtime
     $runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
 }
-if (-not $isLocalDevelopment -and -not $GrantPublicKeyPath) {
-    throw 'Network installation requires -GrantPublicKeyPath from the BAP Service administrator.'
+if (-not $isLocalDevelopment -and -not $BundlePublicKeyPath) {
+    throw 'Network installation requires -BundlePublicKeyPath from the BAP Service administrator.'
 }
 if (-not (Test-Path -LiteralPath $binarySource)) {
     & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime $Runtime
 }
 if ($isLocalDevelopment) {
     $localPublicKey = Join-Path $runtimeDirectory 'grant-public.pem'
+    $localBundlePublicKey = Join-Path $runtimeDirectory 'bundle-public.pem'
 }
 $publicKeySource = if ($GrantPublicKeyPath) { $GrantPublicKeyPath } else { $localPublicKey }
+$bundlePublicKeySource = if ($BundlePublicKeyPath) { $BundlePublicKeyPath } else { $localBundlePublicKey }
 if ($isLocalDevelopment -and -not (Test-Path -LiteralPath $publicKeySource)) {
     & (Join-Path $PSScriptRoot 'Start-Bap.ps1') -Runtime $Runtime
 }
-if (-not (Test-Path -LiteralPath $publicKeySource)) {
+if ($publicKeySource -and -not (Test-Path -LiteralPath $publicKeySource)) {
     throw "Place the BAP Service grant verification public key at $publicKeySource before installing."
+}
+if (-not (Test-Path -LiteralPath $bundlePublicKeySource)) {
+    throw "Place the BAP Service policy bundle verification public key at $bundlePublicKeySource before installing."
 }
 if (-not $ApiKey -and $isLocalDevelopment) {
     $ApiKey = (Get-Content -LiteralPath (Join-Path $runtimeDirectory 'edge-api-key.txt') -Raw).Trim()
 }
-if (-not $ApiKey) {
-    throw 'Provide the dedicated BAP Edge credential with -ApiKey. Do not use an Anthropic API key.'
+if (-not $ApiKey -and -not $ClientCertificatePath) {
+    throw 'Provide a per-device mTLS identity or the local-development BAP Edge -ApiKey. Do not use an Anthropic API key.'
 }
 
 $installDirectory = Join-Path $env:ProgramFiles 'BAP Edge'
@@ -72,12 +85,18 @@ $managedDirectory = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d'
 $binaryPath = Join-Path $installDirectory 'bap-edge.exe'
 $configPath = Join-Path $installDirectory 'bap-edge.yaml'
 $publicKeyPath = Join-Path $installDirectory 'grant-public.pem'
+$bundlePublicKeyPath = Join-Path $installDirectory 'bundle-public.pem'
 $installedCaPath = Join-Path $installDirectory 'service-ca-bundle.pem'
+$installedClientCertificatePath = Join-Path $installDirectory 'client-certificate.pem'
+$installedClientKeyPath = Join-Path $installDirectory 'client-key.pem'
 $managedPath = Join-Path $managedDirectory '50-bap-edge.json'
 
 New-Item -ItemType Directory -Force -Path $installDirectory, $managedDirectory | Out-Null
 Copy-Item -LiteralPath $binarySource -Destination $binaryPath -Force
-Copy-Item -LiteralPath $publicKeySource -Destination $publicKeyPath -Force
+if ($publicKeySource) {
+    Copy-Item -LiteralPath $publicKeySource -Destination $publicKeyPath -Force
+}
+Copy-Item -LiteralPath $bundlePublicKeySource -Destination $bundlePublicKeyPath -Force
 $configuredCaPath = ''
 if (-not $CaBundlePath -and $isLocalDevelopment) {
     $CaBundlePath = Join-Path $runtimeDirectory 'dev-ca.pem'
@@ -86,18 +105,30 @@ if ($CaBundlePath) {
     Copy-Item -LiteralPath $CaBundlePath -Destination $installedCaPath -Force
     $configuredCaPath = $installedCaPath
 }
+$configuredClientCertificatePath = ''
+$configuredClientKeyPath = ''
+if ($ClientCertificatePath) {
+    Copy-Item -LiteralPath $ClientCertificatePath -Destination $installedClientCertificatePath -Force
+    Copy-Item -LiteralPath $ClientKeyPath -Destination $installedClientKeyPath -Force
+    $configuredClientCertificatePath = $installedClientCertificatePath
+    $configuredClientKeyPath = $installedClientKeyPath
+}
 @"
 service_url: "$ServiceUrl"
-public_key_path: "$($publicKeyPath.Replace('\', '\\'))"
+public_key_path: "$(if ($publicKeySource) { $publicKeyPath.Replace('\', '\\') } else { '' })"
+bundle_public_key_path: "$($bundlePublicKeyPath.Replace('\', '\\'))"
 ca_bundle_path: "$($configuredCaPath.Replace('\', '\\'))"
+client_certificate_path: "$($configuredClientCertificatePath.Replace('\', '\\'))"
+client_key_path: "$($configuredClientKeyPath.Replace('\', '\\'))"
 subject_id: "claude-code-local"
-policy_profile: "standard-developer"
 timeout_ms: 3000
 cache_directory: ""
 state_directory: ""
 api_key_env: "BAP_EDGE_API_KEY"
 "@ | Set-Content -LiteralPath $configPath -Encoding utf8
-[Environment]::SetEnvironmentVariable('BAP_EDGE_API_KEY', $ApiKey, 'Machine')
+if ($ApiKey) {
+    [Environment]::SetEnvironmentVariable('BAP_EDGE_API_KEY', $ApiKey, 'Machine')
+}
 
 $quotedBinary = '"' + $binaryPath + '"'
 $quotedConfig = '"' + $configPath + '"'

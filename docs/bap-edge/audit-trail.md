@@ -9,13 +9,12 @@ principal + credential fingerprint
   -> Claude session_id
      -> BAP workload_id
         -> Claude tool_use_id
-           -> authorization / grant consumption / outcome
+           -> local policy decision / outcome
 ```
 
 Event sources are:
 
-- `pdp_evaluation`: Cedar was evaluated by BAP Service;
-- `cached_grant_consumption`: an exact cached grant was re-verified and used;
+- `edge_policy_evaluation`: Cedar was evaluated locally from a verified signed bundle;
 - `local_edge_filter`: inherited cc-filter denied before Cedar;
 - `bap_edge_report`: the tool subsequently succeeded or failed.
 
@@ -26,7 +25,7 @@ tool input bodies, tool output, file content, API keys, and secrets are excluded
 
 New events also include a W3C-compatible `trace_id`, the BAP Service `span_id`,
 and its Edge `parent_span_id`. MySQL indexes trace ID and timestamp, allowing an
-authorization, exact cached-grant retry, and PostToolUse outcome to be rebuilt
+local authorization and PostToolUse outcome to be rebuilt
 as one operation trace. See [end-to-end observability](observability.md).
 
 ## Integrity
@@ -37,16 +36,16 @@ locked audit-chain head. Each event contains:
 - the previous event hash;
 - an event hash;
 - an Ed25519 signature made with the dedicated audit signing key;
-- the Cedar policy SHA-256 for service decisions and cached grants.
+- the signed bundle version and combined Cedar/registry digest for Edge decisions.
 
 This detects event modification, insertion, and deletion/reordering inside the
 chain. Protect and back up MySQL and periodically export the last event hash to a
 separate log/SIEM; without an external checkpoint, restoring an older internally
 consistent database copy cannot be distinguished from an authorized restore.
 
-The audit key is separate from the grant-signing key. Keep both private keys on
-BAP Service. Distribute only `audit-public.pem` to verifiers and
-`grant-public.pem` to BAP Edges.
+The audit, legacy grant, and policy-bundle signing keys are separate. Keep all
+private keys on BAP Service. Distribute `audit-public.pem` to verifiers and
+`bundle-public.pem` to BAP Edges.
 
 ## View and verify locally
 
@@ -69,14 +68,15 @@ docker exec bap-service-local bap-service audit list
 
 ## Availability behavior
 
-- A direct Cedar decision is not returned until its audit event is durable.
-- A cached grant cannot authorize execution until consumption is durable.
+- Edge durably spools its local decision before returning allow.
+- Central delivery is asynchronous and does not put BAP Service in the traffic
+  hot path while the signed bundle lease is fresh.
 - Local denials remain denied and queue their audit report if offline.
 - Post-execution outcomes cannot undo an action, so they use durable local retry.
 
-The outcome spool is under the configured Edge state directory. It contains only
-minimal correlation metadata. Successful service acknowledgement deletes the
-corresponding spool file.
+The decision/outcome spool is under the configured Edge state directory.
+Successful service acknowledgement deletes the corresponding spool file. The
+current user-local spool is interim pending the protected Edge Agent.
 
 ## Production storage
 

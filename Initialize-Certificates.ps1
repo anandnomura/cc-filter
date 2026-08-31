@@ -18,7 +18,7 @@ $mount = "$($runtimeDirectory):/var/lib/bap"
 & $engine run --rm --volume $mount bap-service:local initialize-certificates
 if ($LASTEXITCODE -ne 0) { throw 'Certificate initialization failed.' }
 
-$expected = @('dev-ca.pem', 'tls-cert.pem', 'tls-key.pem', 'grant-public.pem', 'grant-private.pem', 'audit-public.pem', 'audit-private.pem')
+$expected = @('dev-ca.pem', 'tls-cert.pem', 'tls-key.pem', 'grant-public.pem', 'grant-private.pem', 'audit-public.pem', 'audit-private.pem', 'bundle-public.pem', 'bundle-private.pem')
 foreach ($name in $expected) {
     if (-not (Test-Path -LiteralPath (Join-Path $runtimeDirectory $name))) {
         throw "Certificate initialization did not create $name."
@@ -40,5 +40,6 @@ if (-not (Test-Path -LiteralPath $apiKeyPath)) {
 Write-Host 'Certificate initialization complete.'
 Write-Host "Local CA for BAP Edge: $(Join-Path $runtimeDirectory 'dev-ca.pem')"
 Write-Host "Grant verification key: $(Join-Path $runtimeDirectory 'grant-public.pem')"
+Write-Host "Policy-bundle verification key: $(Join-Path $runtimeDirectory 'bundle-public.pem')"
 Write-Host "Local development BAP API key: $apiKeyPath"
 Write-Host 'Private keys remain under .bap/runtime and are excluded from Git and OCI build contexts.'

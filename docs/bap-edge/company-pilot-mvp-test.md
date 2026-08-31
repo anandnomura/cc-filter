@@ -53,7 +53,8 @@ The logs must say `MySQL storage initialized` and must not use JSONL fallback.
 With the DBA and service owner, demonstrate:
 
 1. encrypted, server-name-validated BAP-to-MySQL connectivity;
-2. database/network outage makes `/readyz` return 503 and denies new decisions;
+2. database/network outage makes `/readyz` and policy sync return 503; a fresh
+   signed bundle continues only within its approved offline lease;
 3. recovery restores readiness without breaking the signed audit chain;
 4. point-in-time backup and restore meet the agreed RPO and RTO;
 5. restored events and the chain head pass signature/hash verification;
@@ -66,8 +67,8 @@ script controls only the local `bap-mysql-local` container.
 
 ## 4. Deploy and test managed Windows endpoints
 
-IT installs the signed Edge artifact, company CA, grant public key, unique pilot
-credential, configuration, and managed settings. A representative installation
+IT installs the signed Edge artifact, company CA, bundle public key, unique
+device mTLS identity, configuration, and managed settings. A representative installation
 is:
 
 ```powershell
@@ -75,8 +76,10 @@ is:
   -ServiceUrl 'https://bap.company.example:8443' `
   -EdgeBinaryPath '.\dist\bap-edge-windows-amd64.exe' `
   -GrantPublicKeyPath 'C:\approved\bap\grant-public.pem' `
+  -BundlePublicKeyPath 'C:\approved\bap\bundle-public.pem' `
   -CaBundlePath 'C:\approved\bap\company-ca.pem' `
-  -ApiKey $env:PROVISIONED_BAP_EDGE_API_KEY
+  -ClientCertificatePath 'C:\approved\bap\device-cert.pem' `
+  -ClientKeyPath 'C:\approved\bap\device-key.pem'
 ```
 
 On at least two endpoints, a standard non-administrator user runs:
@@ -94,6 +97,17 @@ show zero and is not enforcement evidence.
 
 ## 5. Run the Sonnet/Opus policy certification corpus
 
+Capture every reviewed scenario on the exact approved clients/models following
+[the fixture certification procedure](claude-fixture-certification.md), then
+require the manifest during the admission run:
+
+```powershell
+.\Test-MVP0.ps1 -Runtime Docker -RequireCompanyFixtures
+```
+
+The run must fail for a missing model family, divergent decision/schema, stale
+policy digest, unknown tool schema, replay drift, or modified fixture.
+
 Run the same operation fixtures with every approved Sonnet and Opus option.
 Require identical authorization for equivalent normalized operations. Cover:
 
@@ -105,7 +119,8 @@ Require identical authorization for equivalent normalized operations. Cover:
 - network destinations and production mutation;
 - every enabled MCP server/tool and plugin;
 - notebooks, delegation/subagents, malformed inputs, and unknown tools;
-- grant replay, expiry, cache corruption, service timeout, and outcome retry.
+- bundle tamper, expiry, rollback, equivocation, refresh/offline lease,
+  force-update, kill switch, control-plane timeout, and outcome retry.
 
 Explicit forbids must never create bypass proposals. No unexpected allow is
 acceptable.
@@ -114,7 +129,7 @@ acceptable.
 
 For each endpoint, prove provisioning, expiration, rotation overlap, revocation,
 offboarding, and audit attribution. Revoking endpoint A must not interrupt
-endpoint B, and a revoked credential must not evaluate or consume a grant.
+endpoint B, and a revoked identity must not synchronize policy or submit audit.
 
 SPIFFE may be deferred for this bounded pilot only through documented risk
 acceptance. The current shared bearer key does not satisfy per-device revocation
@@ -124,8 +139,8 @@ that narrowed risk and the pilot scope prevents credential tampering.
 ## 7. Observability and operational failure tests
 
 Require privacy-safe logs, metrics, dashboards, alerts, and trace correlation
-for decision latency, allow/deny reason, authentication failure, policy version,
-audit failure, database readiness, cache source, and Edge outcome-spool age.
+for local decision latency, allow/deny reason, authentication failure, bundle
+version/age/epoch, audit failure, database readiness, and Edge spool age.
 Prove alerting for service outage, slow MySQL, capacity exhaustion, certificate
 expiry, key failure, and audit corruption. Prompt text, plaintext commands,
 credentials, file contents, and disallowed absolute paths must not leak.

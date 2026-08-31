@@ -26,7 +26,10 @@ Show-Step 3 'Start BAP Service over HTTPS'
 & (Join-Path $PSScriptRoot 'Start-Bap.ps1') -Runtime $Runtime
 
 Show-Step 4 'Run case-by-case authorization and audit acceptance tests'
+& (Join-Path $PSScriptRoot 'Test-PolicyRollout.ps1') -Runtime $Runtime
 & (Join-Path $PSScriptRoot 'Test-Bap.ps1') -Runtime $Runtime
+& (Join-Path $PSScriptRoot 'Test-ClaudeFixtures.ps1') -Runtime $Runtime
+& (Join-Path $PSScriptRoot 'Show-BapStatus.ps1') -Runtime $Runtime
 
 Show-Step 5 'Verify the signed audit hash chain'
 & (Join-Path $PSScriptRoot 'View-AuditTrail.ps1') -Runtime $Runtime -VerifyOnly
@@ -36,7 +39,7 @@ Show-Step 6 'Show pending missing-policy proposals'
 
 Write-Host ""
 Write-Host 'DEMO PASSED.' -ForegroundColor Green
-Write-Host 'The automated cases proved: API authentication, workload/session correlation, safe allow, secret/outside/destructive/unknown deny, cached-grant audit, outcome audit, HTTPS, AuthZEN, Cedar, and audit integrity.'
+Write-Host 'The automated cases proved: signed policy rollout, command bypass resistance, API authentication, workload/session correlation, safe allow, secret/outside/destructive/unknown deny, local Edge decision audit, outcome audit, HTTPS, Cedar, and audit integrity.'
 Write-Host 'Managed-settings installation is intentionally separate because it requires an elevated administrator shell.'
 
 if ($KeepRunning) {

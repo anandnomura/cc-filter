@@ -2,6 +2,25 @@
 
 All notable changes to cc-filter are documented in this file.
 
+## [Unreleased]
+
+### Added
+- BAP Service-owned, versioned policy source and dedicated Ed25519-signed policy bundles
+- Authenticated Edge synchronization with update, force-update, and kill-switch directives
+- Local BAP Edge Cedar decisions with expiry, offline lease, rollback, equivocation, and default-deny checks
+- Structured centrally managed command rules, including `git status --short` and `ls -al`
+- Durable Edge-decision spooling, asynchronous central audit ingestion, and optional per-device mTLS
+- Unit, live MVP, offline-operation, tamper, rule-removal, directive, mTLS, and database-failure coverage
+- Data-driven command/bypass corpus and an HTTPS Service-to-Edge rollout lifecycle gate
+- Privacy-safe exact Claude hook schema capture, replay, hash manifest, model-equivalence, and policy-digest certification
+- Read-only `Show-BapStatus.ps1` view of control-plane and Edge policy/lease/audit posture
+
+### Changed
+- BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call
+- Endpoint configuration no longer accepts policy profiles or allow registries
+- MVP architecture, installation, testing, certificate, deployment, and roadmap documentation now describe the signed-bundle model
+- The modeled Claude contract corpus now evaluates 62 tool/schema cases through normalization and the active local Cedar policy
+
 ## [v0.0.6] - 2026-03-12
 
 ### Fixed

@@ -99,6 +99,7 @@ install the locally generated EXE:
   -ServiceUrl 'https://bap.company.example' `
   -EdgeBinaryPath '.\dist\bap-edge-windows-amd64.exe' `
   -GrantPublicKeyPath 'C:\staging\grant-public.pem' `
+  -BundlePublicKeyPath 'C:\staging\bundle-public.pem' `
   -CaBundlePath 'C:\staging\company-ca.pem' `
   -ApiKey $env:PROVISIONED_BAP_EDGE_API_KEY
 ```

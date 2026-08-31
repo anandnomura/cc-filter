@@ -21,6 +21,7 @@ import (
 	"cc-filter/internal/auditwire"
 	"cc-filter/internal/authzen"
 	"cc-filter/internal/grants"
+	"cc-filter/internal/policybundle"
 	"cc-filter/internal/tracecontext"
 )
 
@@ -39,6 +40,8 @@ type Server struct {
 	readinessFailed     bool
 	lastReadinessLog    time.Time
 	readinessSuppressed uint64
+	policyEnvelope      policybundle.Envelope
+	policyBundle        policybundle.Bundle
 }
 
 type ProposalStore interface {
@@ -63,10 +66,50 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /metrics", s.prometheusMetrics)
 	mux.HandleFunc("GET /.well-known/authzen-configuration", s.metadata)
 	mux.Handle("POST /access/v1/evaluation", s.authenticate(http.HandlerFunc(s.evaluate)))
+	mux.Handle("POST /bap/v1/edge/sync", s.authenticate(http.HandlerFunc(s.syncPolicy)))
 	mux.Handle("POST /bap/v1/audit/grant-consumption", s.authenticate(http.HandlerFunc(s.auditGrantConsumption)))
 	mux.Handle("POST /bap/v1/audit/outcome", s.authenticate(http.HandlerFunc(s.auditOutcome)))
 	mux.Handle("POST /bap/v1/audit/edge-denial", s.authenticate(http.HandlerFunc(s.auditEdgeDenial)))
+	mux.Handle("POST /bap/v1/audit/edge-decision", s.authenticate(http.HandlerFunc(s.auditEdgeDecision)))
 	return requestLogging(s.traceRequest(s.observeHTTP(mux)))
+}
+
+func (s *Server) SetPolicyBundle(bundle policybundle.Bundle, envelope policybundle.Envelope) {
+	s.policyBundle = bundle
+	s.policyEnvelope = envelope
+}
+
+func (s *Server) syncPolicy(w http.ResponseWriter, r *http.Request) {
+	if s.policyBundle.Version == 0 || len(s.policyEnvelope.Payload) == 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "policy_bundle_unavailable"})
+		return
+	}
+	if s.audit == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "control_plane_not_ready"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.audit.Ready(ctx); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "control_plane_not_ready"})
+		return
+	}
+	var request policybundle.SyncRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil || request.EdgeInstanceID == "" || request.EdgeVersion == "" || request.Nonce == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_sync_request"})
+		return
+	}
+	directive := "UPDATE"
+	if s.policyBundle.KillSwitch {
+		directive = "KILL_SWITCH"
+	} else if s.policyBundle.ForceUpdate && (request.InstalledVersion != s.policyBundle.Version || request.InstalledDigest != s.policyBundle.RulesDigest || request.RevocationEpoch < s.policyBundle.RevocationEpoch) {
+		directive = "UPDATE_REQUIRED"
+	} else if request.InstalledVersion == s.policyBundle.Version && request.InstalledDigest == s.policyBundle.RulesDigest && request.RevocationEpoch == s.policyBundle.RevocationEpoch {
+		directive = "CURRENT"
+	}
+	writeJSON(w, http.StatusOK, policybundle.SyncResponse{Directive: directive, Envelope: s.policyEnvelope})
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
@@ -326,6 +369,37 @@ func (s *Server) auditEdgeDenial(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"recorded": true, "event_id": event.EventID})
 }
 
+func (s *Server) auditEdgeDecision(w http.ResponseWriter, r *http.Request) {
+	if s.audit == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
+		return
+	}
+	caller := callerFrom(r.Context())
+	var decision auditwire.EdgeDecision
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decision); err != nil || decision.EventID == "" || decision.Request.Validate() != nil || decision.PolicyVersion == "" || decision.BundleVersion == 0 || decision.BundleDigest == "" || decision.ReasonCode == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_edge_decision"})
+		return
+	}
+	if exists, err := s.audit.HasEvent(decision.EventID); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
+		return
+	} else if exists {
+		writeJSON(w, http.StatusOK, map[string]any{"recorded": true, "event_id": decision.EventID, "duplicate": true})
+		return
+	}
+	event := authorizationEvent(decision.Request, "edge_policy_evaluation", "", decision.ReasonCode, decision.PolicyVersion, &decision.Allowed, caller, traceFrom(r.Context()))
+	event.EventID = decision.EventID
+	if err := s.audit.Append(event); err != nil {
+		s.metrics.AuditFailure("edge_decision")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
+		return
+	}
+	s.metrics.Decision(decision.Allowed, decision.ReasonCode, "edge_policy_evaluation")
+	writeJSON(w, http.StatusOK, map[string]any{"recorded": true, "event_id": event.EventID})
+}
+
 func authorizationEvent(request authzen.EvaluationRequest, source, decisionID, reasonCode, policyVersion string, allowed *bool, caller callerIdentity, trace tracecontext.Context) audit.Event {
 	tool, _ := request.Resource.Properties["tool"].(string)
 	sessionID, _ := request.Context["session_id"].(string)
@@ -377,6 +451,17 @@ type callerContextKey struct{}
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			certificate := r.TLS.PeerCertificates[0]
+			sum := sha256.Sum256(certificate.Raw)
+			principal := certificate.Subject.CommonName
+			if principal == "" {
+				principal = "mtls-device"
+			}
+			caller := callerIdentity{Principal: principal, Fingerprint: "sha256:" + hex.EncodeToString(sum[:])}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerContextKey{}, caller)))
+			return
+		}
 		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if provided == "" || len(provided) != len(s.apiKey) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.apiKey)) != 1 {
 			s.metrics.AuthenticationFailure()

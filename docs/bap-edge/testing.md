@@ -12,21 +12,36 @@ From a normal PowerShell window:
 ```powershell
 cd C:\Users\User\pyprj\bap-edge
 .\Build-Bap.ps1 -Runtime Docker
+.\Test-PolicyRollout.ps1 -Runtime Docker
 .\Start-Bap.ps1 -Runtime Docker
 .\Test-Bap.ps1 -Runtime Docker
 .\Test-DatabaseFailure.ps1 -Runtime Docker
 .\View-AuditTrail.ps1 -Runtime Docker -VerifyOnly
+.\Show-BapStatus.ps1 -Runtime Docker
 ```
 
-The test proves unit/integration tests, HTTPS, AuthZEN discovery, missing API-key
-rejection, Cedar allow/deny, local denial auditing, per-session workload IDs,
-signed grants, centrally acknowledged cache reuse, post-tool outcomes, W3C trace
-correlation, privacy-safe Edge JSONL, bounded Prometheus metrics, audit privacy,
-and signed-chain verification.
+The test proves unit/integration tests, HTTPS, authenticated policy sync, signed
+bundle verification, rollback/expiry/tamper rejection, locally evaluated Cedar
+allow/deny, centrally configured `ls -al`, bounded offline decisions, local
+denial auditing, workload IDs, post-tool outcomes, trace correlation,
+privacy-safe logs, metrics, audit privacy, and signed-chain verification.
 
-The database-failure test stops local MySQL, proves `/readyz` returns 503 and a
-fresh evaluation cannot be authorized, restores MySQL, and requires readiness
-to recover.
+`Test-PolicyRollout.ps1` is the focused policy gate. It runs the reviewed,
+data-driven command/bypass corpus and a real HTTPS Service-to-Edge lifecycle:
+v1 permits `ls -al`, v2 removes that rule and denies it, and rollback,
+same-version equivocation, payload tamper, kill switch, and expired offline
+lease all fail closed. `Test-MVP0.ps1` invokes this gate automatically.
+
+Exact company Claude Code/model captures are optional for model-independent lab
+work and mandatory for admission. See
+[fixture certification](claude-fixture-certification.md), then run:
+
+```powershell
+.\Test-MVP0.ps1 -Runtime Docker -RequireCompanyFixtures
+```
+
+The database-failure test stops local MySQL, proves `/readyz` and policy sync
+return 503, restores MySQL, and requires control-plane readiness to recover.
 
 For component-only builds use `Build-BapEdge.ps1` on the Windows side and
 `Build-BapService.sh docker` or `Build-BapService.sh podman` on the Linux side.
@@ -66,14 +81,16 @@ script exercises the installed Program Files Edge binary directly. Ask Claude
 to read `README.md` (allow), read `.env` (deny), and run `git reset --hard`
 (deny). Then inspect the audit trail.
 
-## Fail-closed test
+## Bounded offline and fail-closed test
 
 ```powershell
 .\Stop-Bap.ps1 -Runtime Docker
 ```
 
-Start Claude and request a tool operation. It must be denied because the service
-cannot provide or audit authority. Start the service again before normal use.
+A fresh verified bundle may continue local traffic decisions until its
+`max_offline_seconds` lease expires. An Edge with no bundle, an invalid bundle,
+or an expired offline lease must deny. Restart the service before lease expiry
+for normal operation.
 
 ## Standard-user tamper test
 

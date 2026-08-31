@@ -58,7 +58,7 @@ The pilot baseline now commits indexed, signed/hash-chained events to MySQL in a
 transaction and fails closed when the commit cannot complete. Deploy company
 managed MySQL with replication, point-in-time recovery, tested restore,
 retention, capacity/SLO measurements, external chain checkpoints, and
-SIEM/WORM export. Then run multiple stateless PDP replicas and prove concurrent
+SIEM/WORM export. Then run multiple stateless control-plane replicas and prove concurrent
 chain-head behavior at expected peak load.
 
 ### 4. High availability and disaster recovery

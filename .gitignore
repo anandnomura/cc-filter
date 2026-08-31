@@ -7,6 +7,7 @@ cc-filter.exe
 dist/
 .bap/runtime/
 .bap/local-claude/
+.bap/captures/
 
 # Go build artifacts
 *.o

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -19,6 +21,7 @@ import (
 	"cc-filter/bap-service/internal/proposals"
 	"cc-filter/bap-service/internal/server"
 	"cc-filter/internal/grants"
+	"cc-filter/internal/policybundle"
 )
 
 func main() {
@@ -31,6 +34,9 @@ func main() {
 	publicPath := env("BAP_GRANT_PUBLIC_KEY_PATH", filepath.Join(keyDirectory, "grant-public.pem"))
 	auditPrivatePath := env("BAP_AUDIT_PRIVATE_KEY_PATH", filepath.Join(keyDirectory, "audit-private.pem"))
 	auditPublicPath := env("BAP_AUDIT_PUBLIC_KEY_PATH", filepath.Join(keyDirectory, "audit-public.pem"))
+	bundlePrivatePath := env("BAP_BUNDLE_PRIVATE_KEY_PATH", filepath.Join(keyDirectory, "bundle-private.pem"))
+	bundlePublicPath := env("BAP_BUNDLE_PUBLIC_KEY_PATH", filepath.Join(keyDirectory, "bundle-public.pem"))
+	bundleSourcePath := env("BAP_BUNDLE_SOURCE_PATH", "policies/edge-policy-source.json")
 
 	if err := os.MkdirAll(keyDirectory, 0700); err != nil {
 		log.Fatal(err)
@@ -50,7 +56,12 @@ func main() {
 				log.Fatalf("initialize audit signing key: %v", err)
 			}
 		}
-		log.Printf("certificates initialized; distribute CA %s and grant public key %s", caPath, publicPath)
+		if _, err := os.Stat(bundlePrivatePath); os.IsNotExist(err) {
+			if err := grants.GenerateKeyPair(bundlePrivatePath, bundlePublicPath); err != nil {
+				log.Fatalf("initialize policy bundle signing key: %v", err)
+			}
+		}
+		log.Printf("certificates initialized; distribute CA %s, bundle public key %s, and legacy grant public key %s", caPath, bundlePublicPath, publicPath)
 		return
 	}
 	if env("BAP_DEVELOPMENT_TLS", "false") == "true" {
@@ -78,6 +89,10 @@ func main() {
 	auditPrivateKey, err := grants.LoadPrivateKey(auditPrivatePath)
 	if err != nil {
 		log.Fatalf("load audit signing key: %v; run initialize-certificates first", err)
+	}
+	bundlePrivateKey, err := grants.LoadPrivateKey(bundlePrivatePath)
+	if err != nil {
+		log.Fatalf("load policy bundle signing key: %v; run initialize-certificates first", err)
 	}
 	var auditStore server.AuditStore
 	var proposalStore server.ProposalStore
@@ -154,12 +169,29 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	bundleSourceData, err := os.ReadFile(bundleSourcePath)
+	if err != nil {
+		log.Fatalf("read policy bundle source: %v", err)
+	}
+	bundleSource, err := policybundle.LoadSource(bundleSourceData)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cedarPolicy, err := os.ReadFile(policyPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	bundle, envelope, err := policybundle.Activate(bundleSource, cedarPolicy, bundlePrivateKey, "bap-bundle-local", filepath.Join(keyDirectory, "active-policy-bundle.json"), time.Now().UTC())
+	if err != nil {
+		log.Fatal(err)
+	}
 	apiKey := os.Getenv("BAP_EDGE_API_KEY")
-	if apiKey == "" {
-		log.Fatal("BAP_EDGE_API_KEY is required")
+	if apiKey == "" && os.Getenv("BAP_CLIENT_CA_PATH") == "" {
+		log.Fatal("BAP_EDGE_API_KEY is required unless mutual TLS client authentication is configured")
 	}
 	principal := env("BAP_EDGE_PRINCIPAL", "local-user")
 	service := server.New(engine, privateKey, "bap-service-local", "bap-edge", 30*time.Second, proposalStore, auditStore, apiKey, principal)
+	service.SetPolicyBundle(bundle, envelope)
 	log.Printf("BAP Service listening on %s", address)
 	certPath := os.Getenv("BAP_TLS_CERT_PATH")
 	keyPath := os.Getenv("BAP_TLS_KEY_PATH")
@@ -168,7 +200,22 @@ func main() {
 	}
 	if certPath != "" {
 		log.Printf("TLS is enabled")
-		if err := http.ListenAndServeTLS(address, certPath, keyPath, service.Handler()); err != nil {
+		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+		if clientCAPath := os.Getenv("BAP_CLIENT_CA_PATH"); clientCAPath != "" {
+			caPEM, err := os.ReadFile(clientCAPath)
+			if err != nil {
+				log.Fatalf("read BAP client CA: %v", err)
+			}
+			clientCAs := x509.NewCertPool()
+			if !clientCAs.AppendCertsFromPEM(caPEM) {
+				log.Fatal("BAP client CA contains no certificates")
+			}
+			tlsConfig.ClientCAs = clientCAs
+			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+			log.Printf("mutual TLS client authentication is required")
+		}
+		httpServer := &http.Server{Addr: address, Handler: service.Handler(), TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second}
+		if err := httpServer.ListenAndServeTLS(certPath, keyPath); err != nil {
 			log.Fatal(err)
 		}
 		return

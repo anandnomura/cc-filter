@@ -1,7 +1,9 @@
 # Cedar policies and safe learning
 
-Policies are in `bap-service/policies/agent-tools.cedar`. The schema beside the
-policy documents the available entity attributes and actions.
+The control-plane source is
+`bap-service/policies/edge-policy-source.json`; Cedar is in
+`bap-service/policies/agent-tools.cedar`. BAP Service validates, combines, and
+signs both. BAP Edge consumes the bundle and evaluates locally.
 
 Cedar is default deny: a request needs a matching `permit`, and any matching
 `forbid` overrides permits. The current hardening baseline forbids protected
@@ -10,10 +12,20 @@ privileged, likely-exfiltration, and common obfuscated commands. It also
 explicitly denies arbitrary network fetch, MCP, delegation, and unknown tools
 until governed registries or profiles authorize those families.
 
+## Changing or adding a rule
+
+Add the structured command/network/MCP/delegation entry, include owner and
+approval, increment top-level `version`, add positive and negative/bypass cases
+to `internal/policybundle/testdata/command-policy-corpus.json`, then run
+`Test-PolicyRollout.ps1` followed by `Test-MVP0.ps1`. Changing content without a version increment
+causes service activation or Edge equivocation checks to fail closed.
+
 ## Missing-rule proposals
 
-Only a denial with reason code `NO_MATCHING_POLICY` creates a proposal. Explicit
-forbids never become proposals. The proposal log stores classification metadata
+The current proposal collector belongs to the legacy central AuthZEN path. The
+local Edge path records `LOCAL_NO_MATCHING_POLICY` in audit but does not yet
+create a governed proposal. Future asynchronous proposal ingestion must store
+only classification metadata
 such as action and tool name; it does not store prompts, paths, command strings,
 subject IDs, or secrets.
 
@@ -34,8 +46,7 @@ or inside a network container:
 podman exec bap-service bap-service proposals list
 ```
 
-An administrator should review frequency and intent, edit the Cedar policy,
-add allow and deny tests, run `Test-Bap.ps1`, review the Git change, and deploy a
-new service image. The service never turns a proposal into live authority by
-itself. This prevents an agent from training the authorization layer to approve
-its own escalation attempts.
+An administrator reviews frequency and intent, edits the central source/Cedar,
+increments the version, adds allow/deny/bypass tests, runs `Test-Bap.ps1`, and
+deploys the new control-plane image. Nothing turns a proposal directly into
+live authority.

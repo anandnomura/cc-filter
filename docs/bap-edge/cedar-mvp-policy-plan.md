@@ -4,7 +4,7 @@ This document defines the policy-engine work required for a company pilot using
 official Claude Code with Sonnet or Opus. The local Qwen bridge is only a
 development harness. Authorization must not depend on which model generated a
 tool request: the official Claude client emits the hook event, BAP Edge
-normalizes it, and Cedar evaluates the resulting operation.
+normalizes it, and locally bundled Cedar evaluates the resulting operation.
 
 Model choice still matters for testing because models can choose different
 tools and compose inputs differently. Every supported Claude Code release,
@@ -28,13 +28,15 @@ The model-independent MVP-0A foundation now:
 - fails closed when required security-relevant fields are absent, empty, or
   have the wrong JSON type;
 - separates `read-only` and `standard-developer` Cedar profiles;
-- permits WebFetch, MCP, and delegation only through exact administrator-owned
-  registries (HTTPS DNS destinations only; no IP or wildcard MCP permit);
-- permits shell execution only for a deliberately small classifier of
+- consumes WebFetch, MCP, delegation, profile, and shell registries only from a
+  centrally signed versioned bundle;
+- permits shell execution only for a deliberately small centrally configured classifier of
   inspection/build/test commands and denies shell operators, wrappers, and
   unclassified executables; and
 - runs a version-controlled data fixture corpus plus end-to-end acceptance via
-  `Test-MVP0.ps1`.
+  `Test-MVP0.ps1`; and
+- rejects signed-bundle tamper, expiry, rollback, equivocation, stale offline
+  leases, forced update failure, and kill switch.
 
 Remaining limitations include:
 
@@ -44,8 +46,8 @@ Remaining limitations include:
   read/mutate, tenant, data-classification, owner, or expiry metadata;
 - WebFetch has an endpoint registry and HTTPS/DNS validation, but redirect and
   resolved-address enforcement must also exist at the network/resource layer;
-- Bash policy still depends on regular-expression risk classifiers rather than
-  a parsed command and executable/argument classification;
+- the strict command splitter and per-argument patterns are an MVP parser, not
+  a complete Windows/Git-Bash/PowerShell AST and bypass corpus;
 - the documented tool inventory is represented, but exact company Claude Code
   release payloads and compatibility reports are not yet captured;
 - approved delegation types can be named, but parent authority, recursion,
@@ -55,6 +57,11 @@ Remaining limitations include:
 - there are no service-derived role, group, device, environment, repository,
   or risk-tier attributes;
 - the policy has focused engine tests rather than a company policy corpus.
+
+The model-independent corpus now contains 62 tool schema/decision cases and a
+38-case structured shell/bypass corpus. Exact company Sonnet/Opus compatibility
+still requires captured, manifested fixtures; the privacy-safe capture/replay
+framework is implemented.
 
 This is a strong certification foundation, not the final company-pilot gate.
 The exact company Claude Code/Sonnet/Opus fixtures, company registry content,

@@ -15,12 +15,32 @@ For an automated case-by-case demonstration run:
 .\Demo-Bap.ps1 -Runtime Docker -KeepRunning
 ```
 
+For the focused command/bypass corpus and signed v1-to-v2 rollout lifecycle:
+
+```powershell
+.\Test-PolicyRollout.ps1 -Runtime Docker
+```
+
+The complete MVP-0 gate runs this focused test automatically:
+
+```powershell
+.\Test-MVP0.ps1 -Runtime Docker
+```
+
+Exact company client/model certification uses
+[`Capture-ClaudeFixtures.ps1` and `Test-ClaudeFixtures.ps1`](claude-fixture-certification.md).
+View current Service, Edge, lease, kill-switch, and audit-queue posture with:
+
+```powershell
+.\Show-BapStatus.ps1 -Runtime Docker
+```
+
 ## Components
 
 | Component | Location | Runs where | Purpose |
 |---|---|---|---|
-| BAP Edge | repository root and `cmd/bap-edge` | Developer workstation | Managed hook, local cc-filter, workload/session binding, AuthZEN client, grant cache, outcome retry |
-| BAP Service | `bap-service/` | Local container for development; company network for production | Authenticated AuthZEN PDP, Cedar, grants, audit trail, proposals |
+| BAP Edge | repository root and `cmd/bap-edge` | Developer workstation | Endpoint data plane, local PDP/PEP, signed-bundle verification, local Cedar decisions, workload/session binding, audit retry |
+| BAP Service | `bap-service/` | Local container for development; company network for production | Rule control plane, signed bundle distribution, version/revocation directives, audit ingestion, legacy AuthZEN migration API |
 | Cedar policies | `bap-service/policies/` | BAP Service only | Human-readable allow and forbid rules |
 
 ## Five-minute local setup on Windows
@@ -80,8 +100,9 @@ Inside Claude Code check:
 .\Stop-Bap.ps1 -Runtime Docker
 ```
 
-Stopping BAP Service does not make tools permissive. BAP Edge fails closed, so
-Claude can continue reasoning but tool operations are denied.
+Stopping BAP Service does not make policy unbounded. A fresh verified bundle may
+continue local decisions only through its signed maximum-offline lease; after
+that lease BAP Edge fails closed. Claude can continue reasoning without tools.
 
 ## Read next
 
@@ -90,6 +111,8 @@ Claude can continue reasoning but tool operations are denied.
 - [Company internal-pilot MVP acceptance and go/no-go test](company-pilot-mvp-test.md)
 - [MVP technical architecture, trust boundaries, identity, APIs, and technologies](mvp-technical-architecture.md)
 - [Cedar MVP policy and Sonnet/Opus tool coverage plan](cedar-mvp-policy-plan.md)
+- [Exact Claude Code/Sonnet/Opus fixture capture and certification](claude-fixture-certification.md)
+- [Central policy authority and signed Edge distribution proposal](central-policy-distribution-proposal.md)
 - [MVP-0A local certification and remaining live-model gate](mvp0-certification.md)
 - [Architecture and request flow](architecture.md)
 - [Edge YAML and service environment reference](configuration.md)

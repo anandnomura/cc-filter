@@ -13,30 +13,54 @@ From an ordinary PowerShell terminal in the repository:
 ```
 
 Use `-Runtime Podman` instead when that is the selected local engine. The script
-builds current sources, switches the other local runtime off port 8443 when
-needed, restarts BAP Service against MySQL, runs unit and end-to-end tests,
+builds current sources, runs `Test-PolicyRollout.ps1`, switches the other local
+runtime off port 8443 when needed, restarts BAP Service against MySQL, runs unit and end-to-end tests,
 verifies signed audit and trace correlation, then directly checks these hook outcomes:
 
 ```text
 git status --short  -> allow
+ls -al              -> allow from the central rule source
 git reset --hard    -> deny and does not execute
 ```
 
 The automated corpus also covers missing/wrongly typed fields, protected and
 outside-workspace paths, unclassified/chained/encoded shell commands, HTTPS
 destination validation, exact MCP registration, exact subagent registration,
-unknown tools, Cedar profiles, and rejection of grants from an older policy.
+unknown tools, Cedar profiles, bundle tamper/expiry/rollback/equivocation,
+forced-update/kill-switch directives, and bounded offline operation.
+
+The modeled tool corpus contains 62 schema and decision cases across file,
+search, shell, web, MCP, delegation, task, schedule, agent, and emerging tool
+families. Every valid case is normalized and evaluated against the current
+central bundle; unknown and uncertified families remain denied.
+
+Run only the focused policy gates while developing rules with:
+
+```powershell
+.\Test-PolicyRollout.ps1 -Runtime Docker
+```
+
+The command corpus lives at
+`internal/policybundle/testdata/command-policy-corpus.json`. The rollout test
+uses the real HTTPS sync handler, Edge client, signed bundle verifier, and Edge
+rollback store without changing the repository's active policy source.
+
+Current posture is visible with `Show-BapStatus.ps1`. Exact company fixtures
+are captured and replayed using the procedure in
+[Exact Claude fixture certification](claude-fixture-certification.md). The
+strict admission form is:
+
+```powershell
+.\Test-MVP0.ps1 -Runtime Docker -RequireCompanyFixtures
+```
 
 ## Administrator registries
 
-The protected Edge YAML defaults to no WebFetch, MCP, or delegation approval.
-See [configuration](configuration.md) for exact entries. Registry values must
-be installed by administrators and reviewed like policy. They must never be
-generated from model requests or auto-learning suggestions.
-
-For the bounded pilot, these classifications originate in the managed Edge
-configuration. The enterprise target is a service-owned registry bound to an
-authenticated SPIFFE device/workload identity.
+Command, WebFetch, MCP, delegation, profile, lease, and revocation rules live in
+the BAP Service control-plane source
+`bap-service/policies/edge-policy-source.json`. Any content change requires a
+new version and is signed before Edge consumes it. Endpoint YAML contains trust
+and transport settings, not allow rules.
 
 ## What still requires real company Claude
 

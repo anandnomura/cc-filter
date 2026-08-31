@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cc-filter/internal/authzen"
+	"cc-filter/internal/policybundle"
 )
 
 func main() {
@@ -58,7 +58,7 @@ func main() {
 			defer workers.Done()
 			for index := range jobs {
 				begin := time.Now()
-				if err := evaluate(context.Background(), client, *baseURL, apiKey, index); err != nil {
+				if err := synchronize(context.Background(), client, *baseURL, apiKey, index); err != nil {
 					failures.Add(1)
 				}
 				durations[index] = time.Since(begin)
@@ -86,18 +86,10 @@ func main() {
 	}
 }
 
-func evaluate(ctx context.Context, client *http.Client, baseURL, apiKey string, index int) error {
-	request := authzen.EvaluationRequest{
-		Subject: authzen.Entity{Type: "agent", ID: "claude-code-local"},
-		Action:  authzen.Action{Name: "file.read"},
-		Resource: authzen.Entity{Type: "tool-invocation", ID: fmt.Sprintf("perf-resource-%d", index), Properties: map[string]any{
-			"tool": "Read", "target": "README.md", "path": "README.md", "command": "",
-			"protected": false, "outsideWorkspace": false, "destructive": false,
-		}},
-		Context: map[string]any{"session_id": "performance-session", "workload_id": "performance-workload", "tool_use_id": fmt.Sprintf("perf-%d", index), "workspace": ".", "asserted_user": "performance-test"},
-	}
+func synchronize(ctx context.Context, client *http.Client, baseURL, apiKey string, index int) error {
+	request := policybundle.SyncRequest{EdgeInstanceID: fmt.Sprintf("performance-edge-%d", index), EdgeVersion: "1", Nonce: fmt.Sprintf("performance-%d", index)}
 	body, _ := json.Marshal(request)
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/access/v1/evaluation", bytes.NewReader(body))
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/bap/v1/edge/sync", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -112,9 +104,9 @@ func evaluate(ctx context.Context, client *http.Client, baseURL, apiKey string, 
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d", response.StatusCode)
 	}
-	var decision authzen.Decision
-	if err := json.Unmarshal(data, &decision); err != nil || !decision.Decision {
-		return fmt.Errorf("unexpected deny or response")
+	var responseValue policybundle.SyncResponse
+	if err := json.Unmarshal(data, &responseValue); err != nil || len(responseValue.Envelope.Payload) == 0 {
+		return fmt.Errorf("unexpected policy sync response")
 	}
 	return nil
 }

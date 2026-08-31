@@ -79,6 +79,18 @@ Get-Content "$env:LOCALAPPDATA\BAP Edge\observability\edge.jsonl" -Tail 20 |
 
 ## View Service logs and metrics
 
+For a single read-only posture summary across the control plane and every local
+Edge state discovered on the workstation:
+
+```powershell
+.\Show-BapStatus.ps1 -Runtime Docker
+```
+
+It shows policy/digest agreement, expiry, last synchronization, refresh and
+offline-lease time, kill switch, queued audit count, Edge instance ID, Service
+readiness, MySQL container state, and Claude fixture/manifest count. It reads
+state only and does not synchronize or modify policy.
+
 ```powershell
 docker logs --tail 100 bap-service-local
 

@@ -1,0 +1,473 @@
+package policybundle
+
+import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"cc-filter/internal/authzen"
+	cedar "github.com/cedar-policy/cedar-go"
+)
+
+const SchemaVersion = 1
+
+type Source struct {
+	SchemaVersion       int           `json:"schema_version"`
+	Version             uint64        `json:"version"`
+	ValidForSeconds     int64         `json:"valid_for_seconds"`
+	RefreshAfterSeconds int64         `json:"refresh_after_seconds"`
+	MaxOfflineSeconds   int64         `json:"max_offline_seconds"`
+	MinimumEdgeVersion  string        `json:"minimum_edge_version"`
+	RevocationEpoch     uint64        `json:"revocation_epoch"`
+	ForceUpdate         bool          `json:"force_update"`
+	KillSwitch          bool          `json:"kill_switch"`
+	PolicyProfile       string        `json:"policy_profile"`
+	AllowedNetwork      []string      `json:"allowed_network_domains"`
+	ApprovedMCP         []string      `json:"approved_mcp_tools"`
+	ApprovedDelegates   []string      `json:"approved_subagent_types"`
+	CommandRules        []CommandRule `json:"command_rules"`
+}
+
+type CommandRule struct {
+	ID                        string    `json:"id"`
+	Executable                string    `json:"executable"`
+	Subcommand                string    `json:"subcommand,omitempty"`
+	Effect                    string    `json:"effect"`
+	ArgumentPatterns          []string  `json:"argument_patterns,omitempty"`
+	AllowAdditionalArguments  bool      `json:"allow_additional_arguments,omitempty"`
+	AdditionalArgumentPattern string    `json:"additional_argument_pattern,omitempty"`
+	Profiles                  []string  `json:"profiles,omitempty"`
+	Owner                     string    `json:"owner"`
+	Approval                  string    `json:"approval"`
+	NotBefore                 time.Time `json:"not_before"`
+	ExpiresAt                 time.Time `json:"expires_at"`
+}
+
+type Bundle struct {
+	SchemaVersion       int           `json:"schema_version"`
+	Version             uint64        `json:"version"`
+	RulesDigest         string        `json:"rules_digest"`
+	IssuedAt            time.Time     `json:"issued_at"`
+	ExpiresAt           time.Time     `json:"expires_at"`
+	RefreshAfterSeconds int64         `json:"refresh_after_seconds"`
+	MaxOfflineSeconds   int64         `json:"max_offline_seconds"`
+	MinimumEdgeVersion  string        `json:"minimum_edge_version"`
+	RevocationEpoch     uint64        `json:"revocation_epoch"`
+	ForceUpdate         bool          `json:"force_update"`
+	KillSwitch          bool          `json:"kill_switch"`
+	PolicyProfile       string        `json:"policy_profile"`
+	AllowedNetwork      []string      `json:"allowed_network_domains"`
+	ApprovedMCP         []string      `json:"approved_mcp_tools"`
+	ApprovedDelegates   []string      `json:"approved_subagent_types"`
+	CedarPolicy         string        `json:"cedar_policy"`
+	CommandRules        []CommandRule `json:"command_rules"`
+}
+
+type Envelope struct {
+	KeyID     string          `json:"key_id"`
+	Payload   json.RawMessage `json:"payload"`
+	Signature string          `json:"signature"`
+}
+
+type SyncRequest struct {
+	EdgeInstanceID   string `json:"edge_instance_id"`
+	EdgeVersion      string `json:"edge_version"`
+	InstalledVersion uint64 `json:"installed_version"`
+	InstalledDigest  string `json:"installed_digest,omitempty"`
+	RevocationEpoch  uint64 `json:"revocation_epoch"`
+	Nonce            string `json:"nonce"`
+}
+
+type SyncResponse struct {
+	Directive string   `json:"directive"`
+	Envelope  Envelope `json:"envelope"`
+}
+
+type Decision struct {
+	Allowed       bool
+	Reason        string
+	ReasonCode    string
+	RuleIDs       []string
+	PolicyVersion string
+}
+
+func LoadSource(data []byte) (Source, error) {
+	var source Source
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&source); err != nil {
+		return source, fmt.Errorf("parse policy bundle source: %w", err)
+	}
+	if source.SchemaVersion != SchemaVersion || source.Version == 0 {
+		return source, errors.New("policy bundle source has unsupported schema or zero version")
+	}
+	if source.ValidForSeconds <= 0 || source.ValidForSeconds > int64((30*24*time.Hour)/time.Second) {
+		return source, errors.New("policy bundle valid_for_seconds must be between 1 second and 30 days")
+	}
+	if source.RefreshAfterSeconds <= 0 || source.MaxOfflineSeconds < source.RefreshAfterSeconds || source.MaxOfflineSeconds > source.ValidForSeconds {
+		return source, errors.New("policy refresh/offline intervals are invalid")
+	}
+	if source.PolicyProfile != "standard-developer" && source.PolicyProfile != "read-only" {
+		return source, errors.New("policy_profile must be standard-developer or read-only")
+	}
+	ids := map[string]bool{}
+	for i := range source.CommandRules {
+		rule := &source.CommandRules[i]
+		if rule.ID == "" || rule.Executable == "" || rule.Owner == "" || rule.Approval == "" || (rule.Effect != "eligible-for-permit" && rule.Effect != "forbid") {
+			return source, fmt.Errorf("command rule %d is incomplete", i)
+		}
+		if ids[rule.ID] {
+			return source, fmt.Errorf("duplicate command rule id %q", rule.ID)
+		}
+		ids[rule.ID] = true
+		for _, pattern := range rule.ArgumentPatterns {
+			if _, err := regexp.Compile("^(?:" + pattern + ")$"); err != nil {
+				return source, fmt.Errorf("command rule %s has invalid argument pattern: %w", rule.ID, err)
+			}
+		}
+		if rule.AllowAdditionalArguments && rule.AdditionalArgumentPattern == "" {
+			return source, fmt.Errorf("command rule %s allows additional arguments without constraining them", rule.ID)
+		}
+		if rule.AdditionalArgumentPattern != "" {
+			if _, err := regexp.Compile("^(?:" + rule.AdditionalArgumentPattern + ")$"); err != nil {
+				return source, fmt.Errorf("command rule %s has invalid additional argument pattern: %w", rule.ID, err)
+			}
+		}
+	}
+	return source, nil
+}
+
+func Build(source Source, cedarPolicy []byte, now time.Time) (Bundle, error) {
+	if _, err := LoadSource(mustJSON(source)); err != nil {
+		return Bundle{}, err
+	}
+	if _, err := cedar.NewPolicyListFromBytes("bundle.cedar", cedarPolicy); err != nil {
+		return Bundle{}, fmt.Errorf("parse bundled Cedar policy: %w", err)
+	}
+	sourceDigest := sha256.Sum256(append(mustJSON(source), cedarPolicy...))
+	expires := now.UTC().Add(time.Duration(source.ValidForSeconds) * time.Second)
+	rules := append([]CommandRule(nil), source.CommandRules...)
+	for i := range rules {
+		if rules[i].NotBefore.IsZero() {
+			rules[i].NotBefore = now.UTC()
+		}
+		if rules[i].ExpiresAt.IsZero() || rules[i].ExpiresAt.After(expires) {
+			rules[i].ExpiresAt = expires
+		}
+	}
+	return Bundle{
+		SchemaVersion: SchemaVersion, Version: source.Version, RulesDigest: "sha256:" + hex.EncodeToString(sourceDigest[:]),
+		IssuedAt: now.UTC(), ExpiresAt: expires, RefreshAfterSeconds: source.RefreshAfterSeconds,
+		MaxOfflineSeconds: source.MaxOfflineSeconds, MinimumEdgeVersion: source.MinimumEdgeVersion,
+		RevocationEpoch: source.RevocationEpoch, ForceUpdate: source.ForceUpdate, KillSwitch: source.KillSwitch,
+		PolicyProfile: source.PolicyProfile, AllowedNetwork: source.AllowedNetwork, ApprovedMCP: source.ApprovedMCP,
+		ApprovedDelegates: source.ApprovedDelegates, CedarPolicy: string(cedarPolicy), CommandRules: rules,
+	}, nil
+}
+
+func Sign(privateKey ed25519.PrivateKey, keyID string, bundle Bundle) (Envelope, error) {
+	payload, err := json.Marshal(bundle)
+	if err != nil {
+		return Envelope{}, err
+	}
+	signature := ed25519.Sign(privateKey, payload)
+	return Envelope{KeyID: keyID, Payload: payload, Signature: base64.RawURLEncoding.EncodeToString(signature)}, nil
+}
+
+func Activate(source Source, cedarPolicy []byte, privateKey ed25519.PrivateKey, keyID, statePath string, now time.Time) (Bundle, Envelope, error) {
+	candidate, err := Build(source, cedarPolicy, now)
+	if err != nil {
+		return Bundle{}, Envelope{}, err
+	}
+	if data, readErr := os.ReadFile(statePath); readErr == nil {
+		var existingEnvelope Envelope
+		var untrusted Bundle
+		if json.Unmarshal(data, &existingEnvelope) != nil || json.Unmarshal(existingEnvelope.Payload, &untrusted) != nil {
+			return Bundle{}, Envelope{}, errors.New("stored active policy bundle is invalid")
+		}
+		existing, verifyErr := Verify(privateKey.Public().(ed25519.PublicKey), existingEnvelope, untrusted.IssuedAt.Add(time.Second))
+		if verifyErr != nil {
+			return Bundle{}, Envelope{}, fmt.Errorf("verify stored active policy bundle: %w", verifyErr)
+		}
+		if source.Version < existing.Version {
+			return Bundle{}, Envelope{}, errors.New("control-plane policy source rollback rejected")
+		}
+		if source.Version == existing.Version {
+			if candidate.RulesDigest != existing.RulesDigest {
+				return Bundle{}, Envelope{}, errors.New("control-plane rule content changed without a version increment")
+			}
+			if !now.UTC().Before(existing.ExpiresAt) {
+				return Bundle{}, Envelope{}, errors.New("active policy bundle expired; approve and increment the source version")
+			}
+			return existing, existingEnvelope, nil
+		}
+	} else if !os.IsNotExist(readErr) {
+		return Bundle{}, Envelope{}, readErr
+	}
+	envelope, err := Sign(privateKey, keyID, candidate)
+	if err != nil {
+		return Bundle{}, Envelope{}, err
+	}
+	data, _ := json.Marshal(envelope)
+	temporary := statePath + ".tmp"
+	if err := os.WriteFile(temporary, data, 0600); err != nil {
+		return Bundle{}, Envelope{}, err
+	}
+	if err := os.Rename(temporary, statePath); err != nil {
+		_ = os.Remove(temporary)
+		return Bundle{}, Envelope{}, err
+	}
+	return candidate, envelope, nil
+}
+
+func Verify(publicKey ed25519.PublicKey, envelope Envelope, now time.Time) (Bundle, error) {
+	var bundle Bundle
+	signature, err := base64.RawURLEncoding.DecodeString(envelope.Signature)
+	if err != nil || !ed25519.Verify(publicKey, envelope.Payload, signature) {
+		return bundle, errors.New("invalid policy bundle signature")
+	}
+	if err := json.Unmarshal(envelope.Payload, &bundle); err != nil {
+		return bundle, errors.New("invalid policy bundle payload")
+	}
+	if bundle.SchemaVersion != SchemaVersion || bundle.Version == 0 || bundle.RulesDigest == "" {
+		return bundle, errors.New("unsupported policy bundle schema or identity")
+	}
+	if !bundle.IssuedAt.Before(bundle.ExpiresAt) || !now.UTC().Before(bundle.ExpiresAt) {
+		return bundle, errors.New("policy bundle is expired")
+	}
+	if bundle.IssuedAt.After(now.UTC().Add(5 * time.Minute)) {
+		return bundle, errors.New("policy bundle is not yet valid")
+	}
+	if _, err := cedar.NewPolicyListFromBytes("bundle.cedar", []byte(bundle.CedarPolicy)); err != nil {
+		return bundle, errors.New("policy bundle contains invalid Cedar")
+	}
+	return bundle, nil
+}
+
+func EnvelopeDigest(envelope Envelope) string {
+	data, _ := json.Marshal(envelope)
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) (Decision, error) {
+	policyVersion := fmt.Sprintf("bundle:%d:%s", bundle.Version, bundle.RulesDigest)
+	if bundle.KillSwitch {
+		return Decision{Reason: "BAP policy kill switch is active", ReasonCode: "KILL_SWITCH", PolicyVersion: policyVersion}, nil
+	}
+	if !now.UTC().Before(bundle.ExpiresAt) {
+		return Decision{Reason: "BAP policy bundle is expired", ReasonCode: "BUNDLE_EXPIRED", PolicyVersion: policyVersion}, nil
+	}
+	properties := cloneMap(request.Resource.Properties)
+	properties["policyProfile"] = bundle.PolicyProfile
+	ruleIDs := []string{}
+	action := request.Action.Name
+	if action == "command.execute" {
+		command, _ := properties["command"].(string)
+		approved, forbidden, matched, err := classifyCommand(bundle, command, now)
+		if err != nil {
+			return Decision{Reason: err.Error(), ReasonCode: "COMMAND_PARSE_DENY", PolicyVersion: policyVersion}, nil
+		}
+		properties["shellApproved"] = approved && !forbidden
+		if forbidden {
+			properties["destructive"] = true
+		}
+		ruleIDs = matched
+	}
+	if action == "network.fetch" {
+		host, _ := properties["networkHost"].(string)
+		properties["approvedNetwork"] = matchesDomain(host, bundle.AllowedNetwork)
+	}
+	if action == "mcp.invoke" {
+		tool, _ := properties["tool"].(string)
+		properties["approvedMCP"] = matchesExact(tool, bundle.ApprovedMCP)
+	}
+	if action == "agent.delegate" {
+		target, _ := properties["target"].(string)
+		properties["approvedDelegate"] = matchesExact(target, bundle.ApprovedDelegates)
+	}
+	list, err := cedar.NewPolicyListFromBytes("bundle.cedar", []byte(bundle.CedarPolicy))
+	if err != nil {
+		return Decision{}, err
+	}
+	set := cedar.NewPolicySet()
+	for index, policy := range list {
+		set.Add(cedar.PolicyID(fmt.Sprintf("policy-%d", index+1)), policy)
+	}
+	entitiesJSON, _ := json.Marshal([]map[string]any{
+		{"uid": map[string]string{"type": "Agent", "id": request.Subject.ID}, "attrs": map[string]any{"enabled": true}, "parents": []any{}},
+		{"uid": map[string]string{"type": "ToolInvocation", "id": request.Resource.ID}, "attrs": cedarAttributes(properties), "parents": []any{}},
+	})
+	var entities cedar.EntityMap
+	if err := json.Unmarshal(entitiesJSON, &entities); err != nil {
+		return Decision{}, err
+	}
+	cedarRequest := cedar.Request{Principal: cedar.NewEntityUID("Agent", cedar.String(request.Subject.ID)), Action: cedar.NewEntityUID("Action", cedar.String(action)), Resource: cedar.NewEntityUID("ToolInvocation", cedar.String(request.Resource.ID)), Context: cedar.NewRecord(cedar.RecordMap{})}
+	decision, diagnostic := cedar.Authorize(set, entities, cedarRequest)
+	if len(diagnostic.Errors) > 0 {
+		return Decision{}, fmt.Errorf("Cedar evaluation error: %v", diagnostic.Errors)
+	}
+	if decision == cedar.Allow {
+		return Decision{Allowed: true, Reason: "Allowed locally by signed BAP policy bundle", ReasonCode: "LOCAL_POLICY_PERMIT", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
+	}
+	if len(diagnostic.Reasons) > 0 {
+		return Decision{Reason: "An explicit signed BAP policy forbid applied", ReasonCode: "LOCAL_EXPLICIT_FORBID", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
+	}
+	return Decision{Reason: "No signed BAP policy permit matched", ReasonCode: "LOCAL_NO_MATCHING_POLICY", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
+}
+
+func classifyCommand(bundle Bundle, command string, now time.Time) (bool, bool, []string, error) {
+	args, err := splitCommand(command)
+	if err != nil || len(args) == 0 {
+		return false, false, nil, errors.New("unsupported or ambiguous shell command")
+	}
+	executable := strings.ToLower(filepath.Base(strings.ReplaceAll(args[0], "\\", "/")))
+	remaining := args[1:]
+	approved, forbidden := false, false
+	matched := []string{}
+	for _, rule := range bundle.CommandRules {
+		if now.Before(rule.NotBefore) || !now.Before(rule.ExpiresAt) || !strings.EqualFold(executable, rule.Executable) || !profileMatches(bundle.PolicyProfile, rule.Profiles) {
+			continue
+		}
+		candidate := remaining
+		if rule.Subcommand != "" {
+			if len(candidate) == 0 || !strings.EqualFold(candidate[0], rule.Subcommand) {
+				continue
+			}
+			candidate = candidate[1:]
+		}
+		if !argumentsMatch(candidate, rule) {
+			continue
+		}
+		matched = append(matched, rule.ID)
+		if rule.Effect == "forbid" {
+			forbidden = true
+		} else if rule.Effect == "eligible-for-permit" {
+			approved = true
+		}
+	}
+	return approved, forbidden, matched, nil
+}
+
+func argumentsMatch(args []string, rule CommandRule) bool {
+	if len(args) < len(rule.ArgumentPatterns) || (!rule.AllowAdditionalArguments && len(args) != len(rule.ArgumentPatterns)) {
+		return false
+	}
+	for index, pattern := range rule.ArgumentPatterns {
+		matched, _ := regexp.MatchString("^(?:"+pattern+")$", args[index])
+		if !matched {
+			return false
+		}
+	}
+	for _, argument := range args[len(rule.ArgumentPatterns):] {
+		matched, _ := regexp.MatchString("^(?:"+rule.AdditionalArgumentPattern+")$", argument)
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func splitCommand(command string) ([]string, error) {
+	if strings.ContainsAny(command, ";&|<>`\r\n") || strings.Contains(command, "$(") {
+		return nil, errors.New("shell operators are not supported")
+	}
+	var result []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if current.Len() > 0 {
+			result = append(result, current.String())
+			current.Reset()
+		}
+	}
+	for _, char := range command {
+		if escaped {
+			current.WriteRune(char)
+			escaped = false
+			continue
+		}
+		if char == '\\' && quote != '\'' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			} else {
+				current.WriteRune(char)
+			}
+			continue
+		}
+		if char == '\'' || char == '"' {
+			quote = char
+			continue
+		}
+		if char == ' ' || char == '\t' {
+			flush()
+			continue
+		}
+		current.WriteRune(char)
+	}
+	if escaped || quote != 0 {
+		return nil, errors.New("unterminated shell quoting")
+	}
+	flush()
+	return result, nil
+}
+
+func cedarAttributes(properties map[string]any) map[string]any {
+	result := map[string]any{"tool": "", "target": "", "path": "", "command": "", "protected": false, "outsideWorkspace": false, "securityControl": false, "destructive": false, "privileged": false, "exfiltration": false, "obfuscated": false, "shellApproved": false, "policyProfile": "read-only", "approvedNetwork": false, "approvedMCP": false, "approvedDelegate": false, "networkHost": "", "mcpServer": "", "mcpTool": ""}
+	for key := range result {
+		if value, ok := properties[key]; ok {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func profileMatches(profile string, profiles []string) bool {
+	return len(profiles) == 0 || matchesExact(profile, profiles)
+}
+func matchesExact(value string, entries []string) bool {
+	for _, entry := range entries {
+		if strings.EqualFold(strings.TrimSpace(entry), value) {
+			return true
+		}
+	}
+	return false
+}
+func matchesDomain(host string, entries []string) bool {
+	host = strings.ToLower(host)
+	for _, entry := range entries {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		if strings.HasPrefix(entry, "*.") {
+			suffix := strings.TrimPrefix(entry, "*")
+			if strings.HasSuffix(host, suffix) && host != strings.TrimPrefix(suffix, ".") {
+				return true
+			}
+		} else if host == entry {
+			return true
+		}
+	}
+	return false
+}
+func cloneMap(source map[string]any) map[string]any {
+	result := map[string]any{}
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}
+func mustJSON(value any) []byte { data, _ := json.Marshal(value); return data }

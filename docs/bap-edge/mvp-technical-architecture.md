@@ -20,33 +20,30 @@ flowchart LR
     subgraph EP["Managed Windows endpoint"]
         DEV["Standard developer"] --> CC["Official Claude Code<br/>Sonnet or Opus"]
         MS["Enterprise managed settings<br/>Program Files + Windows ACLs"] -. "loads six lifecycle hooks<br/>and blocks lower-scope hooks" .-> CC
-        CC -->|"hook JSON on stdin<br/>session_id + tool_use_id"| EDGE["BAP Edge / PEP<br/>Go executable"]
+        CC -->|"hook JSON on stdin<br/>session_id + tool_use_id"| EDGE["BAP Edge data plane<br/>local PDP + PEP"]
         EDGE --> FILTER["cc-filter<br/>local hard blocks + redaction"]
-        EDGE --> NORM["Tool normalizer<br/>SARC + risk attributes"]
-        EDGE <--> STATE["User-local state<br/>session mapping, signed-grant cache,<br/>outcome retry spool"]
+        EDGE --> NORM["Tool normalizer + classifier<br/>signed registry + Cedar"]
+        EDGE <--> STATE["Local state<br/>signed bundle + rollback/lease<br/>decision/outcome spool"]
     end
 
     subgraph CP["Company BAP control plane"]
-        API["BAP Service API / PDP<br/>Go HTTPS service"]
-        AUTH["Client authentication<br/>bearer API key - interim"]
-        CEDAR["Cedar authorizer<br/>permit + forbid + default deny"]
-        POLICY["Versioned Cedar policy<br/>and schema"]
-        GRANT["Ed25519 grant signer<br/>short-lived, request-bound"]
+        API["BAP Service control plane<br/>Go HTTPS service"]
+        AUTH["Endpoint authentication<br/>mTLS target; bearer development"]
+        POLICY["Versioned Cedar + registries<br/>lease + epoch + kill switch"]
+        SIGN["Ed25519 bundle signer"]
         DB[("MySQL<br/>audit + proposals<br/>transactional chain head")]
         AUDIT["Ed25519-signed audit<br/>+ SHA-256 hash chain"]
         PROP["Sanitized policy proposals<br/>admin review only"]
 
-        API --> AUTH --> CEDAR
-        POLICY --> CEDAR
-        CEDAR --> GRANT
-        CEDAR --> AUDIT --> DB
-        CEDAR --> PROP --> DB
+        API --> AUTH
+        POLICY --> SIGN --> API
+        API --> AUDIT --> DB
+        POLICY --> PROP --> DB
     end
 
-    NORM -->|"HTTPS + Bearer<br/>AuthZEN evaluation"| API
-    FILTER -->|"sanitized local-denial event"| API
-    API -->|"decision + signed grant"| EDGE
-    EDGE -->|"grant consumption + outcome"| API
+    EDGE -->|"periodic authenticated sync<br/>installed version/digest/epoch"| API
+    API -->|"signed bundle + directive"| EDGE
+    EDGE -->|"asynchronous decision + outcome audit"| API
     EDGE -->|"allow or deny"| CC
 
     classDef endpoint fill:#e8f1ff,stroke:#2457a6,color:#0b1f3a;
@@ -54,28 +51,28 @@ flowchart LR
     classDef security fill:#fff3cd,stroke:#9a6700,color:#3d2a00;
     class CC,EDGE,NORM,STATE endpoint;
     class API,DB,AUDIT,PROP control;
-    class MS,FILTER,AUTH,CEDAR,POLICY,GRANT security;
+    class MS,FILTER,AUTH,POLICY,SIGN security;
 ```
 
-PEP means Policy Enforcement Point: BAP Edge is where an allow or deny is
-enforced before Claude executes a tool. PDP means Policy Decision Point: BAP
-Service evaluates centrally managed authorization policy.
+PEP means Policy Enforcement Point. BAP Edge is both the local PDP and PEP: it
+decides and enforces intercepted traffic. BAP Service is the control plane and
+source of rule truth; it does not decide each tool operation in the hot path.
 
 ## Components, functions, and technologies
 
 | Component | Function | Current technology | MVP status |
 |---|---|---|---|
 | Claude integration | Deterministically invokes BAP around lifecycle and tool events | Claude Code managed command hooks | Implemented; exact Sonnet/Opus release certification remains |
-| BAP Edge | Local PEP, fail-closed decision handling, normalization, grant verification | Static Go 1.23 Windows executable | Implemented baseline |
+| BAP Edge | Local PDP/PEP, normalization, bundle verification, Cedar evaluation, fail-closed enforcement | Static Go 1.23 Windows executable | Signed-bundle baseline implemented |
 | cc-filter | Fast local content/path/command blocks and prompt redaction | Embedded YAML rules and Go filtering | Implemented baseline; needs versioned bypass corpus |
-| BAP protocol | Vendor-neutral PEP-to-PDP authorization request | HTTPS JSON aligned to OpenID AuthZEN Authorization API 1.0 SARC | Core evaluation implemented; not conformance-certified |
-| BAP authentication | Rejects callers without an Edge credential | TLS 1.2+ plus bearer `BAP_EDGE_API_KEY` | Interim; replace with per-device mTLS or short-lived enterprise identity |
-| Policy engine | Central permit, explicit forbid, and default deny | Cedar through `cedar-go` | Integration implemented; company policy corpus and profiles remain |
-| Grant | Proves a specific allow decision to Edge | Ed25519 `BAP-Grant-EdDSA`, complete-request hash, short TTL | Implemented |
-| Grant cache | Avoids repeat Cedar evaluation for an exact retry | User-local files keyed by SHA-256 request hash | Implemented; each hit still needs central audit acknowledgement |
-| Audit | Correlates decisions, cache use, local denies, and outcomes | MySQL transaction, locked chain head, Ed25519 signature, SHA-256 hash chain | Pilot database baseline; managed replication/backup/SIEM remains |
+| BAP protocol | Control-plane synchronization and asynchronous data-plane audit | HTTPS JSON `/bap/v1/edge/sync` and audit extensions | Implemented baseline; persistent push remains |
+| BAP authentication | Rejects unregistered synchronization/audit callers | TLS 1.2+, optional verified mTLS, bearer for development | mTLS transport implemented; enrollment/revocation remains |
+| Policy engine | Local permit, explicit forbid, and default deny from central signed policy | Cedar through `cedar-go` inside Edge | Integration implemented; company corpus remains |
+| Client/model certification | Privacy-safe schema capture, representative replay, model equivalence, fixture hashes, policy version/digest binding | Edge capture plus `bap-fixture` verifier | Framework implemented; exact company captures remain |
+| Policy bundle | Carries immutable central rules to Edge | Ed25519, version/digest/epoch, expiry, refresh/offline lease | Implemented pull baseline |
+| Audit | Correlates local decisions, local denies, and outcomes | Durable Edge spool plus MySQL signed/hash chain | Baseline; protected Agent queue/SIEM remains |
 | Policy proposals | Captures missing-policy shapes without self-authorizing | Sanitized deduplicated MySQL rows | Durable advisory evidence; governed CRUD/approval API remains |
-| Packaging | Separates endpoint PEP from network PDP | Windows Program Files installation and non-root OCI container | Implemented development deployment; signing/SBOM/HA remains |
+| Packaging | Separates endpoint data plane from rule control plane | Windows Program Files installation and non-root OCI container | Development deployment implemented; protected Agent/signing/SBOM remains |
 
 ## Why retain cc-filter
 
@@ -89,9 +86,9 @@ behavior inherited from the original project. A local denial is final; BAP
 Service receives only a sanitized denial record and cannot turn it into an
 allow.
 
-Cedar is the central authorization layer. It reasons over a normalized
-principal, action, resource, and context, gives administrators one governed
-policy location, and provides consistent decisions across endpoints. Cedar's
+Cedar is the local decision layer distributed from the central rule authority.
+It reasons over a normalized principal, action, resource, and context while the
+signed bundle gives administrators one governed source. Cedar's
 authorization semantics are deliberately useful here: a matching `forbid`
 overrides any `permit`, and no matching permit results in default deny. See the
 [official Cedar authorization model](https://docs.cedarpolicy.com/auth/authorization.html).
@@ -139,12 +136,12 @@ allowlisting, approved Claude distribution, and resource-side authorization for
 high-value systems. Managed settings are a strong client control, not an
 operating-system security boundary by themselves.
 
-## Authorization request and decision contract
+## Synchronization and local decision contract
 
 The [OpenID AuthZEN Authorization API 1.0](https://openid.net/specs/authorization-api-1_0.html)
-is a Final Specification as of January 2026. It defines communication between a
-PEP and PDP without coupling either side to the other's internal policy engine.
-BAP uses its Subject-Action-Resource-Context model:
+is retained as the normalization model and legacy migration API. The active
+traffic path synchronizes a signed bundle, then evaluates the same
+Subject-Action-Resource-Context shape locally:
 
 | SARC field | BAP example | Meaning |
 |---|---|---|
@@ -153,17 +150,14 @@ BAP uses its Subject-Action-Resource-Context model:
 | Resource | hashed tool invocation plus risk properties | Object/target being authorized without using plaintext as its identity |
 | Context | session, workload, tool-use, workspace, asserted user | Environmental and correlation attributes |
 
-The service implements:
+The active control-plane/data-plane contract implements:
 
-- `GET /.well-known/authzen-configuration` for discovery;
-- `POST /access/v1/evaluation` for one authorization decision;
-- the AuthZEN `decision` Boolean and `context` response shape.
+- `POST /bap/v1/edge/sync` for signed policy and directives;
+- local Cedar allow/deny in BAP Edge;
+- `POST /bap/v1/audit/edge-decision` and outcome/denial audit extensions.
 
-BAP-specific fields such as `decision_id`, `reason_code`, `policy_version`,
-signed grant, expiry, and proposal status are returned in AuthZEN `context`.
-The audit-consumption, outcome, and local-denial endpoints are BAP extensions,
-not AuthZEN endpoints. The implementation is aligned to the core API shape but
-has not yet passed an external AuthZEN conformance suite; that is an MVP gate.
+The AuthZEN discovery/evaluation and legacy grant endpoints remain during
+migration but are no longer called for normal Edge traffic decisions.
 
 ## Tool normalization and Cedar enforcement
 
@@ -200,9 +194,10 @@ Several identifiers have distinct purposes and must not be conflated:
 | Claude `session_id` | Claude hook input | Correlates one Claude session | Retain; validate against supported hook contract |
 | BAP `workload_id` | Random `bapw_...` generated by Edge per session | Stable correlation label stored in the user's state directory | Bind to an authenticated device/workload identity |
 | Claude `tool_use_id` | Claude hook input | Correlates pre-tool authorization with post-tool outcome | Retain and validate uniqueness/format |
-| HTTP `X-Request-ID` | Edge generates per HTTP request | Correlates one network call and response | Propagate one W3C trace across Edge, PDP, audit, and dependencies |
-| `decision_id` | BAP Service | Identifies a PDP decision and signed grant | Retain |
-| credential fingerprint | SHA-256 of the presented BAP API key | Identifies which bearer credential called the PDP | Replace/augment with registered device/workload identity |
+| Edge instance ID | Edge persistent state | Identifies one synchronization client; not attestation | Bind to enrolled mTLS/attested device |
+| HTTP `X-Request-ID` | Edge generates per HTTP request | Correlates sync/audit calls | Propagate one W3C trace across Edge, control plane, audit, and dependencies |
+| bundle version/digest/epoch | Signed control-plane bundle | Identifies exactly which rules made a local decision | Retain with rollout history |
+| credential fingerprint | Verified certificate or development bearer hash | Identifies which endpoint delivered sync/audit | Registered revocable device identity |
 
 The workload ID is therefore **implemented as correlation**, but **verified
 workload identity is not implemented**. Edge creates a cryptographically random
@@ -216,19 +211,17 @@ End-to-end business correlation exists through session/workload/tool-use and
 decision IDs. Full distributed tracing does not: there is no W3C `traceparent`,
 span model, or trace backend yet.
 
-## Why BAP has a separate API key
+## Endpoint authentication
 
-`BAP_EDGE_API_KEY` is not an Anthropic key and does not call Sonnet or Opus. It
-authenticates BAP Edge to BAP Service.
+`BAP_EDGE_API_KEY` is a local-development compatibility credential. It is not an
+Anthropic key. The pilot target is a unique verified mTLS device certificate.
 
-It is useful today for four reasons:
+Authentication is used to:
 
-1. Requests without the credential receive HTTP 401 instead of reaching Cedar.
-2. The service maps an accepted credential to a configured BAP principal.
-3. Audit records contain the principal and a SHA-256 credential fingerprint,
-   never the plaintext key.
-4. Signed grants carry that principal/fingerprint binding, and cached-grant
-   consumption must present the same credential.
+1. reject unauthorized policy synchronization and audit callers;
+2. map the verified certificate to an endpoint principal;
+3. bind rollout, revocation, and audit to that endpoint; and
+4. record a certificate or bearer fingerprint without storing the secret.
 
 The Edge sends it only in `Authorization: Bearer ...` over HTTPS. The service
 uses constant-time comparison. The installer stores the value in the Windows
@@ -241,29 +234,22 @@ their own inherited process environment and copy it. The service currently has
 one configured key/principal per instance and lacks registration, individual
 revocation, rotation overlap, expiry, and device attestation.
 
-For the pilot, issue at least one independently revocable credential per
-endpoint and maintain a protected registry. The preferred final design is mTLS
-with company-issued device certificates or short-lived enterprise workload
-tokens whose claims are mapped into Cedar principal attributes. API keys may
-remain as a bootstrap or development mechanism, but not as the final identity
-boundary.
+The transport accepts mTLS when BAP Service is configured with
+`BAP_CLIENT_CA_PATH`; Edge supplies the configured certificate/key. Enrollment,
+revocation, rotation, TPM-backed non-exportable keys, and attestation remain MVP
+work. API keys must not be the company identity boundary.
 
-## Grant and cache security
+## Bundle and local-state security
 
-The API key proves who may call BAP Service; the signed grant proves what exact
-operation BAP Service allowed. They are intentionally separate.
+The dedicated Ed25519 bundle signature proves that the control plane issued the
+exact Cedar and registry content. Edge verifies schema, signature, expiry,
+version, digest, revocation epoch, minimum protocol, and lease before use.
+Lower versions/epochs are rollback; different content under the same version is
+equivocation. Deleting state forces synchronization and never creates an allow.
 
-For an allow, the PDP signs an Ed25519 grant containing issuer, audience,
-subject, action, resource, Claude session, complete AuthZEN request hash,
-decision ID, caller principal/fingerprint, policy version, issue time, and
-expiry. Edge verifies the signature, audience, request hash, and expiry before
-allowing Claude.
-
-The local cache stores only these signed allow grants. A different path,
-command, session, workload, tool-use ID, or context changes the request hash and
-misses the cache. Even an exact cache hit is not an offline allow: BAP Service
-must re-verify it and durably record grant consumption. If that acknowledgement
-fails, Edge does not authorize from cache.
+The 30-day value is a maximum rule/bundle approval lifetime. Normal refresh is
+15 minutes and the development maximum-offline lease is one hour. There is no
+reusable 30-day tool authorization grant.
 
 ## Audit data and privacy boundary
 
@@ -293,10 +279,11 @@ checkpoint.
 | `GET /healthz` | None | Process liveness | Implemented |
 | `GET /readyz` | None | MySQL-backed service readiness | Implemented and outage-tested |
 | `GET /.well-known/authzen-configuration` | None | PDP discovery | Implemented |
-| `POST /access/v1/evaluation` | BAP bearer | AuthZEN decision and optional signed grant | Implemented |
-| `POST /bap/v1/audit/grant-consumption` | BAP bearer | Verify and audit exact cached grant use | Implemented |
-| `POST /bap/v1/audit/outcome` | BAP bearer | Record correlated success/failure | Implemented |
-| `POST /bap/v1/audit/edge-denial` | BAP bearer | Record sanitized local denial | Implemented |
+| `POST /bap/v1/edge/sync` | Edge mTLS or development bearer | Signed bundle and update/kill directive | Implemented |
+| `POST /bap/v1/audit/edge-decision` | Edge mTLS or development bearer | Ingest locally made decision | Implemented |
+| `POST /bap/v1/audit/outcome` | Edge mTLS or development bearer | Record correlated success/failure | Implemented |
+| `POST /bap/v1/audit/edge-denial` | Edge mTLS or development bearer | Record sanitized local-filter denial | Implemented |
+| `POST /access/v1/evaluation`, grant consumption | Development bearer | Legacy migration compatibility | Implemented; not active Edge path |
 | policy/proposal CRUD and approval | Admin identity | Govern proposal, validate, approve, deploy, rollback | MVP requirement |
 | audit/decision read API | Admin/auditor identity | Search timelines without file access | MVP requirement |
 | identity registration/revocation | Admin identity | Manage endpoint credentials/workload identities | MVP requirement |
@@ -312,9 +299,9 @@ consume these APIs only after their authorization model exists.
 The defensible pilot claim is:
 
 > On managed, standard-user Windows endpoints, approved Claude Code tool calls
-> are intercepted by administrator-controlled hooks, locally screened,
-> centrally authorized with Cedar over AuthZEN, denied by default, and
-> correlated in tamper-evident audit.
+> are intercepted by administrator-controlled hooks, decided and enforced by
+> BAP Edge from centrally signed rules and local Cedar default deny, and
+> asynchronously correlated in tamper-evident central audit.
 
 Do not claim that BAP controls every process on the workstation, prevents a
 local administrator, or protects a database that remains directly reachable.

@@ -20,6 +20,7 @@ import (
 	"cc-filter/internal/auditwire"
 	"cc-filter/internal/authzen"
 	"cc-filter/internal/grants"
+	"cc-filter/internal/policybundle"
 	"cc-filter/internal/tracecontext"
 )
 
@@ -32,14 +33,19 @@ type Client struct {
 }
 
 func NewClient(config Config) (*Client, error) {
-	if config.APIKey() == "" {
+	if config.APIKey() == "" && config.ClientCertificatePath == "" {
 		return nil, fmt.Errorf("required BAP credential environment variable %s is empty", config.APIKeyEnv)
 	}
-	publicKey, err := grants.LoadPublicKey(config.PublicKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("load BAP grant verification key: %w", err)
+	var publicKey ed25519.PublicKey
+	var err error
+	if config.PublicKeyPath != "" {
+		publicKey, err = grants.LoadPublicKey(config.PublicKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("load legacy BAP grant verification key: %w", err)
+		}
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 	if config.CABundlePath != "" {
 		caPEM, err := os.ReadFile(config.CABundlePath)
 		if err != nil {
@@ -52,8 +58,16 @@ func NewClient(config Config) (*Client, error) {
 		if !roots.AppendCertsFromPEM(caPEM) {
 			return nil, fmt.Errorf("BAP Service CA bundle contains no certificates")
 		}
-		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+		tlsConfig.RootCAs = roots
 	}
+	if config.ClientCertificatePath != "" {
+		certificate, err := tls.LoadX509KeyPair(config.ClientCertificatePath, config.ClientKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("load BAP Edge client identity: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{certificate}
+	}
+	transport.TLSClientConfig = tlsConfig
 	return &Client{
 		baseURL: strings.TrimRight(config.ServiceURL, "/"), audience: "bap-edge", publicKey: publicKey, apiKey: config.APIKey(),
 		http: &http.Client{Timeout: config.Timeout(), Transport: transport},
@@ -89,6 +103,33 @@ func (c *Client) Health(ctx context.Context) error {
 		return fmt.Errorf("health endpoint returned HTTP %d", response.StatusCode)
 	}
 	return nil
+}
+
+func (c *Client) SyncPolicy(ctx context.Context, request policybundle.SyncRequest) (policybundle.SyncResponse, error) {
+	var result policybundle.SyncResponse
+	body, err := json.Marshal(request)
+	if err != nil {
+		return result, err
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/bap/v1/edge/sync", bytes.NewReader(body))
+	if err != nil {
+		return result, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	c.authorize(httpRequest)
+	response, err := c.http.Do(httpRequest)
+	if err != nil {
+		return result, fmt.Errorf("synchronize BAP policy: %w", err)
+	}
+	defer response.Body.Close()
+	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	if response.StatusCode != http.StatusOK {
+		return result, fmt.Errorf("BAP policy sync returned HTTP %d", response.StatusCode)
+	}
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		return result, fmt.Errorf("decode BAP policy sync: %w", err)
+	}
+	return result, nil
 }
 
 func (c *Client) Evaluate(ctx context.Context, request authzen.EvaluationRequest, trace tracecontext.Context) (authzen.Decision, error) {
@@ -170,6 +211,10 @@ func (c *Client) ReportEdgeDenial(ctx context.Context, denial auditwire.EdgeDeni
 	return c.post(ctx, "/bap/v1/audit/edge-denial", denial, denial.TraceParent)
 }
 
+func (c *Client) ReportEdgeDecision(ctx context.Context, decision auditwire.EdgeDecision) error {
+	return c.post(ctx, "/bap/v1/audit/edge-decision", decision, decision.TraceParent)
+}
+
 func applyTrace(request *http.Request, traceParent string) {
 	if _, ok := tracecontext.Parse(traceParent); ok {
 		request.Header.Set("traceparent", traceParent)
@@ -177,10 +222,15 @@ func applyTrace(request *http.Request, traceParent string) {
 }
 
 func (c *Client) authorize(request *http.Request) {
-	request.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 }
 
 func (c *Client) VerifyGrant(token, requestHash string) error {
+	if len(c.publicKey) == 0 {
+		return fmt.Errorf("legacy grant verification is not configured")
+	}
 	_, err := grants.Verify(c.publicKey, token, c.audience, requestHash, time.Now().UTC())
 	return err
 }

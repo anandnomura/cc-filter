@@ -1,10 +1,20 @@
 # BAP Edge fork of cc-filter
 
-This fork adds a BAP Edge Policy Enforcement Point for Claude Code and a separate
-network-ready BAP Service Policy Decision Point. BAP Service implements the
-OpenID AuthZEN evaluation API and evaluates decisions with Cedar.
+This fork adds a BAP Edge endpoint data plane for Claude Code and a separate
+network-ready BAP Service rule control plane. BAP Service distributes signed,
+versioned rule bundles; BAP Edge verifies them, classifies traffic, evaluates
+Cedar locally, and enforces each decision. The service retains a legacy OpenID
+AuthZEN evaluation API during migration.
 
 **Start here:** [BAP Edge operator guide](docs/bap-edge/README.md)
+
+Run `Test-PolicyRollout.ps1` for the focused command/bypass and signed rollout
+gate, or `Test-MVP0.ps1` for the complete certification; MVP-0 invokes the
+focused gate automatically.
+
+Use `Show-BapStatus.ps1` for a read-only control-plane/Edge posture view. Exact
+Claude Code/Sonnet/Opus schema capture and replay are documented in the
+[fixture certification guide](docs/bap-edge/claude-fixture-certification.md).
 
 The operator guide includes the complete Docker/Podman build, HTTPS and key
 initialization, Windows managed-settings installation, standard-user bypass

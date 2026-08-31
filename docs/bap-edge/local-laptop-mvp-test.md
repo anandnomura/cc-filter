@@ -23,10 +23,10 @@ cd C:\Users\User\pyprj\bap-edge
 .\View-AuditTrail.ps1 -Runtime Docker -VerifyOnly
 ```
 
-Every test must pass. This covers authenticated HTTPS/AuthZEN requests, Cedar
-allow/forbid/default-deny behavior, signed grants, centrally recorded cache
-reuse, outcomes, MySQL audit durability, audit privacy and integrity, and
-fail-closed behavior during a database outage.
+Every test must pass. This covers authenticated policy synchronization, signed
+bundle verification, local Cedar allow/forbid/default deny, central `ls -al`
+configuration, bounded offline decisions, outcomes, MySQL audit durability,
+privacy/integrity, rollback/tamper/expiry, and control-plane database failure.
 
 ## 2. Check liveness, readiness, and storage
 
@@ -130,14 +130,17 @@ git status --short
 `THIS-MUST-SURVIVE` must still be present. `/hooks` may show zero because it
 lists editable hooks, not administrator-managed hooks.
 
-## 6. Prove service fail-closed behavior
+## 6. Prove bounded offline and fail-closed behavior
 
 ```powershell
 cd C:\Users\User\pyprj\bap-edge
 .\Stop-Bap.ps1 -Runtime Docker
 ```
 
-In a new Claude session, even `git status --short` must deny. Restore service:
+With the freshly synchronized bundle, `git status --short` may remain allowed
+until `max_offline_seconds` elapses. With no local bundle or after the offline
+lease expires, the operation must deny. The automated suite proves bounded
+offline operation and unit tests prove stale/expired denial. Restore service:
 
 ```powershell
 .\Start-Bap.ps1 -Runtime Docker

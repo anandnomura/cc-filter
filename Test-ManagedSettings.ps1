@@ -4,7 +4,8 @@ $ErrorActionPreference = 'Stop'
 $managedPath = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d\50-bap-edge.json'
 $binaryPath = Join-Path $env:ProgramFiles 'BAP Edge\bap-edge.exe'
 $configPath = Join-Path $env:ProgramFiles 'BAP Edge\bap-edge.yaml'
-foreach ($path in @($managedPath, $binaryPath, $configPath)) {
+$bundlePublicKeyPath = Join-Path $env:ProgramFiles 'BAP Edge\bundle-public.pem'
+foreach ($path in @($managedPath, $binaryPath, $configPath, $bundlePublicKeyPath)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing managed installation file: $path" }
 }
 
@@ -26,7 +27,7 @@ $dangerousRights = [System.Security.AccessControl.FileSystemRights]::WriteData -
     [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
     [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
     [System.Security.AccessControl.FileSystemRights]::TakeOwnership
-foreach ($protectedPath in @($managedPath, $binaryPath, $configPath)) {
+foreach ($protectedPath in @($managedPath, $binaryPath, $configPath, $bundlePublicKeyPath)) {
     $acl = Get-Acl -LiteralPath $protectedPath
     foreach ($entry in $acl.Access) {
         if ($entry.AccessControlType -eq 'Allow' -and
@@ -60,6 +61,7 @@ try {
     $testSession = 'managed-settings-test-' + [Guid]::NewGuid().ToString('N')
     $cases = @(
         @{ Command = 'git status --short'; Expected = 'allow' },
+        @{ Command = 'ls -al'; Expected = 'allow' },
         @{ Command = 'git reset --hard'; Expected = 'deny' }
     )
     foreach ($case in $cases) {

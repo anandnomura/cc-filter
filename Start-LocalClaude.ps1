@@ -1,6 +1,10 @@
 param(
     [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
     [switch]$VerifyHooksOnly,
+    [switch]$UseCompanyClaude,
+    [string]$Model = 'claude-3-5-sonnet-20241022',
+    [string]$Tools = 'Bash',
+    [string]$SystemPrompt = 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the requested tool. Never substitute example paths or simulate results. Never claim a tool succeeded when it was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.',
     [Alias('p')][switch]$Print,
     [Parameter(Position = 0)][string]$Prompt = '',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ClaudeArguments
@@ -15,12 +19,12 @@ function ConvertTo-YamlPath {
     return $Path.Replace('\', '\\')
 }
 
-function Test-BapHealth {
+function Test-BapReadiness {
     param([Parameter(Mandatory)][string]$CaBundle)
     if (-not (Test-Path -LiteralPath $CaBundle)) { return $false }
     try {
-        $response = & curl.exe --silent --show-error --fail --max-time 3 --ssl-no-revoke --cacert $CaBundle 'https://127.0.0.1:8443/healthz' 2>$null
-        return $LASTEXITCODE -eq 0 -and ($response | ConvertFrom-Json).status -eq 'ok'
+        $response = & curl.exe --silent --show-error --fail --max-time 3 --ssl-no-revoke --cacert $CaBundle 'https://127.0.0.1:8443/readyz' 2>$null
+        return $LASTEXITCODE -eq 0 -and ($response | ConvertFrom-Json).status -eq 'ready'
     } catch {
         return $false
     }
@@ -34,7 +38,9 @@ function Invoke-HookVerification {
     $sessionID = 'local-launcher-test-' + [Guid]::NewGuid().ToString('N')
     $cases = @(
         @{ Label = 'safe command'; Command = 'git status --short'; Expected = 'allow' },
-        @{ Label = 'destructive command'; Command = 'git reset --hard'; Expected = 'deny' }
+        @{ Label = 'centrally configured command'; Command = 'ls -al'; Expected = 'allow' },
+        @{ Label = 'destructive command'; Command = 'git reset --hard'; Expected = 'deny' },
+        @{ Label = 'unclassified command'; Command = 'python -c "print(1)"'; Expected = 'deny' }
     )
     foreach ($case in $cases) {
         $inputObject = @{
@@ -68,7 +74,7 @@ $engine = ''
 if ($Runtime -eq 'Auto') {
     foreach ($candidate in @('podman', 'docker')) {
         $candidateRuntime = Get-BapRuntimeDirectory -Engine $candidate
-        if (Test-BapHealth -CaBundle (Join-Path $candidateRuntime 'dev-ca.pem')) {
+        if (Test-BapReadiness -CaBundle (Join-Path $candidateRuntime 'dev-ca.pem')) {
             $engine = $candidate
             break
         }
@@ -78,7 +84,7 @@ if (-not $engine) { $engine = Get-BapContainerEngine -Runtime $Runtime }
 $runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
 $caBundle = Join-Path $runtimeDirectory 'dev-ca.pem'
 
-if (-not (Test-BapHealth -CaBundle $caBundle)) {
+if (-not (Test-BapReadiness -CaBundle $caBundle)) {
     Write-Host "BAP Service is not ready; starting it with $engine..."
     & (Join-Path $PSScriptRoot 'Start-Bap.ps1') -Runtime $engine
 }
@@ -86,7 +92,7 @@ if (-not (Test-BapHealth -CaBundle $caBundle)) {
 Write-Host 'Building BAP Edge from the current source...'
 & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime $engine
 
-$requiredRuntimeFiles = @('dev-ca.pem', 'grant-public.pem', 'edge-api-key.txt')
+$requiredRuntimeFiles = @('dev-ca.pem', 'bundle-public.pem', 'edge-api-key.txt')
 foreach ($name in $requiredRuntimeFiles) {
     $path = Join-Path $runtimeDirectory $name
     if (-not (Test-Path -LiteralPath $path)) { throw "BAP runtime file is missing: $path" }
@@ -98,17 +104,15 @@ $edgeConfig = Join-Path $localDirectory 'bap-edge.yaml'
 $claudeSettings = Join-Path $localDirectory 'claude-settings.json'
 New-Item -ItemType Directory -Force -Path $localDirectory, $edgeStateDirectory | Out-Null
 
-$publicKey = ConvertTo-YamlPath (Join-Path $runtimeDirectory 'grant-public.pem')
+$bundlePublicKey = ConvertTo-YamlPath (Join-Path $runtimeDirectory 'bundle-public.pem')
 $caPath = ConvertTo-YamlPath $caBundle
 $statePath = ConvertTo-YamlPath $edgeStateDirectory
 @"
 service_url: "https://127.0.0.1:8443"
-public_key_path: "$publicKey"
+bundle_public_key_path: "$bundlePublicKey"
 ca_bundle_path: "$caPath"
 subject_id: "claude-code-local"
-policy_profile: "standard-developer"
 timeout_ms: 3000
-cache_directory: "$statePath"
 state_directory: "$statePath"
 api_key_env: "BAP_EDGE_API_KEY"
 "@ | Set-Content -LiteralPath $edgeConfig -Encoding utf8
@@ -135,10 +139,10 @@ $managedEdgeDirectory = Join-Path $env:ProgramFiles 'BAP Edge'
 $usingManagedHooks = Test-Path -LiteralPath $managedSettings
 if ($usingManagedHooks) {
     $managedCa = Join-Path $managedEdgeDirectory 'service-ca-bundle.pem'
-    $managedGrantKey = Join-Path $managedEdgeDirectory 'grant-public.pem'
+    $managedBundleKey = Join-Path $managedEdgeDirectory 'bundle-public.pem'
     foreach ($pair in @(
         @{ Installed = $managedCa; Active = $caBundle; Label = 'CA bundle' },
-        @{ Installed = $managedGrantKey; Active = (Join-Path $runtimeDirectory 'grant-public.pem'); Label = 'grant public key' }
+        @{ Installed = $managedBundleKey; Active = (Join-Path $runtimeDirectory 'bundle-public.pem'); Label = 'policy-bundle public key' }
     )) {
         if (-not (Test-Path -LiteralPath $pair.Installed)) {
             throw "Managed BAP Edge $($pair.Label) is missing: $($pair.Installed)"
@@ -167,15 +171,16 @@ if (-not (Test-Path -LiteralPath $claudeExecutable)) {
     throw "Claude Code was not found on PATH or at $claudeExecutable"
 }
 
-try {
-    $bridge = Invoke-RestMethod 'http://127.0.0.1:4080/health' -TimeoutSec 5
-    if (-not $bridge.ok) { throw 'ccbridge returned an unhealthy response.' }
-} catch {
-    throw 'The updated ccbridge is not ready at http://127.0.0.1:4080/health. Run start-ccbridge.bat in a separate window first.'
+if (-not $UseCompanyClaude) {
+    try {
+        $bridge = Invoke-RestMethod 'http://127.0.0.1:8080/health' -TimeoutSec 5
+        if (-not $bridge.status) { throw 'ccbridge returned an unhealthy response.' }
+    } catch {
+        throw 'The updated ccbridge is not ready at http://127.0.0.1:4080/health. Run start-ccbridge.bat in a separate window first, or use -UseCompanyClaude.'
+    }
+    $env:ANTHROPIC_BASE_URL = 'http://127.0.0.1:8080'
+    $env:ANTHROPIC_API_KEY = 'local-demo-key'
 }
-
-$env:ANTHROPIC_BASE_URL = 'http://127.0.0.1:4080'
-$env:ANTHROPIC_API_KEY = 'local-demo-key'
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
 Write-Host ''
@@ -187,13 +192,15 @@ if ($usingManagedHooks) {
     Write-Host "Local Claude is using repo-local BAP Edge hooks from $claudeSettings"
 }
 Write-Host 'ALLOW test: Call Bash exactly once with this exact command: git status --short'
+Write-Host 'ALLOW test: Call Bash exactly once with this exact command: ls -al'
 Write-Host 'DENY test:  Call Bash exactly once with this exact command: git reset --hard'
+Write-Host 'DENY test:  Call Bash exactly once with this exact command: python -c "print(1)"'
 Write-Host ''
 
 $defaultArguments = @(
-    '--model', 'claude-3-5-sonnet-20241022',
-    '--tools', 'Bash',
-    '--system-prompt', 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the Bash tool. Never substitute example paths or simulate results. Never claim a command succeeded when its tool call was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.'
+    '--model', $Model,
+    '--tools', $Tools,
+    '--system-prompt', $SystemPrompt
 )
 if ($usingManagedHooks) {
     # Managed policy is always loaded independently. Excluding ordinary sources

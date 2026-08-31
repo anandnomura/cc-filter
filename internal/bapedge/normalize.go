@@ -84,8 +84,6 @@ var (
 	privilegedCommand   = regexp.MustCompile(`(?i)(^|[;&|]\s*)(sudo|runas|net\s+(user|localgroup)|sc(\.exe)?\s+(create|config)|schtasks(\.exe)?\s+/create|reg(\.exe)?\s+add\s+hklm|set-executionpolicy|start-process[^\r\n]*-verb\s+runas)(\s|$)`)
 	exfiltrationCommand = regexp.MustCompile(`(?i)(curl|wget|invoke-webrequest|invoke-restmethod)[^\r\n]*(--data|--form|--upload-file|-body\b|-infile\b|\s-[dft]\s)|(^|[;&|]\s*)(nc|ncat|netcat|scp|sftp|rsync)(\s|$)`)
 	obfuscatedCommand   = regexp.MustCompile(`(?i)(powershell|pwsh)[^\r\n]*(-e|-en|-enc|-enco|-encod|-encode|-encodedcommand)\s+[a-z0-9+/=]{8,}|base64\s+(-d|--decode)[^\r\n]*\|\s*(sh|bash|zsh|powershell|pwsh)`)
-	unsafeShellSyntax   = regexp.MustCompile("[;&|<>`\\r\\n]|\\$\\(|(?i)\\b(eval|iex|invoke-expression|cmd\\s+/c|powershell|pwsh|bash|sh)\\b")
-	safeCommand         = regexp.MustCompile(`(?i)^\s*(git\s+(status|diff|log|show|branch|rev-parse)(\s+[^;&|<>\r\n]*)?|go\s+(test|vet|list|build)(\s+[^;&|<>\r\n]*)?|dotnet\s+(test|build)(\s+[^;&|<>\r\n]*)?|npm\s+(test|run\s+(test|lint|build))(\s+[^;&|<>\r\n]*)?|pytest(\s+[^;&|<>\r\n]*)?|rg(\.exe)?(\s+[^;&|<>\r\n]*)?|get-(childitem|content|location)(\s+[^;&|<>\r\n]*)?)\s*$`)
 )
 
 func Normalize(input HookInput, subjectID, workloadID string) (authzen.EvaluationRequest, error) {
@@ -147,11 +145,13 @@ func NormalizeWithPolicy(input HookInput, subjectID, workloadID string, policy N
 		Resource: authzen.Entity{Type: "tool-invocation", ID: resourceID, Properties: map[string]any{
 			"tool": input.ToolName, "target": target, "path": canonicalPath, "command": command,
 			"protected": protected, "outsideWorkspace": outside, "securityControl": securityControl,
-			"destructive":   action == "command.execute" && destructiveCommand.MatchString(command),
-			"privileged":    action == "command.execute" && privilegedCommand.MatchString(command),
-			"exfiltration":  action == "command.execute" && exfiltrationCommand.MatchString(command),
-			"obfuscated":    action == "command.execute" && obfuscatedCommand.MatchString(command),
-			"shellApproved": action != "command.execute" || (safeCommand.MatchString(command) && !unsafeShellSyntax.MatchString(command)),
+			"destructive":  action == "command.execute" && destructiveCommand.MatchString(command),
+			"privileged":   action == "command.execute" && privilegedCommand.MatchString(command),
+			"exfiltration": action == "command.execute" && exfiltrationCommand.MatchString(command),
+			"obfuscated":   action == "command.execute" && obfuscatedCommand.MatchString(command),
+			// Command eligibility is intentionally not decided here. The signed,
+			// centrally managed policy bundle is the sole source for shell rules.
+			"shellApproved": action != "command.execute",
 			"policyProfile": policy.Profile, "approvedNetwork": approvedNetwork, "approvedMCP": approvedMCP,
 			"approvedDelegate": approvedDelegate, "networkHost": host, "mcpServer": mcpServer, "mcpTool": mcpTool,
 		}},
