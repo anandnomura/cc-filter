@@ -67,6 +67,10 @@ alone does not package an OCI image. See the
 [company build guide](company-windows-build.md) for checksums, internal
 digest-pinned base images, signing, packaging, and installation.
 
+For an unmanaged, container-free functional test where both EXEs and Claude run
+on one Windows laptop, use `Start-BapNativeLocal.bat`; see the
+[native local testing guide](native-local-testing.md).
+
 ## Five-minute local setup on Windows
 
 Open a normal PowerShell window in the repository:
@@ -146,6 +150,7 @@ that lease BAP Edge fails closed. Claude can continue reasoning without tools.
 - [Docker, Podman, managed-settings, and fail-closed tests](testing.md)
 - [New computer: download, build, initialize, install, and demonstrate](new-environment.md)
 - [Company Windows: compile Edge locally without Docker or Podman](company-windows-build.md)
+- [Native local Windows test with project-local Claude hooks](native-local-testing.md)
 - [Every Windows/Linux/local/distributed build and test case](deployment-test-matrix.md)
 - [Performance test commands and measured baseline](performance.md)
 - [What is still required for enterprise production](production-readiness.md)

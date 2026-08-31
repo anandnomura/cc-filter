@@ -32,6 +32,9 @@ Windows Service EXE using an installed Go 1.23.12+ toolchain. Use `-Target Linux
 to cross-compile the separately deployable Linux Service binary.
 The complete per-component command/output table is in the
 [operator compilation quick reference](docs/bap-edge/README.md#compilation-quick-reference).
+For a container-free local test with both Windows EXEs and non-managed Claude
+hooks, run `Start-BapNativeLocal.bat` and follow the
+[native local testing guide](docs/bap-edge/native-local-testing.md).
 
 The original cc-filter behavior and documentation remain below so this fork can
 continue to synchronize with `wissem/cc-filter`.

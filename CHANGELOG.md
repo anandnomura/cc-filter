@@ -5,6 +5,8 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
+- One-click native Windows local test launcher for BAP Service, BAP Edge, signed
+  policy verification, and temporary project-local Claude hooks
 - Native Windows Go fallback and explicit Windows/Linux compilation targets for
   BAP Edge and BAP Service when Docker/Podman is unavailable
 - Versioned company artifact build with internal digest-pinned base-image inputs,

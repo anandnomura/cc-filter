@@ -8,6 +8,8 @@ dist/
 .bap/runtime/
 .bap/local-claude/
 .bap/captures/
+.bap/native-local/
+.claude/settings.local.json
 
 # Go build artifacts
 *.o
