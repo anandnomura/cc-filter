@@ -47,6 +47,9 @@ All notable changes to cc-filter are documented in this file.
 - Removed duplicate Claude hook notices by emitting denial text only through
   `permissionDecisionReason` and prompt guidance only through
   `additionalContext`, while preserving any parent cc-filter message
+- Added `Test-MVP0.ps1 -Runtime Native` for container-free company testing of
+  portable Go, signed-policy, native Service/Edge, prompt, and fixture checks,
+  with explicit reporting of MySQL/container-only checks that were not run
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call

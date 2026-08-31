@@ -23,6 +23,18 @@ ls -al              -> allow from the central rule source
 git reset --hard    -> deny and does not execute
 ```
 
+If company policy permits approved Go but not Docker or Podman, run:
+
+```powershell
+.\Test-MVP0.ps1 -Runtime Native
+```
+
+Native mode builds both Windows EXEs, runs the full vendored Go suite, starts
+an isolated native Service, verifies Edge synchronization plus command and
+prompt decisions, and uses the native fixture verifier. It explicitly reports
+live MySQL lifecycle, container networking, OCI packaging, and container
+failure-recovery checks as not run. Those remain Docker/Podman-only gates.
+
 The automated corpus also covers missing/wrongly typed fields, protected and
 outside-workspace paths, unclassified/chained/encoded shell commands, HTTPS
 destination validation, exact MCP registration, exact subagent registration,

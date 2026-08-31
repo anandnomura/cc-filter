@@ -5,6 +5,15 @@
 Install either Docker Desktop or Podman Desktop/Podman machine. You do **not**
 need Go: builds and tests use `golang:1.23-bookworm` inside the selected runtime.
 
+For a container-free company workstation, install approved Go 1.23.12+ and run:
+
+```powershell
+.\Test-MVP0.ps1 -Runtime Native
+```
+
+This runs the portable/native MVP-0A gate. It does not pretend to cover the live
+MySQL or OCI/container lifecycle checks described below.
+
 ## Docker acceptance test
 
 From a normal PowerShell window:

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
+    [ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Auto',
     [string]$CaptureDirectory = '',
     [string[]]$RequiredModels = @(),
     [switch]$UpdateManifest,
@@ -8,10 +8,22 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
-
-$engine = Get-BapContainerEngine -Runtime $Runtime
-$runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
+$nativeMode = $Runtime -eq 'Native'
+$engine = ''
+if ($nativeMode) {
+    . (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
+    $goCommand = Get-BapGoCommand -Required
+    $latestRunPath = Join-Path $PSScriptRoot '.bap\native-local\latest-run.txt'
+    if (-not (Test-Path -LiteralPath $latestRunPath -PathType Leaf)) {
+        throw 'No native test run exists. Run Start-BapNativeLocal.bat -VerifyOnly first.'
+    }
+    $latestRun = (Get-Content -LiteralPath $latestRunPath -Raw).Trim()
+    $runtimeDirectory = Join-Path $latestRun 'service-state'
+} else {
+    . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
+    $engine = Get-BapContainerEngine -Runtime $Runtime
+    $runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
+}
 if (-not $CaptureDirectory) { $CaptureDirectory = Join-Path $PSScriptRoot '.bap\captures' }
 $captureDirectory = [IO.Path]::GetFullPath($CaptureDirectory)
 $manifestPath = Join-Path $captureDirectory 'certification-manifest.json'
@@ -33,6 +45,24 @@ if (-not $captureDirectory.StartsWith($root + [IO.Path]::DirectorySeparatorChar,
     throw 'CaptureDirectory must be inside the repository so the pinned test container can verify it.'
 }
 $relativeCapture = $captureDirectory.Substring($root.Length).TrimStart([char[]]@('\','/')).Replace('\','/')
+if ($nativeMode) {
+    Push-Location $PSScriptRoot
+    try {
+        if ($UpdateManifest) {
+            & $goCommand run -mod=vendor ./cmd/bap-fixture -mode manifest -directory $captureDirectory -manifest $manifestPath -bundle $bundlePath -public-key $publicKeyPath "-require-models=$required"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the Claude certification manifest.' }
+        }
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            throw 'Captured fixtures exist but have not been reviewed and manifested. Run Test-ClaudeFixtures.ps1 -UpdateManifest with the required model families.'
+        }
+        & $goCommand run -mod=vendor ./cmd/bap-fixture -mode verify -directory $captureDirectory -manifest $manifestPath -bundle $bundlePath -public-key $publicKeyPath "-require-models=$required"
+        if ($LASTEXITCODE -ne 0) { throw 'Claude fixture certification failed.' }
+    } finally {
+        Pop-Location
+    }
+    Write-Host 'PASS: captured Claude schemas, decisions, policy identity, model equivalence, and fixture hashes are certified.'
+    exit 0
+}
 $mount = "$($PSScriptRoot):/src"
 $containerDirectory = "/src/$relativeCapture"
 $containerManifest = "$containerDirectory/certification-manifest.json"

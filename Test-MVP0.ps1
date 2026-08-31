@@ -1,11 +1,46 @@
 param(
-    [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
+    [ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Auto',
+    [ValidateRange(1, 65535)][int]$NativePort = 18443,
     [switch]$RequireCompanyFixtures,
     [string[]]$RequiredModels = @()
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($Runtime -eq 'Native') {
+    . (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
+    $goCommand = Get-BapGoCommand -Required
+
+    Write-Host 'Building native Windows BAP Edge and BAP Service executables...'
+    & (Join-Path $PSScriptRoot 'Build-Bap.ps1') -Runtime Native
+
+    Write-Host 'Running the complete portable Go test suite from vendored dependencies...'
+    Push-Location $PSScriptRoot
+    try {
+        & $goCommand test -mod=vendor ./...
+        if ($LASTEXITCODE -ne 0) { throw 'Portable Go test suite failed.' }
+    } finally {
+        Pop-Location
+    }
+
+    Write-Host 'Running isolated native Service, Edge, signed-policy, command, and prompt verification...'
+    & (Join-Path $PSScriptRoot 'Start-BapNativeLocal.ps1') -VerifyOnly -Port $NativePort
+
+    Write-Host 'Checking exact Claude Code/model fixtures with the native Go verifier...'
+    & (Join-Path $PSScriptRoot 'Test-ClaudeFixtures.ps1') -Runtime Native -RequiredModels $RequiredModels -RequireCompanyFixtures:$RequireCompanyFixtures
+
+    Write-Host 'PASS: native model-independent MVP-0A certification foundation.'
+    Write-Host 'PASS: portable policy, bypass, signed rollout, rollback, tamper, expiry, audit, and hook-contract tests.'
+    Write-Host 'PASS: native Windows Service/Edge synchronization and allow/deny/manual-only/prompt-advisory verification.'
+    Write-Warning 'NOT RUN in Native mode: live Docker/Podman MySQL lifecycle, container networking, OCI image, and container failure-recovery checks.'
+    if ($RequireCompanyFixtures) {
+        Write-Host 'PASS: required exact company Claude Code/model fixtures are certified.'
+    } else {
+        Write-Host 'PENDING: run with -RequireCompanyFixtures after capturing the exact company Claude Code/model versions.'
+    }
+    exit 0
+}
 
 # Docker and Podman use the same intentional loopback port. When the caller
 # selects one explicitly, stop only the other runtime's local BAP service.

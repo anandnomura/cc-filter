@@ -125,6 +125,9 @@ launcher with a bare `claude` command.
 # Verify Service, Edge, policy, commands, and prompt classifier without Claude
 .\Start-BapNativeLocal.bat -VerifyOnly
 
+# Container-free company/native MVP-0A gate
+.\Test-MVP0.ps1 -Runtime Native
+
 # Use another Service port if 8443 is occupied
 .\Start-BapNativeLocal.bat -Port 18443
 

@@ -41,6 +41,9 @@ one is added and certified.
 # Native Service/Edge/policy verification without Claude
 .\Start-BapNativeLocal.bat -VerifyOnly
 
+# Complete container-free portable/native gate
+.\Test-MVP0.ps1 -Runtime Native
+
 # Interactive unmanaged-hook test with the local model
 .\Start-BapNativeLocal.bat
 ```
@@ -62,6 +65,10 @@ dist\bap-service-linux-arm64
 ```
 
 Windows can execute only the `.exe` files. Test Linux binaries on Linux.
+
+The native MVP gate does not attempt Docker/Podman checks. It explicitly reports
+the live MySQL lifecycle, container networking, OCI packaging, and container
+failure-recovery cases as not run. Those require the Docker or Podman gate.
 
 ### 2. Docker on Windows
 
