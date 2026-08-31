@@ -6,7 +6,7 @@ Write-Host 'Building the independently deployable BAP Edge and BAP Service compo
 if ($Runtime -eq 'Native') {
     & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime Native
     & (Join-Path $PSScriptRoot 'Build-BapService.ps1') -Runtime Native
-    Write-Warning 'Native mode produced the Windows Edge and Linux Service binaries. Creating the final BAP Service OCI image still requires a container/Linux packaging pipeline.'
+    Write-Warning 'Native mode produced Windows Edge and Service executables. Creating a BAP Service OCI image still requires a container/Linux packaging pipeline.'
     return
 }
 if ($Runtime -eq 'Auto') {
@@ -17,7 +17,7 @@ if ($Runtime -eq 'Auto') {
         if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw }
         & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime Native
         & (Join-Path $PSScriptRoot 'Build-BapService.ps1') -Runtime Native
-        Write-Warning 'No container runtime is usable, so native binaries were built. Package the Linux BAP Service binary into OCI in the company container pipeline.'
+        Write-Warning 'No container runtime is usable, so native Windows binaries were built. Use an explicit Linux target if the company packaging pipeline needs a Linux Service binary.'
         return
     }
 } else {

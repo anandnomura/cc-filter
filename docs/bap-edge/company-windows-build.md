@@ -137,38 +137,74 @@ Windows AMD64 and Linux AMD64/ARM64 Edge binaries with local Go, use:
 .\Build-BapEdge.ps1 -Runtime Native -Targets All
 ```
 
-Build only the Linux AMD64 BAP Service executable from Windows:
+Build the Windows AMD64 BAP Service executable for container-free local testing:
 
 ```powershell
-.\Build-BapService-Native.ps1 -Architecture amd64
+.\Build-BapService-Native.ps1 -Target Windows
 ```
 
-Build Linux AMD64 and ARM64 BAP Service executables:
+Output:
+
+```text
+dist\bap-service-windows-amd64.exe
+```
+
+`bap-service-linux-amd64` is a separate Linux executable without an `.exe`
+extension; it cannot run on Windows. Cross-compile it explicitly with:
 
 ```powershell
-.\Build-BapService-Native.ps1 -Architecture All
+.\Build-BapService-Native.ps1 -Target Linux -Architecture amd64
+```
+
+Build Linux AMD64 and ARM64 BAP Service executables with:
+
+```powershell
+.\Build-BapService-Native.ps1 -Target Linux -Architecture All
 ```
 
 The ordinary wrapper also supports both explicit and automatic fallback:
 
 ```powershell
-.\Build-BapService.ps1 -Runtime Native -Architecture amd64
-.\Build-BapService.ps1 -Runtime Auto -Architecture amd64
+.\Build-BapService.ps1 -Runtime Native -NativeTarget Windows
+.\Build-BapService.ps1 -Runtime Auto -NativeTarget Windows
 ```
 
 With `Auto`, a usable container runtime produces the OCI image; without one, an
 installed Go toolchain produces the Linux executable and prints that distinction.
 
-Or build the default Windows Edge and Linux AMD64 Service binaries together:
+Or build the default Windows Edge and Windows Service executables together:
 
 ```powershell
 .\Build-Bap.ps1 -Runtime Native
 ```
 
-These cross-builds work because both programs use pure Go and set
-`CGO_ENABLED=0`. A Windows Go compiler can emit Linux binaries by setting
-`GOOS=linux`; the output does not run on Windows. The native service outputs are
-`dist\bap-service-linux-amd64` and `dist\bap-service-linux-arm64`.
+These builds work because both programs use pure Go and set `CGO_ENABLED=0`.
+A Windows Go compiler emits the Windows Service EXE directly and can emit Linux
+binaries by setting `GOOS=linux`; Linux output does not run on Windows.
+
+### Start the Windows Service EXE for a local smoke test
+
+From the repository root, configure an isolated development state directory and
+initialize its TLS/signing keys once:
+
+```powershell
+$env:BAP_STATE_DIRECTORY = "$PWD\.bap\runtime\native"
+$env:BAP_POLICY_PATH = "$PWD\bap-service\policies\agent-tools.cedar"
+$env:BAP_BUNDLE_SOURCE_PATH = "$PWD\bap-service\policies\edge-policy-source.json"
+$env:BAP_LISTEN_ADDRESS = '127.0.0.1:8443'
+$env:BAP_DEVELOPMENT_TLS = 'true'
+$env:BAP_EDGE_API_KEY = 'replace-with-a-dedicated-local-test-secret'
+
+.\dist\bap-service-windows-amd64.exe initialize-certificates
+.\dist\bap-service-windows-amd64.exe
+```
+
+This foreground process uses signed JSONL audit/proposal storage under
+`.bap\runtime\native` when `BAP_DATABASE_DSN` is unset. That is suitable for a
+local smoke test, not a company pilot. Set `BAP_DATABASE_DSN` and the documented
+TLS settings when using company MySQL. The generated Edge trust inputs are
+`.bap\runtime\native\dev-ca.pem` and
+`.bap\runtime\native\bundle-public.pem`.
 
 The Linux BAP Service binary still needs the Cedar policy files under
 `bap-service/policies/`, company certificates/secrets, and a Linux runtime host.
@@ -185,10 +221,11 @@ dist\bap-edge-windows-amd64.exe
 The default Edge-only command does not compile BAP Service. `-Targets All`
 additionally cross-compiles the Linux Edge binaries.
 
-`Build-Bap.ps1 -Runtime Native` builds the Windows Edge executable and the Linux
-AMD64 Service executable. It prints a warning that these are raw binaries: the
-final BAP Service OCI image must still be created in a Docker/Podman or separate
-Linux packaging pipeline.
+`Build-Bap.ps1 -Runtime Native` builds the Windows Edge and Windows Service
+executables for container-free local testing. Use the explicit `-Target Linux`
+command when a Linux Service binary is needed for packaging. The final BAP
+Service OCI image must still be created in a Docker/Podman or separate Linux
+packaging pipeline.
 
 ## 4. Install the locally compiled Edge
 

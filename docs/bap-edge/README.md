@@ -53,13 +53,15 @@ already checked into `vendor/` and require Go 1.23.12 or newer.
 |---|---|---|
 | BAP Edge, Windows AMD64 | `.\Build-BapEdge.ps1 -Runtime Native` | `dist\bap-edge-windows-amd64.exe` |
 | BAP Edge, Windows AMD64 + Linux AMD64/ARM64 | `.\Build-BapEdge.ps1 -Runtime Native -Targets All` | `dist\bap-edge-*` |
-| BAP Service, Linux AMD64 binary | `.\Build-BapService-Native.ps1 -Architecture amd64` | `dist\bap-service-linux-amd64` |
-| BAP Service, Linux AMD64 + ARM64 binaries | `.\Build-BapService-Native.ps1 -Architecture All` | `dist\bap-service-linux-*` |
-| Default Edge + Service binaries | `.\Build-Bap.ps1 -Runtime Native` | Windows Edge and Linux AMD64 Service under `dist\` |
+| BAP Service, Windows AMD64 EXE | `.\Build-BapService-Native.ps1 -Target Windows` | `dist\bap-service-windows-amd64.exe` |
+| BAP Service, Linux AMD64 binary | `.\Build-BapService-Native.ps1 -Target Linux -Architecture amd64` | `dist\bap-service-linux-amd64` |
+| BAP Service, Linux AMD64 + ARM64 binaries | `.\Build-BapService-Native.ps1 -Target Linux -Architecture All` | `dist\bap-service-linux-*` |
+| Default local Windows Edge + Service EXEs | `.\Build-Bap.ps1 -Runtime Native` | Windows Edge and Service under `dist\` |
 | BAP Service OCI image | `.\Build-BapService.ps1 -Runtime Docker` | local image `bap-service:local` |
 | Automatic build | `.\Build-Bap.ps1 -Runtime Auto` | OCI artifacts when a runtime works; native binaries otherwise |
 
-Windows Go can cross-compile the Linux binaries because both components use
+Windows Go compiles the Windows EXEs directly and can cross-compile the Linux
+binaries because both components use
 pure Go with `CGO_ENABLED=0`. The Linux binaries do not run on Windows, and Go
 alone does not package an OCI image. See the
 [company build guide](company-windows-build.md) for checksums, internal

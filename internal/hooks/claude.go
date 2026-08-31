@@ -13,7 +13,7 @@ import (
 	"cc-filter/internal/rules"
 )
 
-const redactCacheDir = "/tmp/claude/redacted"
+var redactCacheDir = filepath.Join(os.TempDir(), "claude", "redacted")
 
 type ClaudeHookProcessor struct {
 	rules *rules.Rules
@@ -79,7 +79,7 @@ func (c *ClaudeHookProcessor) handleReadTool(toolInput map[string]interface{}) (
 	filePath, _ := toolInput["file_path"].(string)
 
 	// Allow reads from redacted cache directory
-	if strings.HasPrefix(filePath, redactCacheDir) {
+	if pathWithinDirectory(filePath, redactCacheDir) {
 		return c.allowTool()
 	}
 
@@ -196,7 +196,7 @@ func (c *ClaudeHookProcessor) createRedactedFile(originalPath string) (string, b
 		return "", false, nil
 	}
 
-	if err := os.MkdirAll(redactCacheDir, 0755); err != nil {
+	if err := ensurePrivateRedactCache(); err != nil {
 		return "", false, err
 	}
 
@@ -205,7 +205,7 @@ func (c *ClaudeHookProcessor) createRedactedFile(originalPath string) (string, b
 	cachePath := filepath.Join(redactCacheDir, cacheName)
 
 	header := fmt.Sprintf("# ***FILTERED*** REDACTED VERSION - Some sensitive values have been masked\n# Original: %s\n\n", originalPath)
-	if err := os.WriteFile(cachePath, []byte(header+filtered.Content), 0644); err != nil {
+	if err := os.WriteFile(cachePath, []byte(header+filtered.Content), 0600); err != nil {
 		return "", false, err
 	}
 
@@ -215,7 +215,7 @@ func (c *ClaudeHookProcessor) createRedactedFile(originalPath string) (string, b
 // createRedactedUserInput creates a temp file with redacted user input content
 func (c *ClaudeHookProcessor) createRedactedUserInput(content string, filteredContent string) (string, error) {
 	// Ensure cache directory exists
-	if err := os.MkdirAll(redactCacheDir, 0755); err != nil {
+	if err := ensurePrivateRedactCache(); err != nil {
 		return "", err
 	}
 
@@ -226,7 +226,7 @@ func (c *ClaudeHookProcessor) createRedactedUserInput(content string, filteredCo
 
 	// Write redacted content with header
 	header := "# REDACTED USER INPUT - Sensitive values have been masked\n\n"
-	if err := os.WriteFile(cachePath, []byte(header+filteredContent), 0644); err != nil {
+	if err := os.WriteFile(cachePath, []byte(header+filteredContent), 0600); err != nil {
 		return "", err
 	}
 
@@ -299,4 +299,27 @@ func containsAnywhere(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func ensurePrivateRedactCache() error {
+	if err := os.MkdirAll(redactCacheDir, 0700); err != nil {
+		return err
+	}
+	return os.Chmod(redactCacheDir, 0700)
+}
+
+func pathWithinDirectory(path, directory string) bool {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absoluteDirectory, err := filepath.Abs(directory)
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(absoluteDirectory, absolutePath)
+	if err != nil {
+		return false
+	}
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }

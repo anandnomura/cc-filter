@@ -33,7 +33,8 @@ If both are empty/missing, redaction is disabled.
 ## Output location
 
 Redacted files are written under:
-- `/tmp/claude/redacted/`
+- the OS temporary directory plus `claude/redacted` (for example,
+  `%TEMP%\claude\redacted` on Windows or `/tmp/claude/redacted` on Linux)
 
 They are cleaned up on `SessionEnd` hook.
 

@@ -27,8 +27,9 @@ For a controlled company build using internal, digest-pinned base images and a
 clean source commit, use `Build-CompanyArtifacts.ps1` and the
 [company build guide](docs/bap-edge/company-windows-build.md).
 If containers are unavailable, `Build-BapEdge.ps1 -Runtime Native` builds the
-Windows Edge and `Build-BapService-Native.ps1 -Architecture amd64` cross-builds
-the Linux Service binary using an installed Go 1.23.12+ toolchain.
+Windows Edge and `Build-BapService-Native.ps1 -Target Windows` builds the
+Windows Service EXE using an installed Go 1.23.12+ toolchain. Use `-Target Linux`
+to cross-compile the separately deployable Linux Service binary.
 The complete per-component command/output table is in the
 [operator compilation quick reference](docs/bap-edge/README.md#compilation-quick-reference).
 

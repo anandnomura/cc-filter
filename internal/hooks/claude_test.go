@@ -22,7 +22,7 @@ func TestAllowWithRedirect(t *testing.T) {
 	r, _ := rules.LoadRules(testDefaultRules())
 	processor := NewClaudeHookProcessor(r)
 
-	redactedPath := "/tmp/claude/redacted/abc123_config.swift"
+	redactedPath := filepath.Join(redactCacheDir, "abc123_config.swift")
 	result, err := processor.allowWithRedirect(redactedPath)
 
 	if err != nil {
@@ -138,8 +138,21 @@ func TestHandleReadToolWithSecrets(t *testing.T) {
 	}
 
 	reason := hookOutput["permissionDecisionReason"].(string)
-	if !strings.Contains(reason, "/tmp/claude/redacted/") {
+	if !strings.Contains(reason, redactCacheDir) {
 		t.Errorf("Deny reason should contain redirect path, got %v", reason)
+	}
+}
+
+func TestRedactCacheUsesOperatingSystemTempDirectory(t *testing.T) {
+	expected := filepath.Join(os.TempDir(), "claude", "redacted")
+	if redactCacheDir != expected {
+		t.Fatalf("redact cache directory = %q, want %q", redactCacheDir, expected)
+	}
+	if pathWithinDirectory(redactCacheDir+"-other", redactCacheDir) {
+		t.Fatal("sibling path was treated as part of the redacted cache")
+	}
+	if !pathWithinDirectory(filepath.Join(redactCacheDir, "safe.txt"), redactCacheDir) {
+		t.Fatal("redacted cache child was not recognized")
 	}
 }
 

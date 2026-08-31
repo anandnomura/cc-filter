@@ -5,8 +5,8 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
-- Native Windows Go fallback and explicit cross-compilation scripts for BAP Edge
-  and Linux BAP Service when Docker/Podman is unavailable
+- Native Windows Go fallback and explicit Windows/Linux compilation targets for
+  BAP Edge and BAP Service when Docker/Podman is unavailable
 - Versioned company artifact build with internal digest-pinned base-image inputs,
   checksums, source manifest, and GitHub build provenance
 - Bounded grant cache and durable audit spool with atomic delivery claims,

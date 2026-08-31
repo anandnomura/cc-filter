@@ -1,4 +1,5 @@
 param(
+    [ValidateSet('Windows', 'Linux', 'All')][string]$Target = 'Windows',
     [ValidateSet('amd64', 'arm64', 'All')][string]$Architecture = 'amd64',
     [string]$Version = ''
 )
@@ -26,7 +27,16 @@ if (-not $Version) {
 
 $dist = Join-Path $PSScriptRoot 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-$architectures = if ($Architecture -eq 'All') { @('amd64', 'arm64') } else { @($Architecture) }
+$targets = @()
+if ($Target -in @('Windows', 'All')) {
+    $targets += @{ OS = 'windows'; Architecture = 'amd64'; Output = (Join-Path $dist 'bap-service-windows-amd64.exe') }
+}
+if ($Target -in @('Linux', 'All')) {
+    $architectures = if ($Architecture -eq 'All') { @('amd64', 'arm64') } else { @($Architecture) }
+    foreach ($targetArchitecture in $architectures) {
+        $targets += @{ OS = 'linux'; Architecture = $targetArchitecture; Output = (Join-Path $dist "bap-service-linux-$targetArchitecture") }
+    }
+}
 
 Push-Location $PSScriptRoot
 $previousCGO = $env:CGO_ENABLED
@@ -36,16 +46,16 @@ try {
     Write-Host "Running BAP Service tests with $goVersionText from vendored dependencies..."
     & go test -mod=vendor ./bap-service/... ./internal/authzen ./internal/auditwire ./internal/grants ./internal/policybundle ./internal/tracecontext
     if ($LASTEXITCODE -ne 0) { throw 'BAP Service tests failed.' }
-    foreach ($targetArchitecture in $architectures) {
-        $output = Join-Path $dist "bap-service-linux-$targetArchitecture"
+    foreach ($buildTarget in $targets) {
+        $output = $buildTarget.Output
         $env:CGO_ENABLED = '0'
-        $env:GOOS = 'linux'
-        $env:GOARCH = $targetArchitecture
+        $env:GOOS = $buildTarget.OS
+        $env:GOARCH = $buildTarget.Architecture
         & go build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$Version" -o $output ./bap-service/cmd
-        if ($LASTEXITCODE -ne 0) { throw "Native BAP Service compilation failed for linux/$targetArchitecture." }
+        if ($LASTEXITCODE -ne 0) { throw "Native BAP Service compilation failed for $($buildTarget.OS)/$($buildTarget.Architecture)." }
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $output).Hash
         "$($hash.ToLowerInvariant())  $([IO.Path]::GetFileName($output))" | Set-Content -LiteralPath "$output.sha256" -Encoding ascii
-        Write-Host "BAP Service Linux binary: $output"
+        Write-Host "BAP Service $($buildTarget.OS)/$($buildTarget.Architecture) binary: $output"
         Write-Host "SHA-256: $hash"
     }
 } finally {
