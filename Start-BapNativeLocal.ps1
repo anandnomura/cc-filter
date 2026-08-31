@@ -19,7 +19,7 @@ function Set-JsonProperty {
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)]$Value
     )
-    if ($Object.PSObject.Properties.Name -contains $Name) {
+    if ($null -ne $Object.PSObject.Properties[$Name]) {
         $Object.$Name = $Value
     } else {
         $Object | Add-Member -MemberType NoteProperty -Name $Name -Value $Value
@@ -159,16 +159,12 @@ try {
     }
 
     Invoke-NativeHookVerification -EdgeBinary $edgeBinary -EdgeConfig $edgeConfig
-    if ($VerifyOnly) {
-        Write-Host 'PASS: native BAP Service, signed policy synchronization, and Edge allow/deny verification.'
-        return
-    }
 
     New-Item -ItemType Directory -Force -Path $settingsDirectory | Out-Null
     $settings = if ($settingsExisted) { Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json } else {
         [pscustomobject]@{ '$schema' = 'https://json.schemastore.org/claude-code-settings.json' }
     }
-    if (-not ($settings.PSObject.Properties.Name -contains 'hooks')) {
+    if ($null -eq $settings.PSObject.Properties['hooks']) {
         Set-JsonProperty -Object $settings -Name 'hooks' -Value ([pscustomobject]@{})
     }
     $hookCommand = '"' + $edgeBinary.Replace('\', '/') + '" --config "' + $edgeConfig.Replace('\', '/') + '"'
@@ -177,11 +173,13 @@ try {
         $matcher = if ($event -eq 'SessionStart') { 'startup|resume|clear|compact' } else { '*' }
         $group = [pscustomobject]@{ matcher = $matcher; hooks = @($hookHandler) }
         $groups = @()
-        if ($settings.hooks.PSObject.Properties.Name -contains $event) {
+        if ($null -ne $settings.hooks.PSObject.Properties[$event]) {
             foreach ($existingGroup in @($settings.hooks.$event)) {
                 $isBapGroup = $false
-                foreach ($existingHandler in @($existingGroup.hooks)) {
-                    if ($existingHandler.command -eq $hookCommand) { $isBapGroup = $true }
+                $existingHooks = if ($null -ne $existingGroup.PSObject.Properties['hooks']) { @($existingGroup.hooks) } else { @() }
+                foreach ($existingHandler in $existingHooks) {
+                    $commandProperty = $existingHandler.PSObject.Properties['command']
+                    if ($null -ne $commandProperty -and $commandProperty.Value -eq $hookCommand) { $isBapGroup = $true }
                 }
                 if (-not $isBapGroup) { $groups += $existingGroup }
             }
@@ -191,6 +189,11 @@ try {
     }
     $settings | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $settingsPath -Encoding utf8
     $settingsWritten = $true
+
+    if ($VerifyOnly) {
+        Write-Host 'PASS: native BAP Service, signed policy synchronization, Edge allow/deny verification, and local hook settings merge.'
+        return
+    }
 
     Write-Host "Local hooks written to $settingsPath"
     Write-Host 'Launching Claude. Run /hooks and confirm six hooks with source Local.'
