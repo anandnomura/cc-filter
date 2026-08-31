@@ -104,7 +104,8 @@ launcher with a bare `claude` command.
 # Local model without rebuilding existing EXEs
 .\Start-BapNativeLocal.bat
 
-# Unmanaged native hooks + company-authenticated Claude Code
+# Unmanaged native hooks + company-authenticated interactive Claude Code;
+# the company launcher receives no command-line arguments
 .\Start-BapNativeLocal.bat -UseCompanyClaude
 
 # Managed hooks + local model: build current Docker artifacts

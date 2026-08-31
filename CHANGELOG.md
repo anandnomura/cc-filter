@@ -54,6 +54,8 @@ All notable changes to cc-filter are documented in this file.
   Sonnet/Opus allow, explicit-forbid, and manual-only six-capture baseline
 - Added one-command interactive company fixture capture for managed launchers
   that intentionally do not accept Claude CLI arguments
+- Changed `-UseCompanyClaude` launchers to interactive zero-argument mode by
+  default; CLI-capable company installations require explicit opt-in
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call

@@ -3,6 +3,7 @@ param(
     [switch]$VerifyOnly,
     [switch]$UseCompanyClaude,
     [switch]$InteractiveClaude,
+    [switch]$CompanyCliArguments,
     [ValidateRange(1, 65535)][int]$Port = 8443,
     [string]$Model = '',
     [string]$Tools = 'Bash',
@@ -299,7 +300,8 @@ try {
     }
     $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
-    if ($InteractiveClaude) {
+    $launchCompanyInteractive = $UseCompanyClaude -and (-not $CompanyCliArguments)
+    if ($InteractiveClaude -or $launchCompanyInteractive) {
         if (-not $UseCompanyClaude) { throw '-InteractiveClaude requires -UseCompanyClaude.' }
         Write-Host 'Launching the company Claude UI without command-line arguments.'
         & $claudeExecutable

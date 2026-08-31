@@ -37,6 +37,11 @@ session instead, run:
 .\Start-BapNativeLocal.bat -UseCompanyClaude
 ```
 
+Company mode is interactive by default. BAP invokes the company `claude.cmd`
+with no `--model`, `--tools`, `--system-prompt`, prompt, or other Claude CLI
+arguments. This supports company launchers that perform initialization and are
+not general-purpose CLI wrappers.
+
 That switch removes the local bridge override and local demo credential. When
 `-Model` is omitted, the company path uses the company's configured default.
 All commands are collected in the [root README build/test commands](../../README.md#buildtest-commands).

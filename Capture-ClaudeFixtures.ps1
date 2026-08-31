@@ -98,6 +98,7 @@ try {
     $launcherParameters = @{
         UseCompanyClaude = $UseCompanyClaude
         InteractiveClaude = $Interactive
+        CompanyCliArguments = $UseCompanyClaude -and (-not $Interactive)
         Model = $Model
         Tools = $Tools
         Print = -not $Interactive

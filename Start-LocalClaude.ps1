@@ -3,6 +3,7 @@ param(
     [switch]$VerifyHooksOnly,
     [switch]$UseCompanyClaude,
     [switch]$InteractiveClaude,
+    [switch]$CompanyCliArguments,
     [string]$Model = 'claude-3-5-sonnet-20241022',
     [string]$Tools = 'Bash',
     [string]$SystemPrompt = 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the requested tool. Never substitute example paths or simulate results. Never claim a tool succeeded when it was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.',
@@ -241,7 +242,8 @@ if ($usingManagedHooks) {
 }
 if ($Print) { $defaultArguments += '--print' }
 if ($Prompt) { $defaultArguments += $Prompt }
-if ($InteractiveClaude) {
+$launchCompanyInteractive = $UseCompanyClaude -and (-not $CompanyCliArguments)
+if ($InteractiveClaude -or $launchCompanyInteractive) {
     if (-not $UseCompanyClaude) { throw '-InteractiveClaude requires -UseCompanyClaude.' }
     Write-Host 'Launching the company Claude UI without command-line arguments.'
     & $claudeExecutable
