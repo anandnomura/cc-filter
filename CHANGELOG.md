@@ -24,6 +24,17 @@ All notable changes to cc-filter are documented in this file.
 - Read-only `Show-BapStatus.ps1` view of control-plane and Edge policy/lease/audit posture
 - Signed `manual-only` command policy for database, SSH, and kubectl clients,
   with a non-echoing employee handoff and distinct auditable reason code
+- Locally evaluated, centrally signed `UserPromptSubmit` intent rules for early
+  manual-execution guidance on database, remote-shell, and cluster work
+- Native one-click positive and negative prompt-classifier verification while
+  preserving cc-filter secret blocking as the first prompt stage
+- Native one-click Claude launch now preserves the local bridge/model and
+  reduced-tool settings; `-UseCompanyClaude` selects normal company login
+  without carrying the local bridge URL or demo credential
+- Direct command-shaped prompts beginning with a governed database, SSH, or
+  kubectl client now receive the same signed manual-only intent advisory
+- Native local-hook launch now refuses to mix with `allowManagedHooksOnly`, and
+  the managed local-model launcher detects a stale installed Edge binary
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call

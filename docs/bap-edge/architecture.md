@@ -10,6 +10,7 @@ Official Claude Code
         v
 BAP Edge / data plane / local PDP + PEP
   - inherited cc-filter hard blocks and redaction
+  - signed local prompt-intent advisories (never permits)
   - random per-session workload_id
   - signed policy bundle verification and rollback state
   - local command classification and Cedar evaluation
@@ -47,6 +48,14 @@ delivery, and replace it with mTLS or an enterprise identity token later. A
 shared key identifies the shared deployment, not an individual human.
 
 ## Policy synchronization and PreToolUse flow
+
+For `UserPromptSubmit`, inherited cc-filter secret detection runs first and
+retains its existing exit-code-2 blocking behavior. Prompts that pass are
+compared locally with signed intent rules. A match adds manual-only context for
+Claude and a privacy-safe rule-ID log event; the prompt is neither rewritten
+nor sent to BAP Service. The advisory is merged into any successful parent
+cc-filter hook context; a no-match returns the parent's output unchanged. This
+advisory flow cannot produce an authorization permit.
 
 1. The admin-managed hook invokes BAP Edge with Claude's JSON.
 2. Edge loads or creates its persistent instance ID and session workload ID,

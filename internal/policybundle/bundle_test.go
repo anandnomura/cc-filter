@@ -181,6 +181,31 @@ func TestInvalidSourceFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPromptIntentRulesAreAdvisorySignals(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	bundle := testBundle(t, now)
+	for _, prompt := range []string{
+		"mysql -h orders-prod -u dba",
+		"Please connect to the MySQL orders database and reindex it",
+		"Execute this command exactly: mysql -h orders-prod -u dba",
+		"Log in to the remote server with SSH",
+		"Use kubectl to deploy this to the cluster",
+	} {
+		if matched := MatchPrompt(bundle, prompt); len(matched) == 0 {
+			t.Fatalf("expected privileged intent signal for %q", prompt)
+		}
+	}
+	for _, prompt := range []string{
+		"Explain how database indexes work",
+		"Review this Go code without executing it",
+		"Summarize the Kubernetes architecture document",
+	} {
+		if matched := MatchPrompt(bundle, prompt); len(matched) != 0 {
+			t.Fatalf("unexpected privileged intent signal for %q: %v", prompt, matched)
+		}
+	}
+}
+
 func TestActivationRequiresVersionIncrementAndDoesNotRenewOnRestart(t *testing.T) {
 	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)

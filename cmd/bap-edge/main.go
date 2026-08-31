@@ -57,7 +57,21 @@ func main() {
 			os.Exit(2)
 		}
 		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_filter_completed", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "pass", Source: "local_filter"})
-		fmt.Print(local.Output)
+		matchedRuleIDs, classifierErr := classifyPrompt(config, input.Prompt)
+		if classifierErr != nil {
+			// Prompt classification improves UX but is not an authorization
+			// boundary. PreToolUse remains fail-closed and authoritative.
+			_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", Level: "error", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "unavailable", Source: "signed_policy_bundle"})
+			fmt.Print(local.Output)
+			return
+		}
+		if len(matchedRuleIDs) == 0 {
+			_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "no_match", Source: "signed_policy_bundle"})
+			fmt.Print(local.Output)
+			return
+		}
+		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "manual_only_advisory", ReasonCode: strings.Join(matchedRuleIDs, ","), Source: "signed_policy_bundle"})
+		promptAdvisoryOutput(local.Output)
 		return
 	}
 	client, err := bapedge.NewClient(config)
@@ -186,6 +200,50 @@ func main() {
 		deny(decision.Reason)
 	}
 	allow(decision.Reason)
+}
+
+func classifyPrompt(config bapedge.Config, prompt string) ([]string, error) {
+	client, err := bapedge.NewClient(config)
+	if err != nil {
+		return nil, err
+	}
+	store, err := bapedge.NewPolicyStore(config)
+	if err != nil {
+		return nil, err
+	}
+	edgeInstanceID, err := bapedge.LoadOrCreateEdgeInstanceID(config.StateDirectory)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := bapedge.EnsurePolicy(context.Background(), client, store, edgeInstanceID, false, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	return policybundle.MatchPrompt(bundle, prompt), nil
+}
+
+func promptAdvisoryOutput(parentOutput string) {
+	message := "BAP detected a request that may involve privileged manual-only access. Claude may explain, research, draft, or review the operation, but must not invoke a direct database, remote-shell, or cluster client. If execution is requested, provide a safe manual handoff for the employee to review, obtain any required A2P approval, and run in a separate terminal. This advisory is not authorization; PreToolUse policy remains authoritative."
+	value := map[string]any{}
+	if strings.TrimSpace(parentOutput) != "" {
+		_ = json.Unmarshal([]byte(parentOutput), &value)
+	}
+	hookOutput, _ := value["hookSpecificOutput"].(map[string]any)
+	if hookOutput == nil {
+		hookOutput = map[string]any{}
+	}
+	hookOutput["hookEventName"] = "UserPromptSubmit"
+	hookOutput["additionalContext"] = appendHookMessage(hookOutput["additionalContext"], message)
+	value["hookSpecificOutput"] = hookOutput
+	value["systemMessage"] = appendHookMessage(value["systemMessage"], message)
+	_ = json.NewEncoder(os.Stdout).Encode(value)
+}
+
+func appendHookMessage(existing any, message string) string {
+	if current, ok := existing.(string); ok && strings.TrimSpace(current) != "" {
+		return current + "\n\n" + message
+	}
+	return message
 }
 
 func defaultConfigPath() string {

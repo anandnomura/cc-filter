@@ -7,7 +7,18 @@ operation, but it does not let Claude execute selected interactive access
 clients. A signed command rule with effect `manual-only` returns deny with the
 reason code `MANUAL_EXECUTION_REQUIRED`.
 
-This behavior requires Edge protocol 2. Policy source version 3 declares that
+Before Claude selects a tool, the managed `UserPromptSubmit` hook also applies
+signed `manual-only-advisory` intent rules. A request such as connecting to a
+database to reindex it adds private instruction context telling Claude to help
+prepare and review the operation, then hand execution back to the employee.
+The original prompt is not rewritten or sent to BAP Service.
+
+The advisory is deliberately one-way: it can make Claude more conservative,
+but it can never permit an operation. `PreToolUse` still decides the eventual
+structured tool call from its executable and arguments. If no intent rule
+matches, normal prompt processing continues unchanged.
+
+This behavior requires Edge protocol 3. Policy source version 5 declares that
 minimum, so an older Edge fails closed instead of silently losing the distinct
 handoff semantics.
 
@@ -34,6 +45,17 @@ try to infer whether a hostname is production from natural language or command
 syntax; that inference would be incomplete and spoofable. Administrators can
 add another executable by adding a tested `manual-only` rule, incrementing the
 policy version, and distributing the newly signed bundle.
+
+Prompt intent rules use multiple required patterns to reduce noisy matches.
+For example, the database rule requires both an execution/operation signal and
+a database signal, so a prompt that merely asks how indexes work remains
+unchanged. These rules improve user experience; they are not a substitute for
+the executable boundary.
+
+A separate signed rule recognizes a direct privileged-client command pasted as
+the prompt, such as a line beginning with `mysql`, `psql`, `sqlcmd`, `sqlplus`,
+`ssh`, or `kubectl`. This covers command-shaped prompts that contain no natural
+language action verb.
 
 ## Runtime flow
 

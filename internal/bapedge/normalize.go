@@ -19,6 +19,7 @@ type HookInput struct {
 	HookEventName string         `json:"hook_event_name"`
 	SessionID     string         `json:"session_id"`
 	CWD           string         `json:"cwd"`
+	Prompt        string         `json:"prompt"`
 	ToolName      string         `json:"tool_name"`
 	ToolUseID     string         `json:"tool_use_id"`
 	ToolInput     map[string]any `json:"tool_input"`

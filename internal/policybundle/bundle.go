@@ -35,7 +35,19 @@ type Source struct {
 	AllowedNetwork      []string      `json:"allowed_network_domains"`
 	ApprovedMCP         []string      `json:"approved_mcp_tools"`
 	ApprovedDelegates   []string      `json:"approved_subagent_types"`
+	PromptRules         []PromptRule  `json:"prompt_rules,omitempty"`
 	CommandRules        []CommandRule `json:"command_rules"`
+}
+
+// PromptRule is an advisory natural-language signal. It can make handling
+// more conservative, but it is never an authorization permit.
+type PromptRule struct {
+	ID       string   `json:"id"`
+	Effect   string   `json:"effect"`
+	Patterns []string `json:"patterns"`
+	Profiles []string `json:"profiles,omitempty"`
+	Owner    string   `json:"owner"`
+	Approval string   `json:"approval"`
 }
 
 type CommandRule struct {
@@ -69,6 +81,7 @@ type Bundle struct {
 	AllowedNetwork      []string      `json:"allowed_network_domains"`
 	ApprovedMCP         []string      `json:"approved_mcp_tools"`
 	ApprovedDelegates   []string      `json:"approved_subagent_types"`
+	PromptRules         []PromptRule  `json:"prompt_rules,omitempty"`
 	CedarPolicy         string        `json:"cedar_policy"`
 	CommandRules        []CommandRule `json:"command_rules"`
 }
@@ -122,13 +135,30 @@ func LoadSource(data []byte) (Source, error) {
 		return source, errors.New("policy_profile must be standard-developer or read-only")
 	}
 	ids := map[string]bool{}
+	for i, rule := range source.PromptRules {
+		if rule.ID == "" || rule.Effect != "manual-only-advisory" || len(rule.Patterns) == 0 || rule.Owner == "" || rule.Approval == "" {
+			return source, fmt.Errorf("prompt rule %d is incomplete", i)
+		}
+		if ids[rule.ID] {
+			return source, fmt.Errorf("duplicate policy rule id %q", rule.ID)
+		}
+		ids[rule.ID] = true
+		for _, pattern := range rule.Patterns {
+			if pattern == "" || len(pattern) > 1024 {
+				return source, fmt.Errorf("prompt rule %s has an invalid pattern length", rule.ID)
+			}
+			if _, err := regexp.Compile(pattern); err != nil {
+				return source, fmt.Errorf("prompt rule %s has invalid pattern: %w", rule.ID, err)
+			}
+		}
+	}
 	for i := range source.CommandRules {
 		rule := &source.CommandRules[i]
 		if rule.ID == "" || rule.Executable == "" || rule.Owner == "" || rule.Approval == "" || (rule.Effect != "eligible-for-permit" && rule.Effect != "forbid" && rule.Effect != "manual-only") {
 			return source, fmt.Errorf("command rule %d is incomplete", i)
 		}
 		if ids[rule.ID] {
-			return source, fmt.Errorf("duplicate command rule id %q", rule.ID)
+			return source, fmt.Errorf("duplicate policy rule id %q", rule.ID)
 		}
 		ids[rule.ID] = true
 		for _, pattern := range rule.ArgumentPatterns {
@@ -172,8 +202,32 @@ func Build(source Source, cedarPolicy []byte, now time.Time) (Bundle, error) {
 		MaxOfflineSeconds: source.MaxOfflineSeconds, MinimumEdgeVersion: source.MinimumEdgeVersion,
 		RevocationEpoch: source.RevocationEpoch, ForceUpdate: source.ForceUpdate, KillSwitch: source.KillSwitch,
 		PolicyProfile: source.PolicyProfile, AllowedNetwork: source.AllowedNetwork, ApprovedMCP: source.ApprovedMCP,
-		ApprovedDelegates: source.ApprovedDelegates, CedarPolicy: string(cedarPolicy), CommandRules: rules,
+		ApprovedDelegates: source.ApprovedDelegates, PromptRules: append([]PromptRule(nil), source.PromptRules...), CedarPolicy: string(cedarPolicy), CommandRules: rules,
 	}, nil
+}
+
+// MatchPrompt returns signed advisory rule IDs whose patterns all occur in the
+// prompt. The result is a risk signal only; authorization continues to happen
+// against the eventual structured tool invocation.
+func MatchPrompt(bundle Bundle, prompt string) []string {
+	matched := make([]string, 0)
+	for _, rule := range bundle.PromptRules {
+		if rule.Effect != "manual-only-advisory" || !profileMatches(bundle.PolicyProfile, rule.Profiles) {
+			continue
+		}
+		matchesAll := true
+		for _, pattern := range rule.Patterns {
+			expression, err := regexp.Compile(pattern)
+			if err != nil || !expression.MatchString(prompt) {
+				matchesAll = false
+				break
+			}
+		}
+		if matchesAll {
+			matched = append(matched, rule.ID)
+		}
+	}
+	return matched
 }
 
 func Sign(privateKey ed25519.PrivateKey, keyID string, bundle Bundle) (Envelope, error) {

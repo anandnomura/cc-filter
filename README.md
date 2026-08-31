@@ -36,6 +36,112 @@ For a container-free local test with both Windows EXEs and non-managed Claude
 hooks, run `Start-BapNativeLocal.bat` and follow the
 [native local testing guide](docs/bap-edge/native-local-testing.md).
 
+## Build/test commands
+
+Run these from the repository root.
+
+### Build
+
+```powershell
+# Build both Windows EXEs with installed Go (no Docker/Podman)
+.\Build-Bap.ps1 -Runtime Native
+
+# Build only BAP Edge for Windows AMD64
+.\Build-BapEdge.ps1 -Runtime Native
+
+# Build BAP Edge for Windows AMD64 plus Linux AMD64 and ARM64
+.\Build-BapEdge.ps1 -Runtime Native -Targets All
+
+# Build only BAP Service as a Windows EXE
+.\Build-BapService-Native.ps1 -Target Windows
+
+# Cross-compile BAP Service for Linux AMD64 from Windows Go
+.\Build-BapService-Native.ps1 -Target Linux -Architecture amd64
+
+# Cross-compile BAP Service for Linux AMD64 and ARM64
+.\Build-BapService-Native.ps1 -Target Linux -Architecture All
+
+# Build BAP Service for Windows AMD64 plus Linux AMD64 and ARM64
+.\Build-BapService-Native.ps1 -Target All -Architecture All
+
+# Automatically use Podman/Docker, or fall back to native Go
+.\Build-Bap.ps1 -Runtime Auto
+
+# Build the development artifacts with Docker
+.\Build-Bap.ps1 -Runtime Docker
+
+# Build the development artifacts with Podman
+.\Build-Bap.ps1 -Runtime Podman
+
+# Build only the BAP Service OCI image
+.\Build-BapService.ps1 -Runtime Docker -Tag bap-service:local
+
+# Build only BAP Edge with Docker, including Windows/Linux targets
+.\Build-BapEdge.ps1 -Runtime Docker -Targets All
+
+# Controlled company release: clean Git tree and approved digest-pinned images
+.\Build-CompanyArtifacts.ps1 -Runtime Docker -Version '1.0.0' -Registry 'registry.company.example/security' -BuildImage 'registry.company.example/build/golang@sha256:REPLACE_WITH_APPROVED_DIGEST' -RuntimeImage 'registry.company.example/runtime/debian@sha256:REPLACE_WITH_APPROVED_DIGEST'
+```
+
+Native outputs are written under `dist\`. Linux binaries have no `.exe` suffix
+and cannot run on Windows. Native Go compilation does not create an OCI image.
+The complete artifact/output matrix is in the
+[operator compilation quick reference](docs/bap-edge/README.md#compilation-quick-reference).
+
+### Test and launch
+
+Choose the launcher that matches the hook installation. Do not replace either
+launcher with a bare `claude` command.
+
+```powershell
+# Unmanaged native hooks + local model; only when managed hooks are NOT installed
+.\Start-BapNativeLocal.bat -Rebuild
+
+# Local model without rebuilding existing EXEs
+.\Start-BapNativeLocal.bat
+
+# Unmanaged native hooks + company-authenticated Claude Code
+.\Start-BapNativeLocal.bat -UseCompanyClaude
+
+# Managed hooks + local model: build current Docker artifacts
+.\Build-Bap.ps1 -Runtime Docker
+
+# Managed hooks + local model: run once as Administrator after Edge changes
+.\Install-ManagedSettings.ps1 -Runtime Docker
+
+# Managed hooks + local model: normal non-admin launch (start ccbridge first)
+.\start-local-claude.bat -Runtime Docker -Model qwen-1.5b-local
+
+# Verify Service, Edge, policy, commands, and prompt classifier without Claude
+.\Start-BapNativeLocal.bat -VerifyOnly
+
+# Use another Service port if 8443 is occupied
+.\Start-BapNativeLocal.bat -Port 18443
+
+# Override the local model identifier when necessary
+.\Start-BapNativeLocal.bat -Model claude-3-5-sonnet-20241022
+
+# Non-interactive local classifier smoke test
+.\Start-BapNativeLocal.bat -Print -Prompt "Please connect to the MySQL orders database and reindex it"
+
+# Container-backed functional test
+.\Test-Bap.ps1 -Runtime Docker
+
+# Focused signed-policy rollout and bypass corpus
+.\Test-PolicyRollout.ps1 -Runtime Docker
+
+# Complete MVP-0 certification gate
+.\Test-MVP0.ps1 -Runtime Docker
+```
+
+Both local-model launchers select `http://127.0.0.1:8080`, supply the local demo
+credential expected by ccbridge, select the requested local model, and limit
+the initial Claude tool contract to `Bash`. The smaller tool contract matters
+for local models with an 8K context window. When managed hooks are installed,
+`allowManagedHooksOnly` intentionally makes `Start-BapNativeLocal.bat`
+inapplicable; use `start-local-claude.bat` so the managed Edge and its matching
+port-8443 Service are used.
+
 The original cc-filter behavior and documentation remain below so this fork can
 continue to synchronize with `wissem/cc-filter`.
 

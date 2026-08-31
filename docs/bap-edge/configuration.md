@@ -65,6 +65,31 @@ prepare but must not execute. It returns `MANUAL_EXECUTION_REQUIRED`; a matching
 `forbid` always takes precedence. Add native and `.exe` names explicitly when a
 client must be covered on both Linux/macOS and Windows.
 
+`prompt_rules` are signed, centrally distributed advisory rules. Every regular
+expression in a rule's `patterns` array must match before the rule fires. The
+only supported effect is `manual-only-advisory`. A match adds guidance to the
+`UserPromptSubmit` hook; it never returns an allow decision and never weakens
+`PreToolUse`. Keep the patterns broad enough to recognize normal phrasing but
+require both an operation signal and a resource/tool signal to avoid warning on
+purely explanatory questions. Prompt text is classified locally and is not
+included in Edge audit events.
+
+Example:
+
+```json
+{
+  "id": "prompt.manual.database",
+  "effect": "manual-only-advisory",
+  "patterns": [
+    "(?i)\\b(connect|run|execute|query|reindex|alter)\\b",
+    "(?i)\\b(mysql|postgres(?:ql)?|sql[ -]?server|oracle|database|db)\\b"
+  ],
+  "profiles": ["standard-developer", "read-only"],
+  "owner": "security",
+  "approval": "manual-access-boundary-v2"
+}
+```
+
 ## BAP Service environment
 
 | Variable | Default | Purpose |

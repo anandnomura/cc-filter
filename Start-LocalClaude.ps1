@@ -138,6 +138,15 @@ $managedSettings = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d\50
 $managedEdgeDirectory = Join-Path $env:ProgramFiles 'BAP Edge'
 $usingManagedHooks = Test-Path -LiteralPath $managedSettings
 if ($usingManagedHooks) {
+    $managedEdgeBinary = Join-Path $managedEdgeDirectory 'bap-edge.exe'
+    if (-not (Test-Path -LiteralPath $managedEdgeBinary)) {
+        throw "Managed BAP Edge executable is missing: $managedEdgeBinary"
+    }
+    $installedEdgeHash = (Get-FileHash -LiteralPath $managedEdgeBinary -Algorithm SHA256).Hash
+    $currentEdgeHash = (Get-FileHash -LiteralPath $edgeBinary -Algorithm SHA256).Hash
+    if ($installedEdgeHash -ne $currentEdgeHash) {
+        throw "Managed BAP Edge is older or different from the current build. From an elevated PowerShell window run .\Install-ManagedSettings.ps1 -Runtime $engine, then retry .\start-local-claude.bat."
+    }
     $managedCa = Join-Path $managedEdgeDirectory 'service-ca-bundle.pem'
     $managedBundleKey = Join-Path $managedEdgeDirectory 'bundle-public.pem'
     foreach ($pair in @(

@@ -188,6 +188,14 @@ proxy or adapter for every database while keeping Claude execution fail-closed.
 Explicit forbids take precedence over manual-only rules. See the [manual
 execution boundary](manual-execution-boundary.md).
 
+Signed `UserPromptSubmit` rules provide an earlier, advisory signal when normal
+language combines an operation such as connect, execute, reindex, deploy, or
+SSH access with a governed resource family. The inherited cc-filter still runs
+first. A match adds local context asking Claude to prepare a manual handoff; it
+does not rewrite the prompt, contact the control plane with prompt text, or
+grant authority. The eventual structured tool call remains the only
+authorization input.
+
 The command classifier uses a deliberately limited direct-executable parser and
 anchored argument rules. Shell operators, substitutions, encoded launchers, and
 ambiguous syntax fail closed. Versioned Sonnet/Opus fixtures and the bypass

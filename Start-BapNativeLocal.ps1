@@ -1,12 +1,23 @@
 param(
     [switch]$Rebuild,
     [switch]$VerifyOnly,
+    [switch]$UseCompanyClaude,
     [ValidateRange(1, 65535)][int]$Port = 8443,
+    [string]$Model = '',
+    [string]$Tools = 'Bash',
+    [string]$SystemPrompt = 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the requested tool. Never substitute example paths or simulate results. Never claim a tool succeeded when it was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.',
+    [Alias('p')][switch]$Print,
+    [string]$Prompt = '',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ClaudeArguments
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+$managedSettingsPath = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d\50-bap-edge.json'
+if (-not $VerifyOnly -and (Test-Path -LiteralPath $managedSettingsPath)) {
+    throw "Managed BAP hooks are installed at $managedSettingsPath. Claude will ignore this launcher's project-local hooks because allowManagedHooksOnly is enabled. For local-model testing, build/install the managed artifacts and use .\start-local-claude.bat. See README.md 'Build/test commands'."
+}
 
 function ConvertTo-YamlPath {
     param([Parameter(Mandatory)][string]$Path)
@@ -80,6 +91,32 @@ function Invoke-NativeHookVerification {
             throw "Native hook verification failed for $($case.Label): expected reason matching $($case.ReasonPattern)."
         }
         Write-Host "PASS: $($case.Command) -> $actual"
+    }
+
+    $promptCases = @(
+        @{ Label = 'privileged database intent'; Prompt = 'Please connect to the MySQL orders database and reindex it'; ExpectedAdvisory = $true },
+        @{ Label = 'ordinary explanation'; Prompt = 'Explain how database indexes work'; ExpectedAdvisory = $false }
+    )
+    foreach ($case in $promptCases) {
+        $inputObject = @{
+            hook_event_name = 'UserPromptSubmit'
+            session_id = $sessionID
+            cwd = $PSScriptRoot
+            prompt = $case.Prompt
+        }
+        $result = ($inputObject | ConvertTo-Json -Compress -Depth 8) | & $EdgeBinary --config $EdgeConfig | ConvertFrom-Json
+        $hookOutputProperty = $result.PSObject.Properties['hookSpecificOutput']
+        $hookOutput = if ($null -ne $hookOutputProperty) { $hookOutputProperty.Value } else { $null }
+        $hasAdvisory = $null -ne $hookOutput -and `
+            $hookOutput.hookEventName -eq 'UserPromptSubmit' -and `
+            $hookOutput.additionalContext -match 'manual-only'
+        if ($hasAdvisory -ne $case.ExpectedAdvisory) {
+            throw "Native prompt verification failed for $($case.Label): expected advisory=$($case.ExpectedAdvisory), got advisory=$hasAdvisory."
+        }
+        if ($hasAdvisory -and $null -ne $hookOutput.PSObject.Properties['permissionDecision']) {
+            throw "Native prompt verification failed for $($case.Label): an advisory must not authorize or deny."
+        }
+        Write-Host "PASS: prompt $($case.Label) -> $(if ($hasAdvisory) { 'manual-only advisory' } else { 'no advisory' })"
     }
 }
 
@@ -201,7 +238,41 @@ try {
 
     Write-Host "Local hooks written to $settingsPath"
     Write-Host 'Launching Claude. Run /hooks and confirm six hooks with source Local.'
-    & claude @ClaudeArguments
+
+    $claudeCommand = Get-Command claude -ErrorAction SilentlyContinue
+    $claudeExecutable = if ($claudeCommand) { $claudeCommand.Source } else { Join-Path $env:USERPROFILE '.local\bin\claude.exe' }
+    if (-not (Test-Path -LiteralPath $claudeExecutable)) {
+        throw "Claude Code was not found on PATH or at $claudeExecutable"
+    }
+
+    $effectiveModel = $Model
+    if (-not $UseCompanyClaude) {
+        try {
+            $bridge = Invoke-RestMethod 'http://127.0.0.1:8080/health' -TimeoutSec 5
+            if (-not $bridge.status) { throw 'ccbridge returned an unhealthy response.' }
+        } catch {
+            throw 'The local model bridge is not ready at http://127.0.0.1:8080/health. Run start-ccbridge.bat in a separate window first, or use -UseCompanyClaude.'
+        }
+        $env:ANTHROPIC_BASE_URL = 'http://127.0.0.1:8080'
+        $env:ANTHROPIC_API_KEY = 'local-demo-key'
+        if (-not $effectiveModel) { $effectiveModel = 'claude-3-5-sonnet-20241022' }
+        Write-Host "Claude provider: local model bridge at $env:ANTHROPIC_BASE_URL"
+    } else {
+        # Do not inherit local bridge overrides into the company-authenticated
+        # Claude session. Claude Code uses its normal company login/config.
+        Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
+        if ($env:ANTHROPIC_API_KEY -eq 'local-demo-key') {
+            Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+        }
+        Write-Host 'Claude provider: company Claude Code authentication'
+    }
+    $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+
+    $launchArguments = @('--tools', $Tools, '--system-prompt', $SystemPrompt)
+    if ($effectiveModel) { $launchArguments = @('--model', $effectiveModel) + $launchArguments }
+    if ($Print) { $launchArguments += '--print' }
+    if ($Prompt) { $launchArguments += $Prompt }
+    & $claudeExecutable @launchArguments @ClaudeArguments
     $claudeExitCode = $LASTEXITCODE
 } finally {
     if ($settingsWritten) {
