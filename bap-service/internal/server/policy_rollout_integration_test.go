@@ -37,6 +37,8 @@ func TestSignedPolicyRolloutEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	source, cedarPolicy := rolloutSource(t)
+	initialVersion := source.Version
+	initialEpoch := source.RevocationEpoch
 	bundleV1, envelopeV1 := rolloutBundle(t, source, cedarPolicy, privateKey, now)
 
 	controlPlane := serviceserver.New(nil, nil, "", "", 0, nil, rolloutAuditStore{}, "rollout-api-key", "rollout-edge")
@@ -73,7 +75,7 @@ func TestSignedPolicyRolloutEndToEnd(t *testing.T) {
 	}
 
 	installedV1, err := bapedge.EnsurePolicy(context.Background(), client, store, "rollout-edge", true, now.Add(time.Second))
-	if err != nil || installedV1.Version != 1 {
+	if err != nil || installedV1.Version != initialVersion {
 		t.Fatalf("install policy v1: version=%d err=%v", installedV1.Version, err)
 	}
 	decision, err := policybundle.Authorize(installedV1, rolloutCommandRequest("ls -al"), now.Add(time.Second))
@@ -89,8 +91,8 @@ func TestSignedPolicyRolloutEndToEnd(t *testing.T) {
 		t.Fatalf("matching Edge posture did not receive CURRENT: response=%#v err=%v", currentResponse, err)
 	}
 
-	source.Version = 2
-	source.RevocationEpoch = 2
+	source.Version = initialVersion + 1
+	source.RevocationEpoch = initialEpoch + 1
 	source.ForceUpdate = true
 	source.CommandRules = removeExecutable(source.CommandRules, "ls")
 	bundleV2, envelopeV2 := rolloutBundle(t, source, cedarPolicy, privateKey, now.Add(2*time.Second))
@@ -103,7 +105,7 @@ func TestSignedPolicyRolloutEndToEnd(t *testing.T) {
 		t.Fatalf("stale Edge posture did not receive UPDATE_REQUIRED: response=%#v err=%v", forcedResponse, err)
 	}
 	installedV2, err := bapedge.EnsurePolicy(context.Background(), client, store, "rollout-edge", true, now.Add(3*time.Second))
-	if err != nil || installedV2.Version != 2 {
+	if err != nil || installedV2.Version != source.Version {
 		t.Fatalf("install forced policy v2: version=%d err=%v", installedV2.Version, err)
 	}
 	decision, err = policybundle.Authorize(installedV2, rolloutCommandRequest("ls -al"), now.Add(3*time.Second))
@@ -137,8 +139,8 @@ func TestSignedPolicyRolloutEndToEnd(t *testing.T) {
 	}
 
 	killSource := source
-	killSource.Version = 3
-	killSource.RevocationEpoch = 3
+	killSource.Version = source.Version + 1
+	killSource.RevocationEpoch = source.RevocationEpoch + 1
 	killSource.KillSwitch = true
 	killBundle, killEnvelope := rolloutBundle(t, killSource, cedarPolicy, privateKey, now.Add(6*time.Second))
 	controlPlane.SetPolicyBundle(killBundle, killEnvelope)
@@ -147,8 +149,8 @@ func TestSignedPolicyRolloutEndToEnd(t *testing.T) {
 	}
 
 	offlineSource := source
-	offlineSource.Version = 4
-	offlineSource.RevocationEpoch = 4
+	offlineSource.Version = source.Version + 2
+	offlineSource.RevocationEpoch = source.RevocationEpoch + 2
 	offlineSource.ForceUpdate = false
 	offlineSource.KillSwitch = false
 	offlineSource.RefreshAfterSeconds = 1

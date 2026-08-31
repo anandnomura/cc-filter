@@ -25,7 +25,8 @@ The launcher:
 3. generates a dedicated local API key plus development TLS/signing keys;
 4. starts `bap-service-windows-amd64.exe` hidden on loopback HTTPS;
 5. writes the Edge YAML with the matching CA, bundle key, state, and credential;
-6. verifies signed policy synchronization and four allow/deny cases;
+6. verifies signed policy synchronization, allow/deny behavior, and the
+   privileged-client manual handoff;
 7. temporarily merges all six BAP hooks into `.claude\settings.local.json`;
 8. launches Claude in the current repository;
 9. restores the exact previous local settings and stops the Service it started
@@ -97,8 +98,11 @@ settings; Claude and its hook processes inherit it from the launcher process.
 2. Ask Claude to run `git status --short`; expect allow and execution.
 3. Ask Claude to run `ls -al`; expect allow and execution.
 4. Ask Claude to run `git reset --hard`; expect a BAP denial and no execution.
-5. Ask Claude to read `.env`; expect a BAP denial and no file contents.
-6. Exit Claude normally so `SessionEnd` runs.
+5. Ask Claude to run `mysql -h orders-prod -u dba`; expect a
+   `REQUIRES MANUAL EXECUTION` denial and no execution. BAP will not echo the
+   command in its denial message.
+6. Ask Claude to read `.env`; expect a BAP denial and no file contents.
+7. Exit Claude normally so `SessionEnd` runs.
 
 This setup is appropriate for local functional testing. Because the user owns
 the settings, EXEs, state, and credential, it is not tamper-resistant and is not

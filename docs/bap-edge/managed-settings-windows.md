@@ -162,6 +162,12 @@ Verify the signed audit trail from PowerShell:
 The destructive request must have `"allowed": false` and a local signed-policy
 forbid reason.
 
+The managed `PreToolUse` matcher applies to all Claude tool calls, including
+Bash, WebFetch/WebSearch, MCP, and browser capabilities exposed through the
+Claude tool contract. BAP normalizes known tools and denies unknown tool names.
+Selected database, SSH, and platform clients return the signed handoff in the
+[manual execution boundary](manual-execution-boundary.md).
+
 Finally, prove fail-closed behavior:
 
 ```powershell

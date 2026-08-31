@@ -59,6 +59,12 @@ bap-service/policies/edge-policy-source.json
 Changing rule content requires incrementing its `version`. Reusing a version
 with different content is rejected as equivocation.
 
+Command rule `effect` accepts `eligible-for-permit`, `manual-only`, or `forbid`.
+`manual-only` is for direct privileged client executables that Claude may help
+prepare but must not execute. It returns `MANUAL_EXECUTION_REQUIRED`; a matching
+`forbid` always takes precedence. Add native and `.exe` names explicitly when a
+client must be covered on both Linux/macOS and Windows.
+
 ## BAP Service environment
 
 | Variable | Default | Purpose |

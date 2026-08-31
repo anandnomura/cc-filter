@@ -58,7 +58,8 @@ function Invoke-NativeHookVerification {
         @{ Label = 'safe command'; Command = 'git status --short'; Expected = 'allow' },
         @{ Label = 'centrally configured command'; Command = 'ls -al'; Expected = 'allow' },
         @{ Label = 'destructive command'; Command = 'git reset --hard'; Expected = 'deny' },
-        @{ Label = 'unclassified command'; Command = 'python -c "print(1)"'; Expected = 'deny' }
+        @{ Label = 'unclassified command'; Command = 'python -c "print(1)"'; Expected = 'deny' },
+        @{ Label = 'manual-only privileged client'; Command = 'mysql -h orders-prod -u dba'; Expected = 'deny'; ReasonPattern = 'REQUIRES MANUAL EXECUTION' }
     )
     foreach ($case in $cases) {
         $inputObject = @{
@@ -74,6 +75,9 @@ function Invoke-NativeHookVerification {
         if ($actual -ne $case.Expected) {
             $reason = $result.hookSpecificOutput.permissionDecisionReason
             throw "Native hook verification failed for $($case.Label): expected $($case.Expected), got $actual ($reason)."
+        }
+        if ($case.ContainsKey('ReasonPattern') -and $result.hookSpecificOutput.permissionDecisionReason -notmatch $case.ReasonPattern) {
+            throw "Native hook verification failed for $($case.Label): expected reason matching $($case.ReasonPattern)."
         }
         Write-Host "PASS: $($case.Command) -> $actual"
     }

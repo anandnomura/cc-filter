@@ -180,6 +180,9 @@ func main() {
 	}
 	_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: result, ReasonCode: decision.ReasonCode, Source: "signed_policy_bundle"})
 	if !decision.Allowed {
+		if decision.ManualOnly {
+			manualExecutionRequired()
+		}
 		deny(decision.Reason)
 	}
 	allow(decision.Reason)
@@ -203,10 +206,25 @@ func deny(reason string) {
 	os.Exit(0)
 }
 
+func manualExecutionRequired() {
+	hookDecisionWithPrefix("deny", manualExecutionMessage(), "")
+	os.Exit(0)
+}
+
+func manualExecutionMessage() string {
+	return "BAP EDGE REQUIRES MANUAL EXECUTION; THIS TOOL CALL DID NOT EXECUTE. Review the command, confirm the required access or A2P approval, and run it yourself in a separate terminal. BAP intentionally does not reproduce the command because it may contain credentials or sensitive connection details."
+}
+
 func hookDecision(decision, reason string) {
+	prefix := ""
 	if decision == "deny" {
-		reason = "BAP EDGE BLOCKED THIS TOOL CALL; IT DID NOT EXECUTE. " + reason
+		prefix = "BAP EDGE BLOCKED THIS TOOL CALL; IT DID NOT EXECUTE. "
 	}
+	hookDecisionWithPrefix(decision, reason, prefix)
+}
+
+func hookDecisionWithPrefix(decision, reason, prefix string) {
+	reason = prefix + reason
 	value := map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName": "PreToolUse", "permissionDecision": decision, "permissionDecisionReason": reason,
 	}}

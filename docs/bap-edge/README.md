@@ -143,6 +143,7 @@ that lease BAP Edge fails closed. Claude can continue reasoning without tools.
 - [Central policy authority and signed Edge distribution proposal](central-policy-distribution-proposal.md)
 - [MVP-0A local certification and remaining live-model gate](mvp0-certification.md)
 - [Architecture and request flow](architecture.md)
+- [Manual execution boundary for privileged database, SSH, and platform access](manual-execution-boundary.md)
 - [Edge YAML and service environment reference](configuration.md)
 - [MySQL storage, local operation, and enterprise database switch](storage.md)
 - [Audit trail, integrity, privacy, and operations](audit-trail.md)

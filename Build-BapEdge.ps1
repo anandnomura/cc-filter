@@ -7,12 +7,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
+. (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
 $engine = ''
 if ($Runtime -ne 'Native') {
     try {
         $engine = Get-BapContainerEngine -Runtime $Runtime
     } catch {
-        if ($Runtime -ne 'Auto' -or -not (Get-Command go -ErrorAction SilentlyContinue)) { throw }
+        if ($Runtime -ne 'Auto' -or -not (Get-BapGoCommand)) { throw }
         Write-Warning 'No usable Podman/Docker runtime was found; falling back to the installed Go toolchain.'
     }
 }

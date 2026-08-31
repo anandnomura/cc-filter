@@ -65,6 +65,7 @@ $cases = @(
     @{ Name = 'centrally configured ls command'; Want = 'allow'; Tool = 'Bash'; Input = @{ command = 'ls -al' } },
     @{ Name = 'destructive command'; Want = 'deny'; Tool = 'Bash'; Input = @{ command = 'git reset --hard' } },
     @{ Name = 'unclassified command'; Want = 'deny'; Tool = 'Bash'; Input = @{ command = 'python -c "print(1)"' } },
+    @{ Name = 'manual-only privileged client'; Want = 'deny'; ReasonPattern = 'REQUIRES MANUAL EXECUTION'; Tool = 'Bash'; Input = @{ command = 'mysql -h orders-prod -u dba' } },
     @{ Name = 'malformed read'; Want = 'deny'; Tool = 'Read'; Input = @{} },
     @{ Name = 'unknown tool'; Want = 'deny'; Tool = 'UnknownTool'; Input = @{} }
 )
@@ -74,6 +75,9 @@ foreach ($case in $cases) {
     $result = $hookInput | & $edgeBinary --config $edgeConfig | ConvertFrom-Json
     $actual = $result.hookSpecificOutput.permissionDecision
     if ($actual -ne $case.Want) { throw "$($case.Name): expected $($case.Want), got $actual" }
+    if ($case.ContainsKey('ReasonPattern') -and $result.hookSpecificOutput.permissionDecisionReason -notmatch $case.ReasonPattern) {
+        throw "$($case.Name): expected reason matching $($case.ReasonPattern)."
+    }
     Write-Host "PASS: $($case.Name) -> $actual"
 }
 $currentProposals = (& $engine exec bap-service-local bap-service proposals list) | ConvertFrom-Json
@@ -108,6 +112,9 @@ if (@($events | Where-Object { $_.source -eq 'bap_edge_report' }).Count -ne 1) {
 if (@($events | Where-Object { $_.source -eq 'edge_policy_evaluation' -and $_.tool_use_id -eq 'test-safe-workspace-read' }).Count -ne 1) { throw 'Retried local decision was not idempotently deduplicated.' }
 if (@($events | Where-Object { $_.source -eq 'edge_policy_evaluation' -and $_.tool_use_id -eq 'test-offline-fresh-bundle' }).Count -ne 1) { throw 'Offline-spooled local decision was not delivered after control-plane recovery.' }
 if (@($events | Where-Object { $_.source -eq 'edge_policy_evaluation' -and -not $_.policy_version }).Count -gt 0) { throw 'An Edge traffic decision is missing its signed bundle policy version.' }
+if (@($events | Where-Object { $_.source -eq 'edge_policy_evaluation' -and $_.tool_use_id -eq 'test-manual-only-privileged-client' -and $_.reason_code -eq 'MANUAL_EXECUTION_REQUIRED' }).Count -ne 1) {
+    throw 'Manual-only denial was not recorded with the distinct audit reason code.'
+}
 if (@($events | Where-Object { -not $_.workload_id -or -not $_.credential_fingerprint -or -not $_.signature }).Count -gt 0) {
     throw 'One or more audit events is missing workload, credential fingerprint, or signature data.'
 }
@@ -116,7 +123,7 @@ if (@($events | Where-Object { -not $_.trace_id -or -not $_.span_id -or -not $_.
 }
 $safeOperationTraces = @($events | Where-Object { $_.tool_use_id -eq 'test-safe-workspace-read' } | ForEach-Object { $_.trace_id } | Sort-Object -Unique)
 if ($safeOperationTraces.Count -ne 1) { throw 'Authorization, cache consumption, and outcome did not share one operation trace ID.' }
-if (($events | ConvertTo-Json -Depth 10) -match 'git reset --hard') { throw 'Audit trail contains plaintext command content.' }
+if (($events | ConvertTo-Json -Depth 10) -match 'git reset --hard|orders-prod') { throw 'Audit trail contains plaintext command content.' }
 if (@($events | Where-Object { 'target_summary' -in $_.PSObject.Properties.Name -and $_.target_summary -match '^[A-Za-z]:\\' }).Count -gt 0) { throw 'Audit trail contains an absolute Windows target path.' }
 $edgeLogPath = Join-Path $runtimeDirectory 'test-edge-state\observability\edge.jsonl'
 if (-not (Test-Path -LiteralPath $edgeLogPath)) { throw 'BAP Edge structured observability log was not created.' }

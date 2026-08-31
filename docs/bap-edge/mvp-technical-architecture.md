@@ -180,10 +180,19 @@ delegation, and unknown tools. Web search and ordinary safe development actions
 retain explicit permits. MCP, fetch, and delegation stay denied until governed
 registries and policy profiles exist.
 
-The current command classifier is still regex-based. A shell-aware parser,
-executable/argument model, versioned Sonnet/Opus fixtures, and bypass corpus are
-required before the policy can be called MVP-complete. The detailed work is in
-the [Cedar MVP policy plan](cedar-mvp-policy-plan.md).
+Privileged interactive clients use a separate signed `manual-only` command
+effect. Claude can prepare the work, but Edge denies execution and tells the
+employee to review the command, confirm A2P, and run it in a separate terminal.
+The denial does not reproduce command or connection details. This avoids a BAP
+proxy or adapter for every database while keeping Claude execution fail-closed.
+Explicit forbids take precedence over manual-only rules. See the [manual
+execution boundary](manual-execution-boundary.md).
+
+The command classifier uses a deliberately limited direct-executable parser and
+anchored argument rules. Shell operators, substitutions, encoded launchers, and
+ambiguous syntax fail closed. Versioned Sonnet/Opus fixtures and the bypass
+corpus certify the supported contract. The detailed work is in the [Cedar MVP
+policy plan](cedar-mvp-policy-plan.md).
 
 ## Identity and end-to-end correlation
 

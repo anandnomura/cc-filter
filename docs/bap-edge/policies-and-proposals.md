@@ -12,6 +12,17 @@ privileged, likely-exfiltration, and common obfuscated commands. It also
 explicitly denies arbitrary network fetch, MCP, delegation, and unknown tools
 until governed registries or profiles authorize those families.
 
+Structured command rules have three effects:
+
+- `eligible-for-permit` makes a precisely matched command eligible for Cedar;
+- `manual-only` denies Claude execution and returns a safe manual handoff; and
+- `forbid` denies and overrides both other effects.
+
+The initial manual-only registry covers MySQL, PostgreSQL, SQL Server, Oracle,
+SSH, and kubectl client executable names. It is an executable boundary, not a
+database proxy or natural-language intent classifier. See [Manual execution
+boundary for privileged access](manual-execution-boundary.md).
+
 ## Changing or adding a rule
 
 Add the structured command/network/MCP/delegation entry, include owner and

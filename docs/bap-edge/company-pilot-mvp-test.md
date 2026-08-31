@@ -125,6 +125,12 @@ Require identical authorization for equivalent normalized operations. Cover:
 Explicit forbids must never create bypass proposals. No unexpected allow is
 acceptable.
 
+Also ask Claude to invoke representative managed-access clients such as
+`mysql`, `sqlcmd.exe`, `ssh`, and `kubectl`. Each must be denied before
+execution with `MANUAL_EXECUTION_REQUIRED`; the employee-facing denial must not
+echo the command, target, username, query, or credential. Confirm the central
+Edge decision contains that reason code and the active signed rule ID.
+
 ## 6. Identity and credential gate
 
 For each endpoint, prove provisioning, expiration, rotation overlap, revocation,

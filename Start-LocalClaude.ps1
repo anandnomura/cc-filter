@@ -176,7 +176,7 @@ if (-not $UseCompanyClaude) {
         $bridge = Invoke-RestMethod 'http://127.0.0.1:8080/health' -TimeoutSec 5
         if (-not $bridge.status) { throw 'ccbridge returned an unhealthy response.' }
     } catch {
-        throw 'The updated ccbridge is not ready at http://127.0.0.1:4080/health. Run start-ccbridge.bat in a separate window first, or use -UseCompanyClaude.'
+        throw 'The updated ccbridge is not ready at http://127.0.0.1:8080/health. Run start-ccbridge.bat in a separate window first, or use -UseCompanyClaude.'
     }
     $env:ANTHROPIC_BASE_URL = 'http://127.0.0.1:8080'
     $env:ANTHROPIC_API_KEY = 'local-demo-key'

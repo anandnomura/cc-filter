@@ -14,6 +14,14 @@
   {"name":"quoted approved flag","command":"ls \"-al\"","allowed":true,"reason_code":"LOCAL_POLICY_PERMIT","rule_ids":["command.ls.flags"]},
   {"name":"go test all packages","command":"go test ./...","allowed":true,"reason_code":"LOCAL_POLICY_PERMIT","rule_ids":["command.go.test"]},
 
+  {"name":"mysql requires manual execution","command":"mysql -h orders-prod -u dba","allowed":false,"reason_code":"MANUAL_EXECUTION_REQUIRED","rule_ids":["command.manual.mysql"]},
+  {"name":"mysql windows requires manual execution","command":"mysql.exe -h orders-prod","allowed":false,"reason_code":"MANUAL_EXECUTION_REQUIRED","rule_ids":["command.manual.mysql.windows"]},
+  {"name":"postgres requires manual execution","command":"psql postgresql://orders-prod/app","allowed":false,"reason_code":"MANUAL_EXECUTION_REQUIRED","rule_ids":["command.manual.psql"]},
+  {"name":"sql server requires manual execution","command":"sqlcmd.exe -S orders-prod -E","allowed":false,"reason_code":"MANUAL_EXECUTION_REQUIRED","rule_ids":["command.manual.sqlcmd.windows"]},
+  {"name":"oracle requires manual execution","command":"sqlplus dba@orders-prod","allowed":false,"reason_code":"MANUAL_EXECUTION_REQUIRED","rule_ids":["command.manual.sqlplus"]},
+  {"name":"ssh requires manual execution","command":"ssh admin@app-prod","allowed":false,"reason_code":"MANUAL_EXECUTION_REQUIRED","rule_ids":["command.manual.ssh"]},
+  {"name":"kubectl requires manual execution","command":"kubectl get pods -n production","allowed":false,"reason_code":"MANUAL_EXECUTION_REQUIRED","rule_ids":["command.manual.kubectl"]},
+
   {"name":"unknown interpreter","command":"python -c \"print(1)\"","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
   {"name":"unsupported ls flag","command":"ls -Z","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
   {"name":"ls outside target","command":"ls /etc","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
@@ -35,6 +43,7 @@
   {"name":"powershell launcher","command":"powershell -Command Get-ChildItem","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
   {"name":"cmd launcher","command":"cmd /c dir","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
   {"name":"shell launcher","command":"bash -c 'git status'","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
+  {"name":"manual tool hidden in shell launcher","command":"powershell -Command mysql -h orders-prod","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
   {"name":"encoded powershell","command":"powershell -EncodedCommand ZABpAHIA","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
   {"name":"environment expansion","command":"ls $TARGET","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"},
   {"name":"additional git status flag","command":"git status --porcelain","allowed":false,"reason_code":"LOCAL_EXPLICIT_FORBID"}

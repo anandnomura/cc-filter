@@ -15,7 +15,7 @@ import (
 	"cc-filter/internal/policybundle"
 )
 
-const EdgeProtocolVersion = "1"
+const EdgeProtocolVersion = "2"
 
 type policyState struct {
 	HighestVersion  uint64    `json:"highest_version"`

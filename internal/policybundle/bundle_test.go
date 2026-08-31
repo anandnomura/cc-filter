@@ -98,6 +98,41 @@ func TestLocalCommandAuthorizationUsesBundleRulesNotClientFlags(t *testing.T) {
 	}
 }
 
+func TestManualOnlyCommandsReturnDistinctFailClosedOutcome(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	bundle := testBundle(t, now)
+	for _, command := range []string{"mysql -h orders-prod", "psql app", "sqlcmd.exe -S orders-prod", "sqlplus dba@orders-prod", "ssh admin@app-prod", "kubectl get pods"} {
+		decision, err := Authorize(bundle, commandRequest(command), now.Add(time.Minute))
+		if err != nil || decision.Allowed || !decision.ManualOnly || decision.ReasonCode != "MANUAL_EXECUTION_REQUIRED" || len(decision.RuleIDs) != 1 {
+			t.Fatalf("%q should require manual execution: decision=%#v err=%v", command, decision, err)
+		}
+	}
+}
+
+func TestExplicitForbidOverridesManualOnly(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	bundle := testBundle(t, now)
+	bundle.CommandRules = append(bundle.CommandRules, CommandRule{
+		ID: "command.mysql.emergency-forbid", Executable: "mysql", Effect: "forbid",
+		AllowAdditionalArguments: true, AdditionalArgumentPattern: ".*", Profiles: []string{"standard-developer"},
+		Owner: "security", Approval: "incident", NotBefore: now, ExpiresAt: now.Add(time.Hour),
+	})
+	decision, err := Authorize(bundle, commandRequest("mysql -h orders-prod"), now.Add(time.Minute))
+	if err != nil || decision.Allowed || decision.ManualOnly || decision.ReasonCode != "LOCAL_EXPLICIT_FORBID" {
+		t.Fatalf("explicit forbid did not override manual-only: decision=%#v err=%v", decision, err)
+	}
+}
+
+func TestCedarForbidOverridesManualOnly(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	bundle := testBundle(t, now)
+	bundle.PolicyProfile = "read-only"
+	decision, err := Authorize(bundle, commandRequest("mysql -h orders-prod"), now.Add(time.Minute))
+	if err != nil || decision.Allowed || decision.ManualOnly || decision.ReasonCode != "LOCAL_EXPLICIT_FORBID" {
+		t.Fatalf("Cedar forbid did not override manual-only: decision=%#v err=%v", decision, err)
+	}
+}
+
 func TestExpiredRuleAndKillSwitchDeny(t *testing.T) {
 	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	bundle := testBundle(t, now)
@@ -139,6 +174,10 @@ func TestInvalidSourceFailsClosed(t *testing.T) {
 	}
 	if _, err := LoadSource([]byte(`{"schema_version":1,"version":1,"unknown_policy_knob":true}`)); err == nil {
 		t.Fatal("unknown policy source field was accepted")
+	}
+	invalidEffect := Source{SchemaVersion: SchemaVersion, Version: 1, ValidForSeconds: 10, RefreshAfterSeconds: 5, MaxOfflineSeconds: 10, PolicyProfile: "standard-developer", CommandRules: []CommandRule{{ID: "bad-effect", Executable: "mysql", Effect: "manual", Owner: "owner", Approval: "ticket"}}}
+	if _, err := LoadSource(mustJSON(invalidEffect)); err == nil {
+		t.Fatal("unknown command rule effect was accepted")
 	}
 }
 

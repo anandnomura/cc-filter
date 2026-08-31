@@ -6,11 +6,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$go = Get-Command go -ErrorAction SilentlyContinue
-if (-not $go) {
-    throw 'Go is not installed or is not on PATH. Install an approved Go 1.23.12 or newer toolchain and open a new PowerShell window.'
-}
-$goVersionText = (& go version)
+. (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
+$goCommand = Get-BapGoCommand -Required
+$goVersionText = (& $goCommand version)
 if ($LASTEXITCODE -ne 0 -or $goVersionText -notmatch 'go version go(?<major>\d+)\.(?<minor>\d+)(?:\.(?<patch>\d+))?') {
     throw "Could not validate the Go compiler version: $goVersionText"
 }
@@ -44,14 +42,14 @@ $previousGOOS = $env:GOOS
 $previousGOARCH = $env:GOARCH
 try {
     Write-Host "Running BAP Service tests with $goVersionText from vendored dependencies..."
-    & go test -mod=vendor ./bap-service/... ./internal/authzen ./internal/auditwire ./internal/grants ./internal/policybundle ./internal/tracecontext
+    & $goCommand test -mod=vendor ./bap-service/... ./internal/authzen ./internal/auditwire ./internal/grants ./internal/policybundle ./internal/tracecontext
     if ($LASTEXITCODE -ne 0) { throw 'BAP Service tests failed.' }
     foreach ($buildTarget in $targets) {
         $output = $buildTarget.Output
         $env:CGO_ENABLED = '0'
         $env:GOOS = $buildTarget.OS
         $env:GOARCH = $buildTarget.Architecture
-        & go build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$Version" -o $output ./bap-service/cmd
+        & $goCommand build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$Version" -o $output ./bap-service/cmd
         if ($LASTEXITCODE -ne 0) { throw "Native BAP Service compilation failed for $($buildTarget.OS)/$($buildTarget.Architecture)." }
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $output).Hash
         "$($hash.ToLowerInvariant())  $([IO.Path]::GetFileName($output))" | Set-Content -LiteralPath "$output.sha256" -Encoding ascii

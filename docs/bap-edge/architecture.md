@@ -60,10 +60,17 @@ shared key identifies the shared deployment, not an individual human.
 6. Edge normalizes the raw tool contract without creating a command allow.
 7. The signed bundle classifies command/network/MCP/delegation eligibility;
    unknown or ambiguous inputs remain unapproved.
-8. Edge evaluates the bundled Cedar policy locally. Explicit forbids override
-   permits and no matching permit denies.
+8. Edge applies command precedence: explicit forbid, `manual-only`, then normal
+   Cedar evaluation. A manual-only match is denied with a safe employee handoff;
+   explicit forbids still win and no matching permit denies.
 9. Edge durably spools the local decision, attempts asynchronous central audit
    delivery, and returns allow or deny to Claude.
+
+The company hook is installed in administrator-owned managed settings with a
+`PreToolUse` matcher covering every Claude tool. Bash, network, MCP, browser,
+delegation, and unknown tool paths therefore reach Edge before execution;
+unknown paths fail closed. See the [manual execution boundary](manual-execution-boundary.md)
+for privileged database, SSH, and platform clients.
 
 If BAP Service is temporarily unavailable, a verified bundle remains usable only
 until `max_offline_seconds`. After that lease, missing synchronization fails

@@ -2,6 +2,7 @@ param([ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Aut
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
 Write-Host 'Building the independently deployable BAP Edge and BAP Service components...'
 if ($Runtime -eq 'Native') {
     & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime Native
@@ -14,7 +15,7 @@ if ($Runtime -eq 'Auto') {
     try {
         $resolvedRuntime = Get-BapContainerEngine -Runtime Auto
     } catch {
-        if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw }
+        if (-not (Get-BapGoCommand)) { throw }
         & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime Native
         & (Join-Path $PSScriptRoot 'Build-BapService.ps1') -Runtime Native
         Write-Warning 'No container runtime is usable, so native Windows binaries were built. Use an explicit Linux target if the company packaging pipeline needs a Linux Service binary.'

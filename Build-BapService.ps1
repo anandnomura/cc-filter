@@ -10,6 +10,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
 if ($Runtime -eq 'Native') {
     & (Join-Path $PSScriptRoot 'Build-BapService-Native.ps1') -Target $NativeTarget -Architecture $Architecture -Version $Version
     Write-Warning 'Native mode produced executable binaries, not an OCI image. Use Docker/Podman or the company packaging pipeline when an OCI image is required.'
@@ -20,7 +21,7 @@ $engine = ''
 try {
     $engine = Get-BapContainerEngine -Runtime $Runtime
 } catch {
-    if ($Runtime -ne 'Auto' -or -not (Get-Command go -ErrorAction SilentlyContinue)) { throw }
+    if ($Runtime -ne 'Auto' -or -not (Get-BapGoCommand)) { throw }
     Write-Warning 'No usable Podman/Docker runtime was found; compiling BAP Service with the installed Go toolchain.'
     & (Join-Path $PSScriptRoot 'Build-BapService-Native.ps1') -Target $NativeTarget -Architecture $Architecture -Version $Version
     return

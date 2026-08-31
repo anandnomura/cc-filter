@@ -95,6 +95,7 @@ type SyncResponse struct {
 
 type Decision struct {
 	Allowed       bool
+	ManualOnly    bool
 	Reason        string
 	ReasonCode    string
 	RuleIDs       []string
@@ -123,7 +124,7 @@ func LoadSource(data []byte) (Source, error) {
 	ids := map[string]bool{}
 	for i := range source.CommandRules {
 		rule := &source.CommandRules[i]
-		if rule.ID == "" || rule.Executable == "" || rule.Owner == "" || rule.Approval == "" || (rule.Effect != "eligible-for-permit" && rule.Effect != "forbid") {
+		if rule.ID == "" || rule.Executable == "" || rule.Owner == "" || rule.Approval == "" || (rule.Effect != "eligible-for-permit" && rule.Effect != "forbid" && rule.Effect != "manual-only") {
 			return source, fmt.Errorf("command rule %d is incomplete", i)
 		}
 		if ids[rule.ID] {
@@ -272,13 +273,15 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 	properties["policyProfile"] = bundle.PolicyProfile
 	ruleIDs := []string{}
 	action := request.Action.Name
+	manualOnly := false
 	if action == "command.execute" {
 		command, _ := properties["command"].(string)
-		approved, forbidden, matched, err := classifyCommand(bundle, command, now)
+		approved, forbidden, commandManualOnly, matched, err := classifyCommand(bundle, command, now)
 		if err != nil {
 			return Decision{Reason: err.Error(), ReasonCode: "COMMAND_PARSE_DENY", PolicyVersion: policyVersion}, nil
 		}
-		properties["shellApproved"] = approved && !forbidden
+		manualOnly = commandManualOnly
+		properties["shellApproved"] = (approved || manualOnly) && !forbidden
 		if forbidden {
 			properties["destructive"] = true
 		}
@@ -318,6 +321,15 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 		return Decision{}, fmt.Errorf("Cedar evaluation error: %v", diagnostic.Errors)
 	}
 	if decision == cedar.Allow {
+		if manualOnly {
+			return Decision{
+				ManualOnly:    true,
+				Reason:        "This privileged access tool requires deliberate manual execution in a separate terminal after the user reviews the command and confirms the required access",
+				ReasonCode:    "MANUAL_EXECUTION_REQUIRED",
+				RuleIDs:       ruleIDs,
+				PolicyVersion: policyVersion,
+			}, nil
+		}
 		return Decision{Allowed: true, Reason: "Allowed locally by signed BAP policy bundle", ReasonCode: "LOCAL_POLICY_PERMIT", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
 	}
 	if len(diagnostic.Reasons) > 0 {
@@ -326,14 +338,14 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 	return Decision{Reason: "No signed BAP policy permit matched", ReasonCode: "LOCAL_NO_MATCHING_POLICY", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
 }
 
-func classifyCommand(bundle Bundle, command string, now time.Time) (bool, bool, []string, error) {
+func classifyCommand(bundle Bundle, command string, now time.Time) (bool, bool, bool, []string, error) {
 	args, err := splitCommand(command)
 	if err != nil || len(args) == 0 {
-		return false, false, nil, errors.New("unsupported or ambiguous shell command")
+		return false, false, false, nil, errors.New("unsupported or ambiguous shell command")
 	}
 	executable := strings.ToLower(filepath.Base(strings.ReplaceAll(args[0], "\\", "/")))
 	remaining := args[1:]
-	approved, forbidden := false, false
+	approved, forbidden, manualOnly := false, false, false
 	matched := []string{}
 	for _, rule := range bundle.CommandRules {
 		if now.Before(rule.NotBefore) || !now.Before(rule.ExpiresAt) || !strings.EqualFold(executable, rule.Executable) || !profileMatches(bundle.PolicyProfile, rule.Profiles) {
@@ -352,11 +364,13 @@ func classifyCommand(bundle Bundle, command string, now time.Time) (bool, bool, 
 		matched = append(matched, rule.ID)
 		if rule.Effect == "forbid" {
 			forbidden = true
+		} else if rule.Effect == "manual-only" {
+			manualOnly = true
 		} else if rule.Effect == "eligible-for-permit" {
 			approved = true
 		}
 	}
-	return approved, forbidden, matched, nil
+	return approved, forbidden, manualOnly, matched, nil
 }
 
 func argumentsMatch(args []string, rule CommandRule) bool {

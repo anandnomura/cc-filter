@@ -22,6 +22,8 @@ All notable changes to cc-filter are documented in this file.
 - Data-driven command/bypass corpus and an HTTPS Service-to-Edge rollout lifecycle gate
 - Privacy-safe exact Claude hook schema capture, replay, hash manifest, model-equivalence, and policy-digest certification
 - Read-only `Show-BapStatus.ps1` view of control-plane and Edge policy/lease/audit posture
+- Signed `manual-only` command policy for database, SSH, and kubectl clients,
+  with a non-echoing employee handoff and distinct auditable reason code
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call
