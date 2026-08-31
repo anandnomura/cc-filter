@@ -52,6 +52,8 @@ All notable changes to cc-filter are documented in this file.
   with explicit reporting of MySQL/container-only checks that were not run
 - Added container-free native company fixture capture and documented an exact
   Sonnet/Opus allow, explicit-forbid, and manual-only six-capture baseline
+- Added one-command interactive company fixture capture for managed launchers
+  that intentionally do not accept Claude CLI arguments
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call

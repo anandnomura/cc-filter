@@ -70,29 +70,24 @@ On a company test laptop using approved Go and no Docker/Podman, managed-only
 hooks must not be active because the native capture launcher uses temporary
 project-local hooks. If this is an administrator-owned test endpoint, run
 `Install-ManagedSettings.ps1 -Undo` elevated and close every existing Claude
-session first. Then build the current native binaries and confirm which Claude
-Code release will be recorded:
+session first. Then build the current native binaries:
 
 ```powershell
 .\Build-Bap.ps1 -Runtime Native
-claude --version
 ```
 
-Run these six commands from normal PowerShell:
+For a company launcher that supports only interactive use, run this one command
+from normal PowerShell:
 
 ```powershell
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario git-status-allow -Model sonnet -ExpectedDecision allow -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git status --short'
-
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario git-status-allow -Model opus -ExpectedDecision allow -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git status --short'
-
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario git-reset-hard-deny -Model sonnet -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git reset --hard'
-
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario git-reset-hard-deny -Model opus -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git reset --hard'
-
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario mysql-manual-only-deny -Model sonnet -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user'
-
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario mysql-manual-only-deny -Model opus -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user'
+.\Capture-CompanyClaudeFixtures.ps1 -Runtime Native
 ```
+
+The helper asks for the Claude Code version once and launches the normal
+company UI without arguments for all six cases. For each launch, select the
+displayed model, paste the displayed prompt, wait for the tool result or BAP
+denial, and exit Claude. Edge writes the fixture JSON automatically; do not
+copy or convert the model's prose response.
 
 If the company requires immutable model IDs rather than the approved `sonnet`
 and `opus` aliases, replace each `-Model` value consistently and use those same

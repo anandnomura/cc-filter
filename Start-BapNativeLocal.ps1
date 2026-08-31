@@ -2,6 +2,7 @@ param(
     [switch]$Rebuild,
     [switch]$VerifyOnly,
     [switch]$UseCompanyClaude,
+    [switch]$InteractiveClaude,
     [ValidateRange(1, 65535)][int]$Port = 8443,
     [string]$Model = '',
     [string]$Tools = 'Bash',
@@ -28,7 +29,9 @@ if (-not $VerifyOnly -and (Test-Path -LiteralPath $managedSettingsPath)) {
 }
 
 function Get-ClaudeExecutablePath {
-    foreach ($name in @('claude.exe', 'claude.cmd', 'claude')) {
+    # Prefer the company wrapper when both it and an underlying executable are
+    # present. Interactive company capture intentionally invokes it with no args.
+    foreach ($name in @('claude.cmd', 'claude.exe', 'claude')) {
         $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($null -eq $command) { continue }
         foreach ($propertyName in @('Path', 'Source', 'Definition')) {
@@ -296,11 +299,17 @@ try {
     }
     $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
-    $launchArguments = @('--tools', $Tools, '--system-prompt', $SystemPrompt)
-    if ($effectiveModel) { $launchArguments = @('--model', $effectiveModel) + $launchArguments }
-    if ($Print) { $launchArguments += '--print' }
-    if ($Prompt) { $launchArguments += $Prompt }
-    & $claudeExecutable @launchArguments @ClaudeArguments
+    if ($InteractiveClaude) {
+        if (-not $UseCompanyClaude) { throw '-InteractiveClaude requires -UseCompanyClaude.' }
+        Write-Host 'Launching the company Claude UI without command-line arguments.'
+        & $claudeExecutable
+    } else {
+        $launchArguments = @('--tools', $Tools, '--system-prompt', $SystemPrompt)
+        if ($effectiveModel) { $launchArguments = @('--model', $effectiveModel) + $launchArguments }
+        if ($Print) { $launchArguments += '--print' }
+        if ($Prompt) { $launchArguments += $Prompt }
+        & $claudeExecutable @launchArguments @ClaudeArguments
+    }
     $claudeExitCode = $LASTEXITCODE
 } finally {
     if ($settingsWritten) {

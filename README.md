@@ -166,27 +166,11 @@ Run everything below in a normal, non-administrator PowerShell window:
 ```powershell
 cd C:\Users\User\pyprj\bap-edge
 
-# Build the latest Windows EXEs and print the Claude Code version that will be recorded
+# Build the latest Windows EXEs
 .\Build-Bap.ps1 -Runtime Native
-claude --version
 
-# Sonnet: safe allow
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario git-status-allow -Model sonnet -ExpectedDecision allow -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git status --short'
-
-# Opus: safe allow
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario git-status-allow -Model opus -ExpectedDecision allow -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git status --short'
-
-# Sonnet: explicit destructive-command deny
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario git-reset-hard-deny -Model sonnet -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git reset --hard'
-
-# Opus: explicit destructive-command deny
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario git-reset-hard-deny -Model opus -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git reset --hard'
-
-# Sonnet: privileged client/manual-handoff deny
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario mysql-manual-only-deny -Model sonnet -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user'
-
-# Opus: privileged client/manual-handoff deny
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Scenario mysql-manual-only-deny -Model opus -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user'
+# Recommended company workflow: one command, normal interactive Claude UI
+.\Capture-CompanyClaudeFixtures.ps1 -Runtime Native
 
 # Review the privacy-safe captures before creating the certification manifest
 Get-ChildItem .\.bap\captures\*.json | Select-Object Name,Length,LastWriteTime
@@ -197,17 +181,44 @@ Get-ChildItem .\.bap\captures\*.json | Select-Object Name,Length,LastWriteTime
 .\Test-MVP0.ps1 -Runtime Native -RequireCompanyFixtures -RequiredModels @('sonnet','opus')
 ```
 
-`Capture-ClaudeFixtures.ps1`, `Test-ClaudeFixtures.ps1`, and `Test-MVP0.ps1`
+The interactive helper asks for the Claude Code version once. It then opens the
+company Claude UI six times and passes **no command-line arguments to Claude**.
+For each window, select the model/profile printed by the helper, paste the one
+displayed prompt, wait for the requested tool result or BAP denial, and exit
+Claude. Do not copy Claude's prose response into a file: BAP Edge automatically
+writes the actual hook schema and decision to `.bap\captures`.
+
+The three prompts shown by the helper are:
+
+```text
+Call Bash exactly once with this exact command: git status --short
+Call Bash exactly once with this exact command: git reset --hard
+Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user
+```
+
+Run all three with Sonnet, then all three with Opus. Read the Claude Code
+version from the company UI/about screen when the helper asks for it; the
+company launcher does not need to support `claude --version`.
+
+To use company-specific model labels, run:
+
+```powershell
+.\Capture-CompanyClaudeFixtures.ps1 -Runtime Native -SonnetModel 'COMPANY_SONNET_LABEL' -OpusModel 'COMPANY_OPUS_LABEL'
+```
+
+`Capture-CompanyClaudeFixtures.ps1`, `Capture-ClaudeFixtures.ps1`,
+`Test-ClaudeFixtures.ps1`, and `Test-MVP0.ps1`
 all accept `-Runtime Native`. If PowerShell reports that `Runtime` is unknown,
 the laptop has an older checkout: run `Get-Command
 .\Capture-ClaudeFixtures.ps1 -Syntax`. Its output must contain
 `[-Runtime <string>]` and `[-NativePort <int>]` before capture. Do not use
 `Runtime Native` without the leading hyphen.
 
-The capture helper records the result of `claude --version`. The `sonnet` and
-`opus` values are model aliases; replace them in all six capture commands and
-both `-RequiredModels` values if the company mandates immutable full model
-identifiers. The detailed privacy and replay rules are in the
+For automated CLI capture, the helper records `claude --version`. For the
+interactive company workflow, enter the version or approved company release
+label displayed by the company UI. The `sonnet` and `opus` values are model
+aliases; replace them if the company mandates immutable full model identifiers.
+The detailed privacy and replay rules are in the
 [exact fixture certification guide](docs/bap-edge/claude-fixture-certification.md#exact-container-free-company-baseline).
 
 Both local-model launchers select `http://127.0.0.1:8080`, supply the local demo

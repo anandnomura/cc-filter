@@ -2,6 +2,7 @@ param(
     [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
     [switch]$VerifyHooksOnly,
     [switch]$UseCompanyClaude,
+    [switch]$InteractiveClaude,
     [string]$Model = 'claude-3-5-sonnet-20241022',
     [string]$Tools = 'Bash',
     [string]$SystemPrompt = 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the requested tool. Never substitute example paths or simulate results. Never claim a tool succeeded when it was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.',
@@ -15,7 +16,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
 
 function Get-ClaudeExecutablePath {
-    foreach ($name in @('claude.exe', 'claude.cmd', 'claude')) {
+    # Prefer the company wrapper when both it and an underlying executable are
+    # present. Interactive company capture intentionally invokes it with no args.
+    foreach ($name in @('claude.cmd', 'claude.exe', 'claude')) {
         $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($null -eq $command) { continue }
         foreach ($propertyName in @('Path', 'Source', 'Definition')) {
@@ -238,5 +241,11 @@ if ($usingManagedHooks) {
 }
 if ($Print) { $defaultArguments += '--print' }
 if ($Prompt) { $defaultArguments += $Prompt }
-& $claudeExecutable @defaultArguments @ClaudeArguments
+if ($InteractiveClaude) {
+    if (-not $UseCompanyClaude) { throw '-InteractiveClaude requires -UseCompanyClaude.' }
+    Write-Host 'Launching the company Claude UI without command-line arguments.'
+    & $claudeExecutable
+} else {
+    & $claudeExecutable @defaultArguments @ClaudeArguments
+}
 exit $LASTEXITCODE
