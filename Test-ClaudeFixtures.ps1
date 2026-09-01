@@ -1,7 +1,8 @@
 param(
     [ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Auto',
     [string]$CaptureDirectory = '',
-    [string[]]$RequiredModels = @(),
+    [string[]]$RequiredModels = @('sonnet'),
+    [string[]]$RequiredScenarios = @('git-status-allow', 'git-reset-hard-deny', 'mysql-manual-only-deny'),
     [switch]$UpdateManifest,
     [switch]$RequireCompanyFixtures
 )
@@ -38,7 +39,21 @@ if ($fixtures.Count -eq 0) {
 }
 if (-not (Test-Path -LiteralPath $bundlePath)) { throw "Active signed bundle is missing: $bundlePath" }
 if (-not (Test-Path -LiteralPath $publicKeyPath)) { throw "Policy-bundle public key is missing: $publicKeyPath" }
-if ($RequireCompanyFixtures -and $RequiredModels.Count -eq 0) { $RequiredModels = @('sonnet','opus') }
+if ($RequireCompanyFixtures -and $RequiredModels.Count -eq 0) { $RequiredModels = @('sonnet') }
+$fixtureRecords = @($fixtures | ForEach-Object {
+    try { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } catch { throw "Fixture is not valid JSON: $($_.FullName)" }
+})
+foreach ($scenario in $RequiredScenarios) {
+    foreach ($model in $RequiredModels) {
+        $found = @($fixtureRecords | Where-Object {
+            $_.scenario -eq $scenario -and
+            ([string]$_.model).IndexOf($model, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        }).Count -gt 0
+        if (-not $found) {
+            throw "Missing required company fixture: scenario '$scenario', model '$model'. Run .\Capture-CompanyClaudeFixtures.ps1 -Runtime $Runtime."
+        }
+    }
+}
 $required = ($RequiredModels -join ',')
 $root = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd([char[]]@('\','/'))
 if (-not $captureDirectory.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
@@ -53,7 +68,7 @@ if ($nativeMode) {
             if ($LASTEXITCODE -ne 0) { throw 'Could not create the Claude certification manifest.' }
         }
         if (-not (Test-Path -LiteralPath $manifestPath)) {
-            throw "Captured fixtures exist but have not been reviewed and manifested. Run .\Test-ClaudeFixtures.ps1 -Runtime $Runtime -UpdateManifest -RequiredModels @('sonnet','opus')."
+            throw "Captured fixtures exist but have not been reviewed and manifested. Run .\Test-ClaudeFixtures.ps1 -Runtime $Runtime -UpdateManifest -RequiredModels @('sonnet')."
         }
         & $goCommand run -mod=vendor ./cmd/bap-fixture -mode verify -directory $captureDirectory -manifest $manifestPath -bundle $bundlePath -public-key $publicKeyPath "-require-models=$required"
         if ($LASTEXITCODE -ne 0) { throw 'Claude fixture certification failed.' }
@@ -75,7 +90,7 @@ if ($UpdateManifest) {
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the Claude certification manifest.' }
 }
 if (-not (Test-Path -LiteralPath $manifestPath)) {
-    throw "Captured fixtures exist but have not been reviewed and manifested. Run .\Test-ClaudeFixtures.ps1 -Runtime $Runtime -UpdateManifest -RequiredModels @('sonnet','opus')."
+    throw "Captured fixtures exist but have not been reviewed and manifested. Run .\Test-ClaudeFixtures.ps1 -Runtime $Runtime -UpdateManifest -RequiredModels @('sonnet')."
 }
 & $engine run --rm --volume $mount --workdir /src docker.io/library/golang:1.23-bookworm `
     go run ./cmd/bap-fixture -mode verify -directory $containerDirectory -manifest $containerManifest -bundle $containerBundle -public-key $containerPublicKey "-require-models=$required"

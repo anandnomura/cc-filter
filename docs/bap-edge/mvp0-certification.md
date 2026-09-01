@@ -35,8 +35,8 @@ prompt decisions, and uses the native fixture verifier. It explicitly reports
 live MySQL lifecycle, container networking, OCI packaging, and container
 failure-recovery checks as not run. Those remain Docker/Podman-only gates.
 
-To replace the fixture `PENDING` result, follow the six native Sonnet/Opus
-capture commands in [Exact Claude fixture certification](claude-fixture-certification.md#exact-container-free-company-baseline),
+To replace the fixture `PENDING` result, follow the three native Sonnet
+captures in [Exact Claude fixture certification](claude-fixture-certification.md#exact-container-free-company-baseline),
 create the manifest, and rerun the strict native gate shown there.
 
 The automated corpus also covers missing/wrongly typed fields, protected and
@@ -81,12 +81,12 @@ and transport settings, not allow rules.
 ## What still requires real company Claude
 
 Before admitting pilot users, capture sanitized `PreToolUse` payloads from the
-exact approved Claude Code client with each approved Sonnet and Opus model.
+exact approved Claude Code client with the approved Sonnet model.
 Replay those payloads through the same corpus and record:
 
 - exact Claude Code and model identifiers;
 - every enabled built-in, MCP, plugin, and subagent tool schema;
-- equivalent operation decisions across Sonnet and Opus;
+- the expected operation decisions under Sonnet;
 - company shell commands, destinations, repositories, and MCP classifications;
 - negative/bypass outcomes and an approval from the policy owner.
 

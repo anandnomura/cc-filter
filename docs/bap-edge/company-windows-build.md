@@ -66,7 +66,7 @@ admitting users, the company must supply:
 - a unique client certificate and private key for each managed endpoint;
 - the policy-bundle Ed25519 public key distributed to endpoints;
 - managed MySQL, secret injection, backup, monitoring, and retention settings;
-- approved Claude Code/Sonnet/Opus versions and sanitized certification fixtures;
+- approved Claude Code/Sonnet version and sanitized certification fixtures;
 - endpoint-management deployment, application allowlisting, and removal of
   local administrator rights for pilot users.
 

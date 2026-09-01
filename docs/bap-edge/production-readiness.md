@@ -30,7 +30,7 @@ packages and measurable release gates.
 
 The local Qwen bridge is a development harness, not the company deployment
 target. Inventory every enabled built-in, MCP, plugin, and delegation tool for
-the exact approved Claude Code, Sonnet, and Opus releases. Normalize equivalent
+the exact approved Claude Code and Sonnet release. Normalize equivalent
 operations identically, default-deny unknown or malformed payloads, and run the
 same allow, forbid, bypass, and schema corpus against every supported
 combination. Model identity may be diagnostic metadata, but must not grant

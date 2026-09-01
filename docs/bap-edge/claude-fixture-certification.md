@@ -2,8 +2,9 @@
 
 The modeled MVP-0 corpus is necessary but does not certify a particular Claude
 Code or model release. Exact certification captures the schema and enforcement
-result produced by the company-supported Claude Code, Sonnet, and Opus
-combinations and binds them to one signed BAP policy version and digest.
+result produced by the company-supported Claude Code and approved Sonnet
+combination and binds it to one signed BAP policy version and digest. Additional
+models can be added later but are not required by the current company gate.
 
 ## Privacy boundary
 
@@ -84,22 +85,25 @@ from normal PowerShell:
 ```
 
 The helper asks for the Claude Code version once and launches the normal
-company UI without arguments for all six cases. For each launch, select the
-displayed model, paste the displayed prompt, wait for the tool result or BAP
+company UI without arguments for the three Sonnet cases. For each launch, keep
+Sonnet selected, paste the displayed prompt, wait for the tool result or BAP
 denial, and exit Claude. Edge writes the fixture JSON automatically; do not
 copy or convert the model's prose response.
 
-If the company requires immutable model IDs rather than the approved `sonnet`
-and `opus` aliases, replace each `-Model` value consistently and use those same
-two values in `-RequiredModels` below. Do not invent identifiers.
+Do not change models inside one capture session: the hook payload does not
+expose that change.
+
+If the company requires an immutable model ID rather than the `sonnet` label,
+pass it with `-Model` and use the same value in `-RequiredModels`. Do not invent
+an identifier.
 
 Review the privacy-safe JSON files under `.bap\captures`, then create and verify
 the native manifest:
 
 ```powershell
-.\Test-ClaudeFixtures.ps1 -Runtime Native -UpdateManifest -RequiredModels @('sonnet','opus')
-.\Test-ClaudeFixtures.ps1 -Runtime Native -RequiredModels @('sonnet','opus')
-.\Test-MVP0.ps1 -Runtime Native -RequireCompanyFixtures -RequiredModels @('sonnet','opus')
+.\Test-ClaudeFixtures.ps1 -Runtime Native -UpdateManifest
+.\Test-ClaudeFixtures.ps1 -Runtime Native
+.\Test-MVP0.ps1 -Runtime Native -RequireCompanyFixtures
 ```
 
 ## Review and create the manifest
@@ -112,11 +116,11 @@ present:
 .\Test-ClaudeFixtures.ps1 `
   -Runtime Docker `
   -UpdateManifest `
-  -RequiredModels sonnet,opus
+  -RequiredModels sonnet
 
 .\Test-ClaudeFixtures.ps1 `
   -Runtime Docker `
-  -RequiredModels sonnet,opus
+  -RequiredModels sonnet
 ```
 
 For a reviewed release artifact, use `-CaptureDirectory` with a repository

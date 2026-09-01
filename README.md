@@ -13,7 +13,7 @@ gate, or `Test-MVP0.ps1` for the complete certification; MVP-0 invokes the
 focused gate automatically.
 
 Use `Show-BapStatus.ps1` for a read-only control-plane/Edge posture view. Exact
-Claude Code/Sonnet/Opus schema capture and replay are documented in the
+Claude Code/model schema capture and replay are documented in the
 [fixture certification guide](docs/bap-edge/claude-fixture-certification.md).
 
 The operator guide includes the complete Docker/Podman build, HTTPS and key
@@ -177,13 +177,13 @@ cd C:\Users\User\pyprj\bap-edge
 Get-ChildItem .\.bap\captures\*.json | Select-Object Name,Length,LastWriteTime
 
 # Create the manifest, independently verify it, then run the strict native gate
-.\Test-ClaudeFixtures.ps1 -Runtime Native -UpdateManifest -RequiredModels @('sonnet','opus')
-.\Test-ClaudeFixtures.ps1 -Runtime Native -RequiredModels @('sonnet','opus')
-.\Test-MVP0.ps1 -Runtime Native -RequireCompanyFixtures -RequiredModels @('sonnet','opus')
+.\Test-ClaudeFixtures.ps1 -Runtime Native -UpdateManifest
+.\Test-ClaudeFixtures.ps1 -Runtime Native
+.\Test-MVP0.ps1 -Runtime Native -RequireCompanyFixtures
 ```
 
 The interactive helper asks for the Claude Code version once. It then opens the
-company Claude UI six times and passes **no command-line arguments to Claude**.
+company Claude UI three times for Sonnet and passes **no command-line arguments to Claude**.
 For each window, select the model/profile printed by the helper, paste the one
 displayed prompt, wait for the requested tool result or BAP denial, and exit
 Claude. Do not copy Claude's prose response into a file: BAP Edge automatically
@@ -197,15 +197,19 @@ Call Bash exactly once with this exact command: git reset --hard
 Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user
 ```
 
-Run all three with Sonnet, then all three with Opus. Read the Claude Code
-version from the company UI/about screen when the helper asks for it; the
+Run all three with Sonnet. Read the Claude Code version from the company
+UI/about screen when the helper asks for it; the
 company launcher does not need to support `claude --version`.
 
 To use company-specific model labels, run:
 
 ```powershell
-.\Capture-CompanyClaudeFixtures.ps1 -Runtime Native -SonnetModel 'COMPANY_SONNET_LABEL' -OpusModel 'COMPANY_OPUS_LABEL'
+.\Capture-CompanyClaudeFixtures.ps1 -Runtime Native -Model 'COMPANY_SONNET_LABEL'
 ```
+
+Changing models inside an already-open capture session does not change its
+fixture label because Claude's hook payload does not expose the selected model.
+Keep Sonnet selected and exit each session when instructed.
 
 `Capture-CompanyClaudeFixtures.ps1`, `Capture-ClaudeFixtures.ps1`,
 `Test-ClaudeFixtures.ps1`, and `Test-MVP0.ps1`
@@ -217,8 +221,8 @@ the laptop has an older checkout: run `Get-Command
 
 For automated CLI capture, the helper records `claude --version`. For the
 interactive company workflow, enter the version or approved company release
-label displayed by the company UI. The `sonnet` and `opus` values are model
-aliases; replace them if the company mandates immutable full model identifiers.
+label displayed by the company UI. The `sonnet` value is a certification label;
+replace it if the company mandates an immutable full model identifier.
 The detailed privacy and replay rules are in the
 [exact fixture certification guide](docs/bap-edge/claude-fixture-certification.md#exact-container-free-company-baseline).
 

@@ -238,13 +238,13 @@ Automated tests must prove:
   idempotent;
 - audit never stores plaintext commands or outside-workspace paths; and
 - all existing managed-hook, outcome, trace, database, Docker/Podman, and
-  Sonnet/Opus fixture gates remain green.
+  approved-model fixture gates remain green.
 
 The focused executable gate is `Test-PolicyRollout.ps1`. Its command cases are
 reviewable data in `internal/policybundle/testdata/command-policy-corpus.json`,
 and `Test-MVP0.ps1` runs it before the live local-service acceptance suite.
 Exact model fixtures contain schemas rather than values, replay through the
-normalizer and bundle, require equivalent Sonnet/Opus outcomes, and are bound
+normalizer and bundle, require expected approved-model outcomes, and are bound
 to the same version/digest in a hashed certification manifest.
 
 ## Remaining work before company pilot

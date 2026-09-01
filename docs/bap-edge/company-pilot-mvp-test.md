@@ -8,7 +8,7 @@ Passing on a developer-owned local container is not a substitute for this test.
 
 Record and approve:
 
-- exact Claude Code version and approved Sonnet and Opus model versions;
+- exact Claude Code version and approved Sonnet model version;
 - Windows version and endpoint-management baseline;
 - enabled built-in tools, MCP servers/tools, plugins, shells, and delegation;
 - pilot users, repositories, environments, and data classifications;
@@ -95,7 +95,7 @@ or managed settings; cannot select bypass mode; and cannot replace the approved
 Claude or Edge executable because application control blocks it. `/hooks` may
 show zero and is not enforcement evidence.
 
-## 5. Run the Sonnet/Opus policy certification corpus
+## 5. Run the Sonnet policy certification corpus
 
 Capture every reviewed scenario on the exact approved clients/models following
 [the fixture certification procedure](claude-fixture-certification.md), then
@@ -108,8 +108,8 @@ require the manifest during the admission run:
 The run must fail for a missing model family, divergent decision/schema, stale
 policy digest, unknown tool schema, replay drift, or modified fixture.
 
-Run the same operation fixtures with every approved Sonnet and Opus option.
-Require identical authorization for equivalent normalized operations. Cover:
+Run the operation fixtures with the approved Sonnet option. Additional models
+may be certified later without blocking the initial pilot. Cover:
 
 - safe reads and writes within approved workspaces;
 - secrets and protected paths;

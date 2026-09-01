@@ -2,7 +2,7 @@ param(
     [ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Auto',
     [ValidateRange(1, 65535)][int]$NativePort = 18443,
     [switch]$RequireCompanyFixtures,
-    [string[]]$RequiredModels = @()
+    [string[]]$RequiredModels = @('sonnet')
 )
 
 Set-StrictMode -Version Latest
@@ -78,5 +78,5 @@ Write-Host 'PASS: data-driven bypass corpus and live signed policy rollout lifec
 if ($RequireCompanyFixtures) {
     Write-Host 'PASS: required exact company Claude Code/model fixtures are certified.'
 } else {
-    Write-Host 'PENDING: run with -RequireCompanyFixtures after capturing the exact company Claude Code, Sonnet, and Opus versions.'
+    Write-Host 'PENDING: run with -RequireCompanyFixtures after capturing the exact company Claude Code and Sonnet version.'
 }

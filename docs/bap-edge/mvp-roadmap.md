@@ -46,7 +46,7 @@ drift. Use these component views when ownership is split:
 
 | Component | Done now | Pilot blockers / next work |
 |---|---|---|
-| BAP Edge (endpoint data plane; local PDP/PEP) | Six managed hooks, local cc-filter, signed-bundle sync/verification, rollback and offline-lease state, central command registry consumption, local Cedar decisions, durable decision/outcome spool, W3C traces | Persistent protected Agent/push channel; Sonnet/Opus/full-tool certification; protected spool; per-device revocable identity; signed Windows release and application control |
+| BAP Edge (endpoint data plane; local PDP/PEP) | Six managed hooks, local cc-filter, signed-bundle sync/verification, rollback and offline-lease state, central command registry consumption, local Cedar decisions, durable decision/outcome spool, W3C traces | Persistent protected Agent/push channel; Sonnet/full-tool certification; protected spool; per-device revocable identity; signed Windows release and application control |
 | BAP Service (rule control plane) | Authenticated signed bundle distribution, version/digest/epoch, force-update and kill switch, separate bundle key, mTLS support, MySQL audit ingestion, readiness/metrics, legacy AuthZEN API | Database-backed rule lifecycle; endpoint registry/revocation/enrollment; admin workflow APIs; proactive channel; backup/restore/checkpoints; UI; HA/DR and signed OCI release |
 | Shared deployment contract | Company TLS and managed-settings design, correlation IDs, privacy-safe audit model, local Docker MySQL path, documented enterprise MySQL cutover | Company PKI/secret distribution, enterprise MySQL exercise, supported-version matrix, SLOs/alerts/runbooks, independent security review |
 
@@ -83,7 +83,7 @@ product documentation and pilot approval.
 | Endpoint enforcement | Six administrator-managed Claude hooks; lower-scope hooks and permission rules disabled; fail closed | A local administrator or modified client can bypass the hook | Managed endpoints without local admin plus application allowlisting and signed artifacts | Endpoint attestation and resource-side enforcement | Complete for lab; pilot controls required |
 | Local filtering | Embedded cc-filter plus centrally configured signed registries; hardcoded safe-command allowlist removed | Strict MVP parser and user-process hook remain | Shell-aware parser and certified bypass corpus in protected Agent | Signed bundles plus resource-side defense in depth | Signed-bundle baseline complete |
 | Policy decision | Edge evaluates bundled Cedar locally; Service owns/signs rules and version/epoch/leases | File-backed rule source; no governed activation database/API | Validated immutable lifecycle with staging, rollback, ownership, approval, and fleet rollout | Multi-tenant policy control plane with canary deployment | Data-plane decision path complete; lifecycle missing |
-| Claude/model/tool coverage | 62 modeled schema/decision cases plus privacy-safe exact-client capture, replay, model-equivalence, and hash-manifest framework | Company Sonnet/Opus captures have not yet been produced; enabled MCP/plugin inventory remains company-specific | Exact Claude Code/Sonnet/Opus support matrix, owned normalizers, policy profiles, and bypass corpus | Continuous certification for approved client/model/tool releases | Framework complete; company capture is MVP blocker |
+| Claude/model/tool coverage | 62 modeled schema/decision cases plus privacy-safe exact-client capture, replay, optional model-equivalence, and hash-manifest framework | Company Sonnet captures have not yet been produced; enabled MCP/plugin inventory remains company-specific | Exact Claude Code/Sonnet support matrix, owned normalizers, policy profiles, and bypass corpus | Continuous certification for additional approved client/model/tool releases | Framework complete; company Sonnet capture is MVP blocker |
 | Edge identity | Development bearer plus optional verified mTLS certificate identity | No enrollment/revocation registry; PEM keys may be exportable | Unique TPM/CNG-backed per-device mTLS with registration, expiry, rotation, and revocation | Short-lived attested workload identity bound to posture | Transport support complete; lifecycle blocker |
 | Session identity | Claude session ID plus random Edge workload ID and tool-use ID | User-local mapping can be deleted; asserted human identity is not strongly verified | Device credential plus stable enterprise user/device claims | Attested workload and resource-enforced identity chain | Strong correlation, interim trust |
 | Policy transport | HTTPS/mTLS support; separate Ed25519 bundle signature; version/digest/epoch; 15-minute refresh and one-hour offline lease in development | Hook process cannot receive unsolicited push; one active bundle key | Protected Agent with push plus polling, overlapping signing keys, fleet update acknowledgement | Automated KMS/HSM rotation and attested delivery | Pull/signed baseline complete; Agent missing |
@@ -102,7 +102,7 @@ product documentation and pilot approval.
 
 The following order reduces security risk before adding a UI.
 
-### MVP-0: Expand Cedar policy and certify Sonnet/Opus tool coverage
+### MVP-0: Expand Cedar policy and certify Sonnet tool coverage
 
 Priority: P0 and required before the company pilot.
 
@@ -121,7 +121,7 @@ certification remain.
 
 - inventory every company-enabled built-in tool, MCP tool, plugin, shell, and
   delegation mechanism in the approved Claude Code version;
-- capture sanitized hook fixtures from both company-approved Sonnet and Opus;
+- capture sanitized hook fixtures from the company-approved Sonnet;
 - expand normalization and the Cedar schema for roles, device state,
   environments, repositories, path class, shell risk, network destination, MCP
   server/tool classification, mutation, delegation, and approvals;
@@ -133,7 +133,7 @@ certification remain.
 Exit criteria:
 
 - every enabled tool has an owned, versioned normalization contract;
-- equivalent operations receive equivalent decisions under Sonnet and Opus;
+- captured Sonnet operations receive the expected decisions;
 - broad wildcard permits for MCP, network, shell, and unknown tools are gone;
 - explicit forbids cover company secrets, workspace escape, destructive actions,
   privilege/persistence, exfiltration, production mutation, BAP self-protection,
@@ -292,7 +292,7 @@ owner.
 | Gate | Required evidence |
 |---|---|
 | Scope | Approved threat model, supported tools/platforms, exclusions, pilot users, and data classification |
-| Functional | Certified Claude Code/Sonnet/Opus tool fixtures plus automated allow, forbid, default deny, outside-workspace, local-filter, cache, outcome, proposal, and fail-closed tests |
+| Functional | Certified Claude Code/Sonnet tool fixtures plus automated allow, forbid, default deny, outside-workspace, local-filter, cache, outcome, proposal, and fail-closed tests |
 | Identity | Per-device credential provisioning, revocation, expiry, rotation, and offboarding tests |
 | Policy | Versioned bundles, regression suite, approval separation, staged activation, and rollback proof |
 | Audit | Signed-chain verification, external checkpoint, searchable export, retention, backup, restore, and privacy test |
@@ -324,7 +324,7 @@ the ability to investigate an allowed operation.
 Finish MVP-0 and the remaining MVP-1 work before starting the UI. The
 recommended change sequence is:
 
-1. company tool inventory and Sonnet/Opus hook fixtures;
+1. company tool inventory and Sonnet hook fixtures;
 2. expanded normalization, schema, policy profiles, and forbid corpus;
 3. cache cleanup, bounded storage, and retry-spool metrics;
 4. OTLP export, sampling controls, and company collector integration;

@@ -109,7 +109,7 @@ much shorter. These are policy lifetimes, not reusable tool grants.
 
 ## Client/model compatibility evidence
 
-Model names never grant authority. Exact Claude Code, Sonnet, and Opus
+Model names never grant authority. Exact Claude Code and approved model
 combinations are compatibility evidence: Edge captures only privacy-safe hook
 schema shapes and local results, then certification regenerates representative
 inputs and replays normalization and bundled Cedar. A manifest binds every

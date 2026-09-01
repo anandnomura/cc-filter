@@ -51,7 +51,7 @@ All notable changes to cc-filter are documented in this file.
   portable Go, signed-policy, native Service/Edge, prompt, and fixture checks,
   with explicit reporting of MySQL/container-only checks that were not run
 - Added container-free native company fixture capture and documented an exact
-  Sonnet/Opus allow, explicit-forbid, and manual-only six-capture baseline
+  Sonnet allow, explicit-forbid, and manual-only three-capture baseline
 - Added one-command interactive company fixture capture for managed launchers
   that intentionally do not accept Claude CLI arguments
 - Changed `-UseCompanyClaude` launchers to interactive zero-argument mode by

@@ -132,4 +132,4 @@ if ($latest.actual_decision -ne $ExpectedDecision) {
 Write-Host "PASS: captured privacy-safe fixture $Scenario for $Model using Claude Code $claudeVersion."
 Write-Host "Capture directory: $captureDirectory"
 Write-Host "Captured fixture count: $($fixtures.Count) (previously $before)"
-Write-Host "After all six captures, run: .\Test-ClaudeFixtures.ps1 -Runtime $Runtime -UpdateManifest -RequiredModels @('sonnet','opus')"
+Write-Host "After all required captures, run: .\Test-ClaudeFixtures.ps1 -Runtime $Runtime -UpdateManifest -RequiredModels @('$Model')"

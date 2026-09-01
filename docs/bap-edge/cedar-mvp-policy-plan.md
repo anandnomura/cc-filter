@@ -1,15 +1,14 @@
 # Cedar policy and Claude tool coverage plan for the MVP
 
 This document defines the policy-engine work required for a company pilot using
-official Claude Code with Sonnet or Opus. The local Qwen bridge is only a
+official Claude Code with the approved Sonnet model. The local Qwen bridge is only a
 development harness. Authorization must not depend on which model generated a
 tool request: the official Claude client emits the hook event, BAP Edge
 normalizes it, and locally bundled Cedar evaluates the resulting operation.
 
 Model choice still matters for testing because models can choose different
-tools and compose inputs differently. Every supported Claude Code release,
-Sonnet model, and Opus model therefore needs the same tool-contract and bypass
-conformance suite.
+tools and compose inputs differently. Every supported Claude Code and model
+release therefore needs the same tool-contract and bypass conformance suite.
 
 ## Current implementation: MVP-0A foundation
 
@@ -59,12 +58,12 @@ Remaining limitations include:
 - the policy has focused engine tests rather than a company policy corpus.
 
 The model-independent corpus now contains 62 tool schema/decision cases and a
-38-case structured shell/bypass corpus. Exact company Sonnet/Opus compatibility
+38-case structured shell/bypass corpus. Exact company Sonnet compatibility
 still requires captured, manifested fixtures; the privacy-safe capture/replay
 framework is implemented.
 
 This is a strong certification foundation, not the final company-pilot gate.
-The exact company Claude Code/Sonnet/Opus fixtures, company registry content,
+The exact company Claude Code/Sonnet fixtures, company registry content,
 shell inventory, and security review remain required.
 
 ## Supported client and model contract
@@ -74,15 +73,15 @@ The MVP support matrix must name exact approved versions rather than "latest":
 | Dimension | MVP requirement |
 |---|---|
 | Client | Approved official Claude Code version range, managed minimum/maximum version, and release certification |
-| Models | Company-approved Sonnet and Opus model identifiers |
+| Models | Company-approved Sonnet model identifier; additional models are optional later certifications |
 | Platforms | Managed Windows first; add Linux/macOS only after equivalent path and endpoint tests |
 | Built-in tools | Explicit inventory with captured hook schemas and normalization tests |
 | MCP | Explicit server and tool allowlist; no wildcard permit for an unknown server |
 | Plugins | Disabled by default or separately inventoried, signed, and policy-tested |
 | Subagents | Parent identity and policy ceiling propagated; delegation cannot increase authority |
 
-Changing Sonnet to Opus must not change authorization for the same normalized
-request. Tests must prove this invariant. Model identity may be recorded as
+Adding another model later must not change authorization for the same normalized
+request. Cross-model tests prove this invariant when another model is approved. Model identity may be recorded as
 diagnostic metadata when Claude provides it, but it must not be trusted as the
 primary authorization boundary.
 
@@ -277,7 +276,7 @@ deny and generate a sanitized proposal for administrator review.
 The policy suite should be data-driven and contain:
 
 - one allow and multiple deny cases for every supported tool/action/profile;
-- equivalent Sonnet and Opus tool payload fixtures where they differ;
+- equivalent cross-model payload fixtures when another model is approved;
 - compound and adversarial shell cases;
 - Windows path traversal, junction/symlink, UNC, alternate stream, casing, and
   environment-expansion cases;
@@ -292,7 +291,7 @@ The policy suite should be data-driven and contain:
 MVP exit criteria:
 
 - every enabled Claude tool has an owned normalization contract;
-- every approved Sonnet/Opus and Claude Code combination passes the same policy
+- every approved model and Claude Code combination passes the same policy
   outcomes for equivalent operations;
 - no wildcard MCP/network/unknown-tool permit remains;
 - shell mutation is permitted only through tested classifications;
@@ -304,7 +303,7 @@ MVP exit criteria:
 
 1. Inventory company-enabled built-in, MCP, plugin, shell, and delegation tools.
 2. Capture sanitized hook fixtures using the approved Claude Code version with
-   both Sonnet and Opus.
+   Sonnet.
 3. Define company roles, environments, repositories, destinations, MCP tools,
    protected assets, and approval boundaries.
 4. Expand the normalized AuthZEN contract and Cedar schema.
@@ -314,4 +313,4 @@ MVP exit criteria:
 8. Add versioned policy bundles, staging, approval, and rollback from MVP-3.
 9. Pilot in observe/proposal mode for missing classifications while explicit
    forbids remain enforced; never silently allow a no-match.
-10. Certify the exact Claude Code, Sonnet, and Opus versions before rollout.
+10. Certify the exact Claude Code and Sonnet versions before rollout.

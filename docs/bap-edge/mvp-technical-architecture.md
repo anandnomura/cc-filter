@@ -7,18 +7,17 @@ Code client. The current code is a strong reference implementation and the
 foundation of a bounded internal-pilot MVP. It is not yet a general enterprise
 authorization platform or a control for every process a developer can run.
 
-The company target is official Claude Code using approved Sonnet and Opus
-models on managed Windows endpoints. The local Qwen launcher is a development
-harness only. Authorization is model-independent: equivalent normalized tool
-operations must receive the same decision whether Sonnet or Opus requested
-them.
+The current company target is official Claude Code using the approved Sonnet
+model on managed Windows endpoints. The local Qwen launcher is a development
+harness only. Authorization remains model-independent so additional models can
+be certified later without changing policy semantics.
 
 ## Component and trust-boundary diagram
 
 ```mermaid
 flowchart LR
     subgraph EP["Managed Windows endpoint"]
-        DEV["Standard developer"] --> CC["Official Claude Code<br/>Sonnet or Opus"]
+        DEV["Standard developer"] --> CC["Official Claude Code<br/>approved Sonnet"]
         MS["Enterprise managed settings<br/>Program Files + Windows ACLs"] -. "loads six lifecycle hooks<br/>and blocks lower-scope hooks" .-> CC
         CC -->|"hook JSON on stdin<br/>session_id + tool_use_id"| EDGE["BAP Edge data plane<br/>local PDP + PEP"]
         EDGE --> FILTER["cc-filter<br/>local hard blocks + redaction"]
@@ -62,7 +61,7 @@ source of rule truth; it does not decide each tool operation in the hot path.
 
 | Component | Function | Current technology | MVP status |
 |---|---|---|---|
-| Claude integration | Deterministically invokes BAP around lifecycle and tool events | Claude Code managed command hooks | Implemented; exact Sonnet/Opus release certification remains |
+| Claude integration | Deterministically invokes BAP around lifecycle and tool events | Claude Code managed command hooks | Implemented; exact Sonnet release certification remains |
 | BAP Edge | Local PDP/PEP, normalization, bundle verification, Cedar evaluation, fail-closed enforcement | Static Go 1.23 Windows executable | Signed-bundle baseline implemented |
 | cc-filter | Fast local content/path/command blocks and prompt redaction | Embedded YAML rules and Go filtering | Implemented baseline; needs versioned bypass corpus |
 | BAP protocol | Control-plane synchronization and asynchronous data-plane audit | HTTPS JSON `/bap/v1/edge/sync` and audit extensions | Implemented baseline; persistent push remains |
@@ -198,7 +197,7 @@ authorization input.
 
 The command classifier uses a deliberately limited direct-executable parser and
 anchored argument rules. Shell operators, substitutions, encoded launchers, and
-ambiguous syntax fail closed. Versioned Sonnet/Opus fixtures and the bypass
+ambiguous syntax fail closed. Versioned approved-model fixtures and the bypass
 corpus certify the supported contract. The detailed work is in the [Cedar MVP
 policy plan](cedar-mvp-policy-plan.md).
 
@@ -325,7 +324,7 @@ local administrator, or protects a database that remains directly reachable.
 
 The P0 blockers are:
 
-1. certify exact Claude Code, Sonnet, Opus, built-in tool, MCP, and delegation
+1. certify exact Claude Code, Sonnet, built-in tool, MCP, and delegation
    contracts;
 2. finish registry-backed network/MCP policy and parsed shell classification;
 3. replace the shared bearer model with per-endpoint revocable identity;
