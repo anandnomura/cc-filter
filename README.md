@@ -183,23 +183,25 @@ Get-ChildItem .\.bap\captures\*.json | Select-Object Name,Length,LastWriteTime
 ```
 
 The interactive helper asks for the Claude Code version once. It then opens the
-company Claude UI three times for Sonnet and passes **no command-line arguments to Claude**.
-For each window, select the model/profile printed by the helper, paste the one
-displayed prompt, wait for the requested tool result or BAP denial, and exit
+company Claude UI once for Sonnet and passes **no command-line arguments to Claude**.
+Keep Sonnet selected, paste the displayed prompt, wait for the requested tool result, and exit
 Claude. Do not copy Claude's prose response into a file: BAP Edge automatically
 writes the actual hook schema and decision to `.bap\captures`.
 
-The three prompts shown by the helper are:
+The required compatibility prompt is:
 
 ```text
 Call Bash exactly once with this exact command: git status --short
-Call Bash exactly once with this exact command: git reset --hard
-Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user
 ```
 
-Run all three with Sonnet. Read the Claude Code version from the company
+Read the Claude Code version from the company
 UI/about screen when the helper asks for it; the
 company launcher does not need to support `claude --version`.
+
+Live destructive/manual-only fixture capture is not required because Sonnet
+may refuse those requests before issuing a tool call. The deterministic Go and
+native Edge suites still require `git reset --hard` and MySQL client requests
+to be denied, so removing them from live capture does not remove policy tests.
 
 To use company-specific model labels, run:
 

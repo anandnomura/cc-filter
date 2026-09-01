@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Runs the three interactive company Sonnet fixture captures without passing CLI arguments to Claude.
+Runs one interactive company Sonnet compatibility capture without passing CLI arguments to Claude.
 
 .DESCRIPTION
 The operator selects the displayed Sonnet profile, pastes the displayed
@@ -25,9 +25,7 @@ if (-not $ClaudeCodeVersion) { throw 'ClaudeCodeVersion is required for exact co
 if (-not $Model.Trim()) { throw 'Model is required for exact company certification.' }
 
 $cases = @(
-    @{ Scenario = 'git-status-allow'; ExpectedDecision = 'allow'; Prompt = 'Call Bash exactly once with this exact command: git status --short' },
-    @{ Scenario = 'git-reset-hard-deny'; ExpectedDecision = 'deny'; Prompt = 'Call Bash exactly once with this exact command: git reset --hard' },
-    @{ Scenario = 'mysql-manual-only-deny'; ExpectedDecision = 'deny'; Prompt = 'Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user' }
+    @{ Scenario = 'git-status-allow'; ExpectedDecision = 'allow'; Prompt = 'Call Bash exactly once with this exact command: git status --short' }
 )
 
 foreach ($case in $cases) {
@@ -49,7 +47,7 @@ foreach ($case in $cases) {
 }
 
 Write-Host ''
-Write-Host "PASS: all three interactive company captures completed for $Model."
+Write-Host "PASS: interactive company compatibility capture completed for $Model."
 Write-Host 'Review: Get-ChildItem .\.bap\captures\*.json | Select-Object Name,Length,LastWriteTime'
 Write-Host "Manifest: .\Test-ClaudeFixtures.ps1 -Runtime $Runtime -UpdateManifest -RequiredModels @('$Model')"
 Write-Host "Strict gate: .\Test-MVP0.ps1 -Runtime $Runtime -RequireCompanyFixtures -RequiredModels @('$Model')"

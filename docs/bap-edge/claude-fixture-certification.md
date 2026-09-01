@@ -44,23 +44,10 @@ ccbridge variables are not installed:
   -Prompt 'Call Bash exactly once with this exact command: git status --short'
 ```
 
-Repeat the identical scenario with the approved Opus identifier:
-
-```powershell
-.\Capture-ClaudeFixtures.ps1 `
-  -Runtime Docker `
-  -UseCompanyClaude `
-  -Scenario git-status-allow `
-  -Model company-opus-ID `
-  -ExpectedDecision allow `
-  -Tools Bash `
-  -Prompt 'Call Bash exactly once with this exact command: git status --short'
-```
-
-Capture both models for every reviewed scenario. Use `-Tools Read`, `Write`,
-`Edit`, `Glob`, `Grep`, `WebSearch`, or the exact company-enabled tool list as
-appropriate. Denial scenarios are captured the same way with
-`-ExpectedDecision deny`.
+Additional models or safe scenarios may be captured later with their approved
+labels. They are optional extensions to the current Sonnet compatibility gate.
+Do not require a live denial fixture when the model can refuse before issuing a
+tool call; deterministic Edge and policy tests cover denial enforcement.
 
 If managed hooks are installed, reinstall the current Edge binary before
 capture. The capture script fails when no updated Edge hook writes a fixture.
@@ -85,13 +72,18 @@ from normal PowerShell:
 ```
 
 The helper asks for the Claude Code version once and launches the normal
-company UI without arguments for the three Sonnet cases. For each launch, keep
-Sonnet selected, paste the displayed prompt, wait for the tool result or BAP
-denial, and exit Claude. Edge writes the fixture JSON automatically; do not
+company UI without arguments for one Sonnet compatibility case. Keep Sonnet
+selected, paste the displayed `git status --short` prompt, wait for the tool
+result, and exit Claude. Edge writes the fixture JSON automatically; do not
 copy or convert the model's prose response.
 
 Do not change models inside one capture session: the hook payload does not
 expose that change.
+
+The live gate does not require destructive or privileged-client fixtures.
+Sonnet can refuse such a prompt before `PreToolUse`, leaving no hook payload to
+capture. Deterministic normalizer, Cedar, and native Edge tests remain
+authoritative for `git reset --hard` and manual-only database-client denial.
 
 If the company requires an immutable model ID rather than the `sonnet` label,
 pass it with `-Model` and use the same value in `-RequiredModels`. Do not invent
@@ -135,8 +127,9 @@ Manifest verification fails on:
 - expected/actual decision mismatch;
 - unknown or malformed tool schema;
 - normalization or local-policy replay drift;
-- a missing required model family for any scenario; or
-- different tool/schema/action/decision/reason results across models.
+- a missing required model family for any captured required scenario; or
+- different tool/schema/action/decision/reason results when multiple models
+  are explicitly required.
 
 ## Complete MVP-0 gate
 

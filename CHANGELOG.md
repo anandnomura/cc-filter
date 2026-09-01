@@ -50,12 +50,14 @@ All notable changes to cc-filter are documented in this file.
 - Added `Test-MVP0.ps1 -Runtime Native` for container-free company testing of
   portable Go, signed-policy, native Service/Edge, prompt, and fixture checks,
   with explicit reporting of MySQL/container-only checks that were not run
-- Added container-free native company fixture capture and documented an exact
-  Sonnet allow, explicit-forbid, and manual-only three-capture baseline
+- Added container-free native company fixture capture with one safe Sonnet
+  compatibility call; deny coverage remains in deterministic policy tests
 - Added one-command interactive company fixture capture for managed launchers
   that intentionally do not accept Claude CLI arguments
 - Changed `-UseCompanyClaude` launchers to interactive zero-argument mode by
   default; CLI-capable company installations require explicit opt-in
+- Reduced the required live company-model gate to one safe Sonnet tool call;
+  destructive and manual-only denials remain deterministic Edge/policy tests
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call

@@ -97,16 +97,17 @@ show zero and is not enforcement evidence.
 
 ## 5. Run the Sonnet policy certification corpus
 
-Capture every reviewed scenario on the exact approved clients/models following
+Capture the safe live Sonnet compatibility scenario following
 [the fixture certification procedure](claude-fixture-certification.md), then
-require the manifest during the admission run:
+require the manifest during the admission run. The deterministic corpus below,
+not model willingness to issue a dangerous tool call, proves deny behavior:
 
 ```powershell
 .\Test-MVP0.ps1 -Runtime Docker -RequireCompanyFixtures
 ```
 
-The run must fail for a missing model family, divergent decision/schema, stale
-policy digest, unknown tool schema, replay drift, or modified fixture.
+The run must fail for a missing required Sonnet fixture, stale policy digest,
+unknown tool schema, replay drift, or modified fixture.
 
 Run the operation fixtures with the approved Sonnet option. Additional models
 may be certified later without blocking the initial pilot. Cover:

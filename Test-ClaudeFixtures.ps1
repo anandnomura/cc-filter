@@ -2,7 +2,7 @@ param(
     [ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Auto',
     [string]$CaptureDirectory = '',
     [string[]]$RequiredModels = @('sonnet'),
-    [string[]]$RequiredScenarios = @('git-status-allow', 'git-reset-hard-deny', 'mysql-manual-only-deny'),
+    [string[]]$RequiredScenarios = @('git-status-allow'),
     [switch]$UpdateManifest,
     [switch]$RequireCompanyFixtures
 )
