@@ -103,7 +103,7 @@ directory is not on PATH or the shell was opened before installation.
 If company Git can reach GitHub:
 
 ```powershell
-git clone --branch bap-edge https://github.com/anandnomura/cc-filter.git bap-edge
+git clone --branch bap-edge https://github.com/anandnomura/cc-filter.git bap-system
 cd bap-edge
 ```
 

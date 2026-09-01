@@ -30,7 +30,8 @@
             "mcpServer": {"type": "String", "required": true},
             "mcpTool": {"type": "String", "required": true},
             "httpMethod": {"type": "String", "required": true},
-            "bodyDigest": {"type": "String", "required": true}
+            "bodyDigest": {"type": "String", "required": true},
+            "argumentsDigest": {"type": "String", "required": true}
           }
         }
       }

@@ -43,7 +43,7 @@ jobs:
           CGO_ENABLED: '0'
         run: |
           set -eu
-          package="./cmd/bap-edge"
+          package="./bap-edge/cmd"
           if [ "${{ matrix.component }}" = "bap-service" ]; then package="./bap-service/cmd"; fi
           suffix=""
           if [ "${{ matrix.goos }}" = "windows" ]; then suffix=".exe"; fi

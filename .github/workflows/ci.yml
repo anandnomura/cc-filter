@@ -28,7 +28,7 @@ jobs:
         run: go test -mod=vendor -race ./...
 
       - name: Build BAP Edge
-        run: CGO_ENABLED=0 go build -mod=vendor -trimpath -o /tmp/bap-edge ./cmd/bap-edge
+        run: CGO_ENABLED=0 go build -mod=vendor -trimpath -o /tmp/bap-edge ./bap-edge/cmd
 
       - name: Build BAP Service
         run: CGO_ENABLED=0 go build -mod=vendor -trimpath -o /tmp/bap-service ./bap-service/cmd

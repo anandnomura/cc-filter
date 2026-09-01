@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"cc-filter/internal/authzen"
+	"bap-system/internal/authzen"
 )
 
 const Type = "BAP-AgentGrant-EdDSA-v1"

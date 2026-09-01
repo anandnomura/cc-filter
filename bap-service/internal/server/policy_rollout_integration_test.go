@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	serviceaudit "cc-filter/bap-service/internal/audit"
-	serviceserver "cc-filter/bap-service/internal/server"
-	"cc-filter/internal/authzen"
-	"cc-filter/internal/bapedge"
-	"cc-filter/internal/policybundle"
+	"bap-system/bap-edge/pkg/bapedge"
+	serviceaudit "bap-system/bap-service/internal/audit"
+	serviceserver "bap-system/bap-service/internal/server"
+	"bap-system/internal/authzen"
+	"bap-system/internal/policybundle"
 	"net/http/httptest"
 )
 

@@ -1,6 +1,6 @@
 package auditwire
 
-import "cc-filter/internal/authzen"
+import "bap-system/internal/authzen"
 
 type GrantConsumption struct {
 	Request     authzen.EvaluationRequest `json:"request"`

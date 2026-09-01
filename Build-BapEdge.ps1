@@ -26,7 +26,7 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $mount = "$($PSScriptRoot):/src"
 
 Write-Host "Testing and compiling BAP Edge with $engine..."
-& $engine run --rm --volume $mount --workdir /src docker.io/library/golang:1.23-bookworm go test -mod=vendor ./cmd/bap-edge ./configs ./internal/...
+& $engine run --rm --volume $mount --workdir /src docker.io/library/golang:1.23-bookworm go test -mod=vendor ./bap-edge/... ./configs ./internal/...
 if ($LASTEXITCODE -ne 0) { throw 'BAP Edge tests failed.' }
 
 $targetsToBuild = @(@{ OS = 'windows'; Architecture = 'amd64'; Output = 'dist/bap-edge-windows-amd64.exe' })
@@ -38,7 +38,7 @@ if ($Targets -eq 'All') {
 }
 foreach ($target in $targetsToBuild) {
     $buildVersion = if ($Version) { $Version } else { 'dev' }
-    & $engine run --rm --volume $mount --workdir /src --env CGO_ENABLED=0 --env "GOOS=$($target.OS)" --env "GOARCH=$($target.Architecture)" docker.io/library/golang:1.23-bookworm go build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$buildVersion" -o $target.Output ./cmd/bap-edge
+    & $engine run --rm --volume $mount --workdir /src --env CGO_ENABLED=0 --env "GOOS=$($target.OS)" --env "GOARCH=$($target.Architecture)" docker.io/library/golang:1.23-bookworm go build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$buildVersion" -o $target.Output ./bap-edge/cmd
     if ($LASTEXITCODE -ne 0) { throw "BAP Edge compilation failed for $($target.OS)/$($target.Architecture)." }
 }
 Write-Host "BAP Edge build complete: $dist"

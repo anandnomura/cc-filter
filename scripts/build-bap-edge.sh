@@ -10,6 +10,6 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 mkdir -p "$ROOT_DIR/dist"
 cd "$ROOT_DIR"
-go test -mod=vendor ./cmd/bap-edge ./configs ./internal/...
-CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -mod=vendor -trimpath -o "dist/bap-edge-linux-$ARCH" ./cmd/bap-edge
+go test -mod=vendor ./bap-edge/... ./configs ./internal/...
+CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -mod=vendor -trimpath -o "dist/bap-edge-linux-$ARCH" ./bap-edge/cmd
 sha256sum "dist/bap-edge-linux-$ARCH"

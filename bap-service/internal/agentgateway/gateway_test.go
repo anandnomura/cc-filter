@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"cc-filter/internal/agentgrant"
+	"bap-system/internal/agentgrant"
 )
 
 type fakeConsumer struct {

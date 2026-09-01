@@ -14,7 +14,7 @@ if ($LASTEXITCODE -ne 0) { throw 'The command and bypass policy corpus failed.' 
 
 Write-Host 'Running the modeled Claude tool-schema and local-decision corpus...'
 & $engine run --rm --volume $mount --workdir /src docker.io/library/golang:1.23-bookworm `
-    go test -v ./internal/bapedge -run '^TestMVP0ToolContractCorpus$'
+    go test -v ./bap-edge/internal/bapedge -run '^TestMVP0ToolContractCorpus$'
 if ($LASTEXITCODE -ne 0) { throw 'The modeled Claude tool contract corpus failed.' }
 
 Write-Host 'Running the signed Service-to-Edge policy rollout lifecycle...'

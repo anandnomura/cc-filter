@@ -58,7 +58,7 @@ These steps use Docker and the local BAP Service at
 First, from a normal, non-elevated PowerShell window:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Build-BapEdge.ps1 -Runtime Docker
 .\Start-Bap.ps1 -Runtime Docker
 .\Test-Bap.ps1 -Runtime Docker
@@ -69,7 +69,7 @@ configuration, CA, bundle/legacy grant verification keys, credential, and manage
 Claude settings:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Install-ManagedSettings.ps1 -Runtime Docker
 ```
 
@@ -80,7 +80,7 @@ new machine-level `BAP_EDGE_API_KEY` environment variable.
 Open a fresh **non-elevated** PowerShell window and run:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Test-ManagedSettings.ps1
 ```
 

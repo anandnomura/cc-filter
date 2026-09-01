@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"strings"
 
-	"cc-filter/internal/agentgrant"
-	"cc-filter/internal/authzen"
+	"bap-system/internal/agentgrant"
+	"bap-system/internal/authzen"
 )
 
 type Input struct {

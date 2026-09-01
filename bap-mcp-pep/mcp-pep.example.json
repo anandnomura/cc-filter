@@ -1,0 +1,31 @@
+{
+  "listen_address": "127.0.0.1:8765",
+  "agent_sts_url": "https://127.0.0.1:8443",
+  "agent_sts_api_key_env": "BAP_MCP_PEP_STS_API_KEY",
+  "agent_sts_ca_path": ".bap/native-local/service-state/dev-ca.pem",
+  "upstream_url": "http://127.0.0.1:18765/mcp",
+  "upstream_api_key_env": "BAP_MCP_UPSTREAM_API_KEY",
+  "allowed_origins": ["https://claude.company.example"],
+  "tools": [
+    {
+      "public_name": "change_create",
+      "upstream_name": "change_create",
+      "claude_tool_name": "mcp__bap_mcp_pep__change_create",
+      "mcp_server": "bap_mcp_pep",
+      "description": "Create an orders staging change request through the protected company MCP service.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service": {"type": "string", "enum": ["orders"]},
+          "environment": {"type": "string", "enum": ["staging"]},
+          "release": {"type": "string"},
+          "summary": {"type": "string"}
+        },
+        "required": ["service", "environment", "release", "summary"],
+        "additionalProperties": false
+      },
+      "required_arguments": ["release", "summary"],
+      "exact_arguments": {"service": "orders", "environment": "staging"}
+    }
+  ]
+}

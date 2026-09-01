@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"cc-filter/bap-service/internal/audit"
-	"cc-filter/bap-service/internal/proposals"
-	"cc-filter/internal/authzen"
+	"bap-system/bap-service/internal/audit"
+	"bap-system/bap-service/internal/proposals"
+	"bap-system/internal/authzen"
 	mysqldriver "github.com/go-sql-driver/mysql"
 )
 

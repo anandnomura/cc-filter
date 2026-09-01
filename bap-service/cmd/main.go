@@ -14,14 +14,14 @@ import (
 	"strconv"
 	"time"
 
-	"cc-filter/bap-service/internal/audit"
-	"cc-filter/bap-service/internal/cedaradapter"
-	"cc-filter/bap-service/internal/devcert"
-	"cc-filter/bap-service/internal/mysqlstore"
-	"cc-filter/bap-service/internal/proposals"
-	"cc-filter/bap-service/internal/server"
-	"cc-filter/internal/grants"
-	"cc-filter/internal/policybundle"
+	"bap-system/bap-service/internal/audit"
+	"bap-system/bap-service/internal/cedaradapter"
+	"bap-system/bap-service/internal/devcert"
+	"bap-system/bap-service/internal/mysqlstore"
+	"bap-system/bap-service/internal/proposals"
+	"bap-system/bap-service/internal/server"
+	"bap-system/internal/grants"
+	"bap-system/internal/policybundle"
 )
 
 var (
@@ -241,6 +241,30 @@ func main() {
 		}
 		if err := service.SetAgentSTSClients(stsEdgeKey, stsEdgePrincipal, stsGatewayKey, stsGatewayPrincipal); err != nil {
 			log.Fatal(err)
+		}
+		if consumersJSON := os.Getenv("BAP_AGENT_STS_CONSUMERS_JSON"); consumersJSON != "" {
+			var configured []struct {
+				Principal string   `json:"principal"`
+				APIKeyEnv string   `json:"api_key_env"`
+				Audiences []string `json:"audiences"`
+			}
+			if err := json.Unmarshal([]byte(consumersJSON), &configured); err != nil {
+				log.Fatalf("decode BAP_AGENT_STS_CONSUMERS_JSON: %v", err)
+			}
+			consumers := make([]server.AgentSTSConsumer, 0, len(configured))
+			for _, entry := range configured {
+				key := ""
+				if entry.APIKeyEnv != "" {
+					key = os.Getenv(entry.APIKeyEnv)
+				}
+				if clientCAPath == "" && key == "" {
+					log.Fatalf("Agent STS consumer %q API key environment variable is empty", entry.Principal)
+				}
+				consumers = append(consumers, server.AgentSTSConsumer{APIKey: key, Principal: entry.Principal, Audiences: entry.Audiences})
+			}
+			if err := service.SetAgentSTSConsumers(consumers); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 	if databaseStore != nil {

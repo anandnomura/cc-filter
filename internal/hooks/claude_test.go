@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"cc-filter/internal/rules"
+	"bap-system/internal/rules"
 )
 
 func testDefaultRules() []byte {

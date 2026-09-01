@@ -8,7 +8,7 @@ $packages = @(
     './internal/agentgrant',
     './bap-service/internal/agentsts',
     './bap-service/internal/agentgateway',
-    './internal/bapedge'
+    './bap-edge/internal/bapedge'
 )
 
 $goCommand = Get-BapGoCommand

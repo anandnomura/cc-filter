@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"cc-filter/internal/agentgrant"
-	"cc-filter/internal/authzen"
-	"cc-filter/internal/policybundle"
+	"bap-system/internal/agentgrant"
+	"bap-system/internal/authzen"
+	"bap-system/internal/policybundle"
 )
 
 func TestIssueConsumeIsExactAndOneUse(t *testing.T) {
@@ -34,6 +34,28 @@ func TestIssueConsumeIsExactAndOneUse(t *testing.T) {
 	}
 	if _, _, err := service.Consume(consumption, bundle, now.Add(2*time.Second)); err == nil {
 		t.Fatal("replayed AgentGrant was accepted")
+	}
+}
+
+func TestWrongPEPAudienceCannotConsumeOrBurnGrant(t *testing.T) {
+	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	service := New(privateKey, "bap-agent-sts")
+	now := time.Now().UTC().Truncate(time.Second)
+	bundle := testBundle(now)
+	operation := testOperation()
+	issued, _, err := service.Issue(agentgrant.IssueRequest{
+		EdgeInstanceID: "edge-1", Operation: operation,
+		Intent: agentgrant.IntentEvidence{SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()},
+	}, "edge-device", "fingerprint", bundle, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumption := agentgrant.ConsumeRequest{Token: issued.Token, Operation: operation}
+	if _, _, err := service.ConsumeForAudiences(consumption, bundle, now.Add(time.Second), []string{"bap-mcp-pep"}); err == nil {
+		t.Fatal("MCP PEP audience consumed an API PEP grant")
+	}
+	if response, _, err := service.ConsumeForAudiences(consumption, bundle, now.Add(2*time.Second), []string{"bap-spring-gateway"}); err != nil || !response.Consumed {
+		t.Fatalf("wrong-audience attempt burned the grant: response=%+v err=%v", response, err)
 	}
 }
 
@@ -98,7 +120,7 @@ func testBundle(now time.Time) policybundle.Bundle {
 		SchemaVersion: 1, Version: 7, RulesDigest: "sha256:policy", IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		PolicyProfile: "standard-developer", RevocationEpoch: 4,
 		CedarPolicy:     `forbid (principal is Agent, action == Action::"gateway.execute", resource is ToolInvocation) when { resource.policyProfile == "read-only" };`,
-		AgentGrantRules: []policybundle.AgentGrantRule{{ID: "agentgrant.deploy", Action: "gateway.execute", Tool: agentgrant.GatewayToolName, Methods: []string{"POST"}, Hosts: []string{"api.staging.company.example"}, Paths: []string{"/orders/deploy"}, IntentRuleIDs: []string{"intent.deploy"}, Audience: "bap-spring-gateway", MaxTTLSeconds: 60, MaxIntentAgeSeconds: 300, Profiles: []string{"standard-developer"}, Owner: "test", Approval: "test"}},
+		AgentGrantRules: []policybundle.AgentGrantRule{{ID: "agentgrant.deploy", ResourceType: "api", Action: "gateway.execute", Tool: agentgrant.GatewayToolName, Methods: []string{"POST"}, Hosts: []string{"api.staging.company.example"}, Paths: []string{"/orders/deploy"}, IntentRuleIDs: []string{"intent.deploy"}, Audience: "bap-spring-gateway", MaxTTLSeconds: 60, MaxIntentAgeSeconds: 300, Profiles: []string{"standard-developer"}, Owner: "test", Approval: "test"}},
 	}
 }
 

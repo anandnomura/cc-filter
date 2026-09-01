@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"cc-filter/internal/authzen"
+	"bap-system/internal/authzen"
 )
 
 func testBundle(t *testing.T, now time.Time) Bundle {
@@ -106,6 +106,32 @@ func TestManualOnlyCommandsReturnDistinctFailClosedOutcome(t *testing.T) {
 		if err != nil || decision.Allowed || !decision.ManualOnly || decision.ReasonCode != "MANUAL_EXECUTION_REQUIRED" || len(decision.RuleIDs) != 1 {
 			t.Fatalf("%q should require manual execution: decision=%#v err=%v", command, decision, err)
 		}
+	}
+}
+
+func TestProtectedMCPRuleRequiresGrantWithoutRelaxingReadOnlyForbid(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	bundle := testBundle(t, now)
+	request := authzen.EvaluationRequest{
+		Subject: authzen.Entity{Type: "agent", ID: "claude-code-local"},
+		Action:  authzen.Action{Name: "mcp.invoke"},
+		Resource: authzen.Entity{Type: "tool-invocation", ID: "mcp-change", Properties: map[string]any{
+			"tool": "mcp__bap_mcp_pep__change_create", "target": "mcp__bap_mcp_pep__change_create", "path": "", "command": "",
+			"protected": false, "outsideWorkspace": false, "securityControl": false, "destructive": false,
+			"privileged": false, "exfiltration": false, "obfuscated": false, "shellApproved": true,
+			"policyProfile": "standard-developer", "approvedNetwork": false, "approvedMCP": false,
+			"approvedDelegate": false, "networkHost": "", "mcpServer": "bap_mcp_pep", "mcpTool": "change_create",
+			"httpMethod": "", "bodyDigest": "", "argumentsDigest": "sha256:test",
+		}},
+	}
+	decision, err := Authorize(bundle, request, now.Add(time.Minute))
+	if err != nil || decision.Allowed || !decision.AgentGrantRequired || decision.GrantAudience != "bap-mcp-pep" {
+		t.Fatalf("protected MCP call should require its exact AgentGrant: decision=%#v err=%v", decision, err)
+	}
+	bundle.PolicyProfile = "read-only"
+	decision, err = Authorize(bundle, request, now.Add(time.Minute))
+	if err != nil || decision.AgentGrantRequired || decision.ReasonCode != "LOCAL_EXPLICIT_FORBID" {
+		t.Fatalf("read-only Cedar forbid must override MCP AgentGrant rule: decision=%#v err=%v", decision, err)
 	}
 }
 

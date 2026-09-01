@@ -140,7 +140,7 @@ func mergeRedactFiles(base, override RedactFiles) RedactFiles {
 func mergeStringSlices(base, override []string) []string {
 	seen := make(map[string]bool)
 	result := make([]string, 0)
-	
+
 	for _, item := range base {
 		if !seen[item] {
 			seen[item] = true
@@ -154,7 +154,7 @@ func mergeStringSlices(base, override []string) []string {
 			result = append(result, item)
 		}
 	}
-	
+
 	return result
 }
 
@@ -208,10 +208,10 @@ func (r *Rules) ShouldRedactFile(path string) bool {
 
 func (r *Rules) ShouldBlockFile(path string) (bool, string) {
 	pathLower := strings.ToLower(path)
-	
+
 	for _, pattern := range r.FileBlocks {
 		patternLower := strings.ToLower(pattern)
-		
+
 		if strings.Contains(pattern, "*") {
 			if matched, _ := filepath.Match(patternLower, pathLower); matched {
 				return true, "Access denied to sensitive file: " + path
@@ -222,31 +222,31 @@ func (r *Rules) ShouldBlockFile(path string) (bool, string) {
 			}
 		}
 	}
-	
+
 	return false, ""
 }
 
 func (r *Rules) ShouldBlockSearch(pattern string) (bool, string) {
 	patternLower := strings.ToLower(pattern)
-	
+
 	for _, blocked := range r.SearchBlocks {
 		if strings.Contains(patternLower, strings.ToLower(blocked)) {
 			return true, "Search pattern may expose sensitive data: " + pattern
 		}
 	}
-	
+
 	return false, ""
 }
 
 func (r *Rules) ShouldBlockCommand(cmd string) (bool, string) {
 	cmdLower := strings.ToLower(cmd)
-	
+
 	for _, pattern := range r.compiledCommandBlocks {
 		if pattern.MatchString(cmdLower) {
 			return true, "Command may expose sensitive data: " + cmd
 		}
 	}
-	
+
 	return false, ""
 }
 

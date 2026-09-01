@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"cc-filter/internal/hooks"
-	"cc-filter/internal/rules"
+	"bap-system/internal/hooks"
+	"bap-system/internal/rules"
 )
 
 type Filter struct {

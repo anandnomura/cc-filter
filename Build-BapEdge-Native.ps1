@@ -42,7 +42,7 @@ $previousGOOS = $env:GOOS
 $previousGOARCH = $env:GOARCH
 try {
     Write-Host 'Running BAP Edge tests from vendored dependencies (no public module download)...'
-    & $goCommand test -mod=vendor ./cmd/bap-edge ./configs ./internal/...
+    & $goCommand test -mod=vendor ./bap-edge/... ./configs ./internal/...
     if ($LASTEXITCODE -ne 0) { throw 'BAP Edge tests failed.' }
     $targetsToBuild = @(@{ OS = 'windows'; Architecture = 'amd64'; Output = $OutputPath })
     if ($Targets -eq 'All') {
@@ -55,7 +55,7 @@ try {
         $env:CGO_ENABLED = '0'
         $env:GOOS = $target.OS
         $env:GOARCH = $target.Architecture
-        & $goCommand build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$Version" -o $target.Output ./cmd/bap-edge
+        & $goCommand build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$Version" -o $target.Output ./bap-edge/cmd
         if ($LASTEXITCODE -ne 0) { throw "Native BAP Edge compilation failed for $($target.OS)/$($target.Architecture)." }
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $target.Output).Hash
         $checksumPath = "$($target.Output).sha256"

@@ -32,7 +32,7 @@ podman info
 ```powershell
 New-Item -ItemType Directory -Force C:\Users\$env:USERNAME\pyprj | Out-Null
 Set-Location C:\Users\$env:USERNAME\pyprj
-git clone --branch bap-edge https://github.com/anandnomura/cc-filter.git bap-edge
+git clone --branch bap-edge https://github.com/anandnomura/cc-filter.git bap-system
 Set-Location .\bap-edge
 git remote add upstream https://github.com/wissem/cc-filter.git
 git remote -v

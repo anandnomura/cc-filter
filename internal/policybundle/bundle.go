@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"cc-filter/internal/authzen"
+	"bap-system/internal/authzen"
 	cedar "github.com/cedar-policy/cedar-go"
 )
 
@@ -57,11 +57,14 @@ type PromptRule struct {
 // decision. It never overrides a Cedar forbid or a manual-only command rule.
 type AgentGrantRule struct {
 	ID                  string   `json:"id"`
+	ResourceType        string   `json:"resource_type"`
 	Action              string   `json:"action"`
 	Tool                string   `json:"tool"`
-	Methods             []string `json:"methods"`
-	Hosts               []string `json:"hosts"`
-	Paths               []string `json:"paths"`
+	Methods             []string `json:"methods,omitempty"`
+	Hosts               []string `json:"hosts,omitempty"`
+	Paths               []string `json:"paths,omitempty"`
+	MCPServers          []string `json:"mcp_servers,omitempty"`
+	MCPTools            []string `json:"mcp_tools,omitempty"`
 	IntentRuleIDs       []string `json:"intent_rule_ids"`
 	Audience            string   `json:"audience"`
 	MaxTTLSeconds       int64    `json:"max_ttl_seconds"`
@@ -208,8 +211,14 @@ func LoadSource(data []byte) (Source, error) {
 		}
 	}
 	for i, rule := range source.AgentGrantRules {
-		if rule.ID == "" || rule.Action == "" || rule.Tool == "" || len(rule.Methods) == 0 || len(rule.Hosts) == 0 || len(rule.Paths) == 0 || len(rule.IntentRuleIDs) == 0 || rule.Audience == "" || rule.MaxTTLSeconds <= 0 || rule.MaxTTLSeconds > 300 || rule.MaxIntentAgeSeconds <= 0 || rule.MaxIntentAgeSeconds > 900 || rule.Owner == "" || rule.Approval == "" {
+		if rule.ID == "" || (rule.ResourceType != "api" && rule.ResourceType != "mcp") || rule.Action == "" || rule.Tool == "" || len(rule.IntentRuleIDs) == 0 || rule.Audience == "" || rule.MaxTTLSeconds <= 0 || rule.MaxTTLSeconds > 300 || rule.MaxIntentAgeSeconds <= 0 || rule.MaxIntentAgeSeconds > 900 || rule.Owner == "" || rule.Approval == "" {
 			return source, fmt.Errorf("agent grant rule %d is incomplete", i)
+		}
+		if rule.ResourceType == "api" && (len(rule.Methods) == 0 || len(rule.Hosts) == 0 || len(rule.Paths) == 0 || len(rule.MCPServers) != 0 || len(rule.MCPTools) != 0) {
+			return source, fmt.Errorf("agent grant API rule %s must define only exact methods, hosts, and paths", rule.ID)
+		}
+		if rule.ResourceType == "mcp" && (rule.Action != "mcp.invoke" || len(rule.MCPServers) == 0 || len(rule.MCPTools) == 0 || len(rule.Methods) != 0 || len(rule.Hosts) != 0 || len(rule.Paths) != 0) {
+			return source, fmt.Errorf("agent grant MCP rule %s must define only exact MCP servers and tools", rule.ID)
 		}
 		if ids[rule.ID] {
 			return source, fmt.Errorf("duplicate policy rule id %q", rule.ID)
@@ -410,6 +419,12 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 	action := request.Action.Name
 	manualOnly := false
 	agentRule := matchAgentGrantRule(bundle, request)
+	// A signed, exact MCP AgentGrant rule is the registry approval for reaching
+	// the protected MCP PEP. Cedar still evaluates every other forbid, and the
+	// call cannot execute locally because the result below requires Agent STS.
+	if agentRule != nil && agentRule.ResourceType == "mcp" {
+		properties["approvedMCP"] = true
+	}
 	if action == "command.execute" {
 		command, _ := properties["command"].(string)
 		approved, forbidden, commandManualOnly, matched, err := classifyCommand(bundle, command, now)
@@ -429,7 +444,10 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 	}
 	if action == "mcp.invoke" {
 		tool, _ := properties["tool"].(string)
-		properties["approvedMCP"] = matchesExact(tool, bundle.ApprovedMCP)
+		// A grant-required MCP tool is intentionally absent from the ordinary
+		// local-permit registry. Let Cedar evaluate every other forbid, then
+		// convert its otherwise-permit result into an online AgentGrant decision.
+		properties["approvedMCP"] = matchesExact(tool, bundle.ApprovedMCP) || agentRule != nil
 	}
 	if action == "agent.delegate" {
 		target, _ := properties["target"].(string)
@@ -466,7 +484,20 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 				PolicyVersion: policyVersion,
 			}, nil
 		}
-		return Decision{Allowed: true, Reason: "Allowed locally by signed BAP policy bundle", ReasonCode: "LOCAL_POLICY_PERMIT", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
+		if agentRule == nil {
+			return Decision{Allowed: true, Reason: "Allowed locally by signed BAP policy bundle", ReasonCode: "LOCAL_POLICY_PERMIT", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
+		}
+		return Decision{
+			AgentGrantRequired:    true,
+			Reason:                "This operation requires a short-lived, one-use BAP AgentGrant",
+			ReasonCode:            "AGENT_GRANT_REQUIRED",
+			RuleIDs:               []string{agentRule.ID},
+			PolicyVersion:         policyVersion,
+			GrantAudience:         agentRule.Audience,
+			GrantTTL:              time.Duration(agentRule.MaxTTLSeconds) * time.Second,
+			GrantIntentMaxAge:     time.Duration(agentRule.MaxIntentAgeSeconds) * time.Second,
+			RequiredIntentRuleIDs: append([]string(nil), agentRule.IntentRuleIDs...),
+		}, nil
 	}
 	if len(diagnostic.Reasons) > 0 {
 		return Decision{Reason: "An explicit signed BAP policy forbid applied", ReasonCode: "LOCAL_EXPLICIT_FORBID", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
@@ -493,11 +524,17 @@ func matchAgentGrantRule(bundle Bundle, request authzen.EvaluationRequest) *Agen
 	host, _ := request.Resource.Properties["networkHost"].(string)
 	target, _ := request.Resource.Properties["target"].(string)
 	parsedTarget, _ := url.Parse(target)
+	mcpServer, _ := request.Resource.Properties["mcpServer"].(string)
+	mcpTool, _ := request.Resource.Properties["mcpTool"].(string)
 	for index := range bundle.AgentGrantRules {
 		rule := &bundle.AgentGrantRules[index]
-		if rule.Action == request.Action.Name && strings.EqualFold(rule.Tool, tool) &&
-			matchesExact(strings.ToUpper(method), rule.Methods) && matchesExact(host, rule.Hosts) && matchesExact(parsedTarget.EscapedPath(), rule.Paths) &&
-			profileMatches(bundle.PolicyProfile, rule.Profiles) {
+		if rule.Action != request.Action.Name || !strings.EqualFold(rule.Tool, tool) || !profileMatches(bundle.PolicyProfile, rule.Profiles) {
+			continue
+		}
+		if rule.ResourceType == "api" && matchesExact(strings.ToUpper(method), rule.Methods) && matchesExact(host, rule.Hosts) && matchesExact(parsedTarget.EscapedPath(), rule.Paths) {
+			return rule
+		}
+		if rule.ResourceType == "mcp" && matchesExact(mcpServer, rule.MCPServers) && matchesExact(mcpTool, rule.MCPTools) {
 			return rule
 		}
 	}
@@ -608,7 +645,7 @@ func splitCommand(command string) ([]string, error) {
 }
 
 func cedarAttributes(properties map[string]any) map[string]any {
-	result := map[string]any{"tool": "", "target": "", "path": "", "command": "", "protected": false, "outsideWorkspace": false, "securityControl": false, "destructive": false, "privileged": false, "exfiltration": false, "obfuscated": false, "shellApproved": false, "policyProfile": "read-only", "approvedNetwork": false, "approvedMCP": false, "approvedDelegate": false, "networkHost": "", "mcpServer": "", "mcpTool": "", "httpMethod": "", "bodyDigest": ""}
+	result := map[string]any{"tool": "", "target": "", "path": "", "command": "", "protected": false, "outsideWorkspace": false, "securityControl": false, "destructive": false, "privileged": false, "exfiltration": false, "obfuscated": false, "shellApproved": false, "policyProfile": "read-only", "approvedNetwork": false, "approvedMCP": false, "approvedDelegate": false, "networkHost": "", "mcpServer": "", "mcpTool": "", "httpMethod": "", "bodyDigest": "", "argumentsDigest": ""}
 	for key := range result {
 		if value, ok := properties[key]; ok {
 			result[key] = value

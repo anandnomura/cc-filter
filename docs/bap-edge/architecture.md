@@ -25,7 +25,7 @@ BAP Service / control plane
   - transactionally records delivered signed/hash-chained audit events in MySQL
 ```
 
-BAP Edge lives in the fork root and `cmd/bap-edge`. BAP Service is intentionally
+BAP Edge lives in `bap-edge/`. BAP Service is intentionally
 separate under `bap-service/`; it can run on a company network without installing
 Claude Code there. Conversely, the prebuilt Windows Edge requires no container
 runtime or Go. Shared wire models contain only protocol contracts.

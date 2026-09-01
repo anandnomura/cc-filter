@@ -35,7 +35,7 @@ container modes include their MySQL-backed integration and audit checks.
 From a normal PowerShell window:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Build-Bap.ps1 -Runtime Docker
 .\Test-PolicyRollout.ps1 -Runtime Docker
 .\Start-Bap.ps1 -Runtime Docker
@@ -89,7 +89,7 @@ podman machine start
 Open PowerShell as Administrator:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Install-ManagedSettings.ps1 -Runtime Docker
 ```
 

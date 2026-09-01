@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"cc-filter/internal/authzen"
+	"bap-system/internal/authzen"
 	cedar "github.com/cedar-policy/cedar-go"
 )
 

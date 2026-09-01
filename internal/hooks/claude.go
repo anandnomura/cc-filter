@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cc-filter/internal/rules"
+	"bap-system/internal/rules"
 )
 
 var redactCacheDir = filepath.Join(os.TempDir(), "claude", "redacted")

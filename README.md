@@ -1,13 +1,16 @@
-# BAP Edge fork of cc-filter
+# BAP System
 
-This fork adds a BAP Edge endpoint data plane for Claude Code and a separate
-network-ready BAP Service rule control plane. BAP Service distributes signed,
+This repository keeps the upstream-compatible cc-filter source at root and adds
+the BAP System components beside it: BAP Edge, BAP Service/Agent STS, a Spring
+Cloud API Gateway PEP, and a Go MCP PEP. BAP Service distributes signed,
 versioned rule bundles; BAP Edge verifies them, classifies traffic, evaluates
-Cedar locally, and enforces each decision. Escalated protected-API operations
-use the separate short-lived, one-use
+Cedar locally, and enforces each decision. Escalated protected-resource
+operations use the short-lived, one-use
 [AgentGrant/Agent STS path](docs/bap-edge/agent-grant-sts.md).
 
-**Start here:** [BAP Edge operator guide](docs/bap-edge/README.md)
+**Start here:** [BAP System map](docs/bap-system/README.md),
+[BAP Edge operator guide](docs/bap-edge/README.md), and
+[resource PEP commands](docs/bap-system/resource-peps.md).
 
 Run `Test-PolicyRollout.ps1` for the focused command/bypass and signed rollout
 gate, or `Test-MVP0.ps1` for the complete certification; MVP-0 invokes the
@@ -90,6 +93,13 @@ Run these from the repository root.
 # Build only BAP Edge with Docker, including Windows/Linux targets
 .\Build-BapEdge.ps1 -Runtime Docker -Targets All
 
+# Build the Spring API PEP and Go MCP PEP natively
+.\Build-ResourcePEPs.ps1 -Runtime Native
+
+# Build both resource PEP OCI images
+.\Build-ResourcePEPs.ps1 -Runtime Docker
+.\Build-ResourcePEPs.ps1 -Runtime Podman
+
 # Controlled company release: clean Git tree and approved digest-pinned images
 .\Build-CompanyArtifacts.ps1 -Runtime Docker -Version '1.0.0' -Registry 'registry.company.example/security' -BuildImage 'registry.company.example/build/golang@sha256:REPLACE_WITH_APPROVED_DIGEST' -RuntimeImage 'registry.company.example/runtime/debian@sha256:REPLACE_WITH_APPROVED_DIGEST'
 ```
@@ -162,11 +172,21 @@ launcher with a bare `claude` command.
 .\Test-AgentGrant.ps1 -Runtime Native
 .\Test-AgentGrant.ps1 -Runtime Docker
 .\Test-AgentGrant.ps1 -Runtime Podman
+
+# Resource-specific API and MCP PEP tests
+.\Test-ResourcePEPs.ps1 -Runtime Native
+.\Test-ResourcePEPs.ps1 -Runtime Docker
+.\Test-ResourcePEPs.ps1 -Runtime Podman
+
+# Complete AgentGrant -> PEP -> protected-resource proof
+.\Demo-ResourcePEPs.ps1 -Runtime Native -Rebuild
+.\Demo-ResourcePEPs.ps1 -Runtime Docker -Rebuild
+.\Demo-ResourcePEPs.ps1 -Runtime Podman -Rebuild
 ```
 
 See [AgentGrant STS: prove it works on a company Windows laptop](docs/bap-edge/agent-grant-sts.md#prove-agentgrant-works-on-a-company-windows-laptop)
-for the exact expected PASS lines, what each assertion proves, and the current
-gateway integration boundary.
+for the exact Agent STS assertions. The runnable API and MCP boundaries are in
+the [resource PEP guide](docs/bap-system/resource-peps.md).
 
 ### Capture and certify company Claude fixtures without containers
 
@@ -178,14 +198,14 @@ First, run this once in an elevated PowerShell window if BAP managed settings
 are installed, and then close every existing Claude session:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Install-ManagedSettings.ps1 -Undo
 ```
 
 Run everything below in a normal, non-administrator PowerShell window:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 
 # Build the latest Windows EXEs
 .\Build-Bap.ps1 -Runtime Native

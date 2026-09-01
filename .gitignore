@@ -1,7 +1,6 @@
 # Binaries
 cc-filter
 cc-filter.exe
-/bap-edge
 /bap-edge.exe
 /bap-service.exe
 dist/
@@ -9,6 +8,8 @@ dist/
 .bap/local-claude/
 .bap/captures/
 .bap/native-local/
+.bap/resource-peps/
+.bap/resource-pep-demo/
 .claude/settings.local.json
 
 # Go build artifacts

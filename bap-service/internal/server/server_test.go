@@ -16,13 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"cc-filter/bap-service/internal/audit"
-	"cc-filter/bap-service/internal/cedaradapter"
-	"cc-filter/bap-service/internal/metrics"
-	"cc-filter/internal/auditwire"
-	"cc-filter/internal/authzen"
-	"cc-filter/internal/grants"
-	"cc-filter/internal/policybundle"
+	"bap-system/bap-service/internal/audit"
+	"bap-system/bap-service/internal/cedaradapter"
+	"bap-system/bap-service/internal/metrics"
+	"bap-system/internal/auditwire"
+	"bap-system/internal/authzen"
+	"bap-system/internal/grants"
+	"bap-system/internal/policybundle"
 )
 
 type recordingAuditStore struct{ events []audit.Event }

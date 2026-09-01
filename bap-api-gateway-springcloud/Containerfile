@@ -1,0 +1,13 @@
+ARG MAVEN_IMAGE=docker.io/library/maven:3.9.11-eclipse-temurin-21
+ARG RUNTIME_IMAGE=docker.io/library/eclipse-temurin:21-jre
+FROM ${MAVEN_IMAGE} AS build
+WORKDIR /src
+COPY pom.xml ./
+COPY src ./src
+RUN mvn --batch-mode verify
+FROM ${RUNTIME_IMAGE}
+RUN useradd --system --uid 10001 --create-home bap
+USER bap
+WORKDIR /app
+COPY --from=build /src/target/bap-api-gateway-springcloud-*.jar /app/bap-api-gateway-springcloud.jar
+ENTRYPOINT ["java","-jar","/app/bap-api-gateway-springcloud.jar"]

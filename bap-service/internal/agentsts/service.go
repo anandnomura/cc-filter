@@ -8,11 +8,12 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
-	"cc-filter/internal/agentgrant"
-	"cc-filter/internal/policybundle"
+	"bap-system/internal/agentgrant"
+	"bap-system/internal/policybundle"
 )
 
 type grantState struct {
@@ -105,6 +106,13 @@ func (s *Service) Issue(request agentgrant.IssueRequest, principal, fingerprint 
 }
 
 func (s *Service) Consume(request agentgrant.ConsumeRequest, bundle policybundle.Bundle, now time.Time) (agentgrant.ConsumeResponse, agentgrant.Claims, error) {
+	return s.ConsumeForAudiences(request, bundle, now, nil)
+}
+
+// ConsumeForAudiences binds a resource-side client identity to the audiences
+// it is allowed to enforce. The audience check happens before the one-use
+// ledger transition so the wrong PEP cannot burn another PEP's grant.
+func (s *Service) ConsumeForAudiences(request agentgrant.ConsumeRequest, bundle policybundle.Bundle, now time.Time, allowedAudiences []string) (agentgrant.ConsumeResponse, agentgrant.Claims, error) {
 	var empty agentgrant.Claims
 	if request.Token == "" || request.Operation.Validate() != nil {
 		return agentgrant.ConsumeResponse{}, empty, errors.New("a valid operation and AgentGrant are required")
@@ -117,6 +125,9 @@ func (s *Service) Consume(request agentgrant.ConsumeRequest, bundle policybundle
 	if err != nil || !decision.AgentGrantRequired {
 		return agentgrant.ConsumeResponse{}, empty, errors.New("operation is no longer AgentGrant eligible")
 	}
+	if len(allowedAudiences) > 0 && !containsFold(allowedAudiences, decision.GrantAudience) {
+		return agentgrant.ConsumeResponse{}, empty, errors.New("resource PEP is not authorized for this AgentGrant audience")
+	}
 	claims, err := agentgrant.Verify(s.privateKey.Public().(ed25519.PublicKey), request.Token, agentgrant.VerifyOptions{
 		Issuer: s.issuer, Audience: decision.GrantAudience, RequestHash: hash, PolicyVersion: bundle.Version,
 		PolicyDigest: bundle.RulesDigest, RevocationEpoch: bundle.RevocationEpoch, Now: now,
@@ -128,6 +139,15 @@ func (s *Service) Consume(request agentgrant.ConsumeRequest, bundle policybundle
 		return agentgrant.ConsumeResponse{}, empty, err
 	}
 	return agentgrant.ConsumeResponse{Consumed: true, GrantID: claims.GrantID}, claims, nil
+}
+
+func containsFold(values []string, wanted string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), wanted) {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *MemoryLedger) Reserve(grantID string, expiresAt time.Time, now time.Time) error {

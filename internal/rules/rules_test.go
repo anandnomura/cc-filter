@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"cc-filter/configs"
+	"bap-system/configs"
 )
 
 func TestDefaultCommandRulesDoNotMatchEveryCommand(t *testing.T) {

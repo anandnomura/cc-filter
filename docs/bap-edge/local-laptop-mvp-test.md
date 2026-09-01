@@ -15,7 +15,7 @@ TLS, a local MySQL container, and an interim bearer identity.
 ## 1. Build and automated acceptance
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Build-Bap.ps1 -Runtime Docker
 .\Start-Bap.ps1 -Runtime Docker
 .\Test-Bap.ps1 -Runtime Docker
@@ -66,7 +66,7 @@ company capacity evidence.
 Open PowerShell as Administrator:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Install-ManagedSettings.ps1 -Runtime Docker
 ```
 
@@ -74,7 +74,7 @@ Close every Claude process and terminal. Open a new non-administrator
 PowerShell and run:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Test-ManagedSettings.ps1
 ```
 
@@ -133,7 +133,7 @@ lists editable hooks, not administrator-managed hooks.
 ## 6. Prove bounded offline and fail-closed behavior
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Stop-Bap.ps1 -Runtime Docker
 ```
 

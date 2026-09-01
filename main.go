@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"cc-filter/internal/filter"
-	"cc-filter/internal/logger"
+	"bap-system/internal/filter"
+	"bap-system/internal/logger"
 )
 
 //go:embed configs/default-rules.yaml
@@ -68,18 +68,18 @@ func main() {
 func readStdin() string {
 	scanner := bufio.NewScanner(os.Stdin)
 	var input strings.Builder
-	
+
 	for scanner.Scan() {
 		input.WriteString(scanner.Text())
 		input.WriteString("\n")
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		log.Printf("Error reading input: %v", err)
 		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	return strings.TrimSuffix(input.String(), "\n")
 }
 

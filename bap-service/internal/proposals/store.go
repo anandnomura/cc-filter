@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"cc-filter/internal/authzen"
+	"bap-system/internal/authzen"
 )
 
 type Proposal struct {

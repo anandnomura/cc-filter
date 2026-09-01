@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"cc-filter/internal/authzen"
+	"bap-system/internal/authzen"
 )
 
 func testGatewayOperation(body any) authzen.EvaluationRequest {

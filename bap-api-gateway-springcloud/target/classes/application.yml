@@ -1,0 +1,32 @@
+server:
+  port: ${BAP_API_PEP_PORT:9443}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
+bap:
+  pep:
+    agent-sts-url: ${BAP_AGENT_STS_URL:https://127.0.0.1:8443}
+    agent-sts-api-key-env: ${BAP_API_PEP_STS_API_KEY_ENV:BAP_API_PEP_STS_API_KEY}
+    agent-sts-ca-path: ${BAP_AGENT_STS_CA_PATH:}
+
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: orders-staging-deploy
+              uri: ${BAP_ORDERS_BACKEND_URL:http://127.0.0.1:19090}
+              predicates:
+                - Path=/bap/v1/api/execute
+              filters:
+                - name: BapAgentGrant
+                  args:
+                    externalUrl: https://api.staging.company.example/orders/deploy
+                    method: POST
+                    backendPath: /orders/deploy
+                    backendApiKeyEnv: BAP_ORDERS_BACKEND_API_KEY

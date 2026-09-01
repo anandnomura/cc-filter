@@ -15,16 +15,16 @@ import (
 	"sync"
 	"time"
 
-	"cc-filter/bap-service/internal/agentsts"
-	"cc-filter/bap-service/internal/audit"
-	"cc-filter/bap-service/internal/cedaradapter"
-	"cc-filter/bap-service/internal/metrics"
-	"cc-filter/internal/agentgrant"
-	"cc-filter/internal/auditwire"
-	"cc-filter/internal/authzen"
-	"cc-filter/internal/grants"
-	"cc-filter/internal/policybundle"
-	"cc-filter/internal/tracecontext"
+	"bap-system/bap-service/internal/agentsts"
+	"bap-system/bap-service/internal/audit"
+	"bap-system/bap-service/internal/cedaradapter"
+	"bap-system/bap-service/internal/metrics"
+	"bap-system/internal/agentgrant"
+	"bap-system/internal/auditwire"
+	"bap-system/internal/authzen"
+	"bap-system/internal/grants"
+	"bap-system/internal/policybundle"
+	"bap-system/internal/tracecontext"
 )
 
 type Server struct {
@@ -50,7 +50,16 @@ type Server struct {
 	stsIssuePrincipal   string
 	stsConsumeAPIKey    string
 	stsConsumePrincipal string
+	stsConsumers        []AgentSTSConsumer
 	legacyAuthZEN       bool
+}
+
+// AgentSTSConsumer is one independently authenticated resource PEP. Audiences
+// are exact AgentGrant audience values assigned to that PEP.
+type AgentSTSConsumer struct {
+	APIKey    string
+	Principal string
+	Audiences []string
 }
 
 type ProposalStore interface {
@@ -85,6 +94,30 @@ func (s *Server) SetAgentSTSClients(issueAPIKey, issuePrincipal, consumeAPIKey, 
 	}
 	s.stsIssueAPIKey, s.stsIssuePrincipal = issueAPIKey, issuePrincipal
 	s.stsConsumeAPIKey, s.stsConsumePrincipal = consumeAPIKey, consumePrincipal
+	s.stsConsumers = []AgentSTSConsumer{{APIKey: consumeAPIKey, Principal: consumePrincipal}}
+	return nil
+}
+
+func (s *Server) SetAgentSTSConsumers(consumers []AgentSTSConsumer) error {
+	if len(consumers) == 0 {
+		return fmt.Errorf("at least one Agent STS resource PEP is required")
+	}
+	principals, audiences := map[string]bool{}, map[string]bool{}
+	for index, consumer := range consumers {
+		principal := strings.TrimSpace(consumer.Principal)
+		if principal == "" || principal == s.stsIssuePrincipal || principals[strings.ToLower(principal)] || len(consumer.Audiences) == 0 {
+			return fmt.Errorf("Agent STS resource PEP %d has an invalid or duplicate principal", index)
+		}
+		principals[strings.ToLower(principal)] = true
+		for _, audience := range consumer.Audiences {
+			audience = strings.TrimSpace(audience)
+			if audience == "" || audiences[strings.ToLower(audience)] {
+				return fmt.Errorf("Agent STS resource PEP %d has an invalid or duplicate audience", index)
+			}
+			audiences[strings.ToLower(audience)] = true
+		}
+	}
+	s.stsConsumers = append([]AgentSTSConsumer(nil), consumers...)
 	return nil
 }
 
@@ -102,7 +135,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /metrics", s.prometheusMetrics)
 	mux.Handle("POST /bap/v1/agent-sts/issue", s.authenticateAgentSTS(s.stsIssueAPIKey, s.stsIssuePrincipal, http.HandlerFunc(s.issueAgentGrant)))
-	mux.Handle("POST /bap/v1/agent-sts/consume", s.authenticateAgentSTS(s.stsConsumeAPIKey, s.stsConsumePrincipal, http.HandlerFunc(s.consumeAgentGrant)))
+	mux.Handle("POST /bap/v1/agent-sts/consume", s.authenticateAgentSTSConsumers(http.HandlerFunc(s.consumeAgentGrant)))
 	if s.role != "agent-sts" {
 		mux.Handle("POST /bap/v1/edge/sync", s.authenticate(http.HandlerFunc(s.syncPolicy)))
 		mux.Handle("POST /bap/v1/audit/outcome", s.authenticate(http.HandlerFunc(s.auditOutcome)))
@@ -162,7 +195,7 @@ func (s *Server) consumeAgentGrant(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
-	response, claims, err := s.agentSTS.Consume(request, s.policyBundle, time.Now().UTC())
+	response, claims, err := s.agentSTS.ConsumeForAudiences(request, s.policyBundle, time.Now().UTC(), stsAudiencesFrom(r.Context()))
 	if err != nil {
 		s.metrics.Decision(false, "AGENT_GRANT_CONSUME_DENY", "agent_sts")
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "invalid_agent_grant", "reason": err.Error()})
@@ -557,6 +590,7 @@ type callerIdentity struct {
 }
 
 type callerContextKey struct{}
+type stsAudiencesContextKey struct{}
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -609,6 +643,49 @@ func (s *Server) authenticateAgentSTS(apiKey, expectedPrincipal string, next htt
 	})
 }
 
+func (s *Server) authenticateAgentSTSConsumers(next http.Handler) http.Handler {
+	consumers := s.stsConsumers
+	if len(consumers) == 0 {
+		consumers = []AgentSTSConsumer{{APIKey: s.stsConsumeAPIKey, Principal: s.stsConsumePrincipal}}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var matched *AgentSTSConsumer
+		fingerprint := ""
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			certificate := r.TLS.PeerCertificates[0]
+			for index := range consumers {
+				if certificate.Subject.CommonName == consumers[index].Principal {
+					matched = &consumers[index]
+					break
+				}
+			}
+			if matched != nil {
+				sum := sha256.Sum256(certificate.Raw)
+				fingerprint = "sha256:" + hex.EncodeToString(sum[:])
+			}
+		} else {
+			provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			for index := range consumers {
+				expected := consumers[index].APIKey
+				if expected != "" && len(provided) == len(expected) && subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1 {
+					matched = &consumers[index]
+				}
+			}
+			if matched != nil {
+				sum := sha256.Sum256([]byte(provided))
+				fingerprint = "sha256:" + hex.EncodeToString(sum[:])
+			}
+		}
+		if matched == nil {
+			s.rejectAuthentication(w, r)
+			return
+		}
+		ctx := context.WithValue(r.Context(), callerContextKey{}, callerIdentity{Principal: matched.Principal, Fingerprint: fingerprint})
+		ctx = context.WithValue(ctx, stsAudiencesContextKey{}, append([]string(nil), matched.Audiences...))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func (s *Server) rejectAuthentication(w http.ResponseWriter, r *http.Request) {
 	s.metrics.AuthenticationFailure()
 	s.logEvent("authentication_failed", r, nil)
@@ -619,6 +696,11 @@ func (s *Server) rejectAuthentication(w http.ResponseWriter, r *http.Request) {
 func callerFrom(ctx context.Context) callerIdentity {
 	caller, _ := ctx.Value(callerContextKey{}).(callerIdentity)
 	return caller
+}
+
+func stsAudiencesFrom(ctx context.Context) []string {
+	audiences, _ := ctx.Value(stsAudiencesContextKey{}).([]string)
+	return audiences
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

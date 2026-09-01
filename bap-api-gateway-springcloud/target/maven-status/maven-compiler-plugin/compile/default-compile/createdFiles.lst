@@ -1,0 +1,11 @@
+com\company\bap\apipep\AgentStsClient$ConsumeResponse.class
+com\company\bap\apipep\BapAgentGrantGatewayFilterFactory$1.class
+com\company\bap\apipep\GrantConsumer.class
+com\company\bap\apipep\BapAgentGrantGatewayFilterFactory.class
+com\company\bap\apipep\BapApiPepApplication.class
+com\company\bap\apipep\BapAgentGrantGatewayFilterFactory$Config.class
+com\company\bap\apipep\AgentGrantEnvelope.class
+com\company\bap\apipep\AgentStsClient.class
+com\company\bap\apipep\ConsumedGrant.class
+com\company\bap\apipep\BapPepProperties.class
+com\company\bap\apipep\EnvelopeValidator.class

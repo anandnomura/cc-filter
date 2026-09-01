@@ -114,7 +114,7 @@ Claude subscription/API key, or the company Claude wrapper. Run it from an
 ordinary PowerShell window at the repository root:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Build-Bap.ps1 -Runtime Native
 .\Test-AgentGrant.ps1 -Runtime Native
 .\Start-BapNativeLocal.ps1 -VerifyOnly -Port 18443

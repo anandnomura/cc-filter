@@ -1,0 +1,16 @@
+ARG GO_BUILD_IMAGE=docker.io/library/golang:1.23-bookworm
+ARG RUNTIME_IMAGE=docker.io/library/debian:bookworm-slim
+FROM ${GO_BUILD_IMAGE} AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY internal ./internal
+COPY bap-mcp-pep ./bap-mcp-pep
+RUN go test -mod=vendor ./bap-mcp-pep/internal/mcppep ./internal/agentgrant ./internal/authzen && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=vendor -trimpath -o /out/bap-mcp-pep ./bap-mcp-pep/cmd
+FROM ${RUNTIME_IMAGE}
+RUN useradd --system --uid 10001 --create-home bap
+USER bap
+WORKDIR /app
+COPY --from=build /out/bap-mcp-pep /app/bap-mcp-pep
+ENTRYPOINT ["/app/bap-mcp-pep"]

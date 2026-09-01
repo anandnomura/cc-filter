@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"cc-filter/bap-service/internal/agentsts"
-	"cc-filter/internal/agentgrant"
-	"cc-filter/internal/policybundle"
+	"bap-system/bap-service/internal/agentsts"
+	"bap-system/internal/agentgrant"
+	"bap-system/internal/policybundle"
 )
 
 type stsConsumer struct {
@@ -55,6 +55,6 @@ func gatewayBundle(now time.Time) policybundle.Bundle {
 	return policybundle.Bundle{
 		SchemaVersion: 1, Version: 6, RulesDigest: "sha256:gateway-policy", IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour), RevocationEpoch: 1, PolicyProfile: "standard-developer",
 		CedarPolicy:     `forbid (principal is Agent, action == Action::"gateway.execute", resource is ToolInvocation) when { resource.policyProfile == "read-only" };`,
-		AgentGrantRules: []policybundle.AgentGrantRule{{ID: "agentgrant.deploy", Action: "gateway.execute", Tool: agentgrant.GatewayToolName, Methods: []string{"POST"}, Hosts: []string{"api.staging.company.example"}, Paths: []string{"/orders/deploy"}, IntentRuleIDs: []string{"intent.deploy"}, Audience: "bap-spring-gateway", MaxTTLSeconds: 60, MaxIntentAgeSeconds: 300, Profiles: []string{"standard-developer"}, Owner: "test", Approval: "test"}},
+		AgentGrantRules: []policybundle.AgentGrantRule{{ID: "agentgrant.deploy", ResourceType: "api", Action: "gateway.execute", Tool: agentgrant.GatewayToolName, Methods: []string{"POST"}, Hosts: []string{"api.staging.company.example"}, Paths: []string{"/orders/deploy"}, IntentRuleIDs: []string{"intent.deploy"}, Audience: "bap-spring-gateway", MaxTTLSeconds: 60, MaxIntentAgeSeconds: 300, Profiles: []string{"standard-developer"}, Owner: "test", Approval: "test"}},
 	}
 }

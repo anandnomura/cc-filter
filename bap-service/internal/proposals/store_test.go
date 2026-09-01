@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cc-filter/internal/authzen"
+	"bap-system/internal/authzen"
 )
 
 func TestProposalStoreDeduplicatesWithoutSensitiveTargets(t *testing.T) {

@@ -40,7 +40,7 @@ View current Service, Edge, lease, kill-switch, and audit-queue posture with:
 
 | Component | Location | Runs where | Purpose |
 |---|---|---|---|
-| BAP Edge | repository root and `cmd/bap-edge` | Developer workstation | Endpoint data plane, local PDP/PEP, signed-bundle verification, local Cedar decisions, workload/session binding, audit retry |
+| BAP Edge | `bap-edge/` | Developer workstation | Endpoint data plane, local PDP/PEP, signed-bundle verification, local Cedar decisions, workload/session binding, audit retry |
 | BAP Service | `bap-service/` | Local container for development; company network for production | Rule control plane, signed bundle distribution, Agent STS issuance/consumption, version/revocation directives, audit ingestion |
 | BAP Agent gateway | `bap-service/internal/agentgateway` reference core | Protected company ingress | Consumes one-use AgentGrants, strips BAP metadata, and forwards with gateway identity |
 | Cedar policies | `bap-service/policies/` | BAP Service only | Human-readable allow and forbid rules |
@@ -98,7 +98,7 @@ machine-wide trusted CA.
 Next, open **PowerShell as Administrator** and run:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-edge
+cd C:\Users\User\pyprj\bap-system
 .\Install-ManagedSettings.ps1 -Runtime Docker
 ```
 
