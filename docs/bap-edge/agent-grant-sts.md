@@ -106,6 +106,58 @@ Gateway filter must preserve: validate the business envelope, call
 strip BAP fields, then forward with a gateway-owned service identity and the
 grant ID as an idempotency key.
 
+## Prove AgentGrant works on a company Windows laptop
+
+This is the recommended native acceptance test. It uses the installed Go
+toolchain and Windows executables only; it does not require Docker, Podman, a
+Claude subscription/API key, or the company Claude wrapper. Run it from an
+ordinary PowerShell window at the repository root:
+
+```powershell
+cd C:\Users\User\pyprj\bap-edge
+.\Build-Bap.ps1 -Runtime Native
+.\Test-AgentGrant.ps1 -Runtime Native
+.\Start-BapNativeLocal.ps1 -VerifyOnly -Port 18443
+```
+
+For a one-command rebuild and live acceptance test, use:
+
+```powershell
+.\Start-BapNativeLocal.ps1 -VerifyOnly -Rebuild -Port 18443
+```
+
+`-VerifyOnly` is intentionally allowed when company managed hooks are already
+installed. It starts a temporary native BAP Service on localhost, drives the
+native Edge directly, restores any project-local Claude settings, and stops
+the temporary service. Port `18443` avoids a company service already using
+`8443`; choose another unused local port if necessary.
+
+The test must print all of these lines:
+
+```text
+PASS: signed prompt intent -> exact gateway operation -> Agent STS -> trusted one-use grant injection
+PASS: live Agent STS consume -> HTTP 200
+PASS: exact AgentGrant replay -> HTTP 403
+PASS: signed audit -> AGENT_GRANT_ISSUED + AGENT_GRANT_CONSUMED
+PASS: native BAP Service, signed policy synchronization, Edge policy, AgentGrant issue/consume/replay, audit, and local hook settings merge.
+```
+
+These prove, respectively, that Edge bound classified user intent to the exact
+approved operation and obtained a signed short-lived grant; the live STS
+accepted that grant once; the same grant could not be reused; and both state
+transitions entered the signed audit chain. The bearer grant is not printed or
+placed in a process argument. Its temporary request file is deleted by the
+test. The retained run directory shown at the end contains logs, keys, policy
+state, and the signed audit—not the temporary bearer-token file.
+
+`Test-AgentGrant.ps1` supplies the deeper negative suite: wrong/stale intent,
+wrong audience, host/path/method or body tampering, policy digest/version and
+revocation-epoch changes, expiry, replay, reserved-field injection, and proof
+that the example gateway does not invoke its backend before atomic consume.
+The live native test exercises Edge plus the real STS HTTP endpoint; gateway
+forwarding remains an integration test until the managed Spring Cloud Gateway
+filter/MCP transport is deployed.
+
 ## Build and test commands
 
 Run from the repository root:

@@ -32,3 +32,4 @@ if ($Runtime -eq 'Native' -or ($Runtime -eq 'Auto' -and $goCommand)) {
 
 Write-Host 'PASS: intent, exact request, audience, policy digest, epoch, expiry, and one-use bindings.'
 Write-Host 'PASS: gateway rejects tampering/replay and invokes the backend only after atomic consumption.'
+Write-Host 'NEXT: run .\Start-BapNativeLocal.ps1 -VerifyOnly -Port 18443 to prove live Edge -> Agent STS issue/consume/replay.'

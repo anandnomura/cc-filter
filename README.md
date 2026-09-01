@@ -133,6 +133,10 @@ launcher with a bare `claude` command.
 # Verify Service, Edge, policy, commands, and prompt classifier without Claude
 .\Start-BapNativeLocal.bat -VerifyOnly
 
+# Company Windows/native AgentGrant acceptance: rebuild, issue, consume once,
+# reject replay, and verify signed audit (no Docker, Podman, or Claude needed)
+.\Start-BapNativeLocal.ps1 -VerifyOnly -Rebuild -Port 18443
+
 # Container-free company/native MVP-0A gate
 .\Test-MVP0.ps1 -Runtime Native
 
@@ -159,6 +163,10 @@ launcher with a bare `claude` command.
 .\Test-AgentGrant.ps1 -Runtime Docker
 .\Test-AgentGrant.ps1 -Runtime Podman
 ```
+
+See [AgentGrant STS: prove it works on a company Windows laptop](docs/bap-edge/agent-grant-sts.md#prove-agentgrant-works-on-a-company-windows-laptop)
+for the exact expected PASS lines, what each assertion proves, and the current
+gateway integration boundary.
 
 ### Capture and certify company Claude fixtures without containers
 

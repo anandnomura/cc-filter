@@ -82,7 +82,10 @@ function Test-NativeServiceReady {
 function Invoke-NativeHookVerification {
     param(
         [Parameter(Mandatory)][string]$EdgeBinary,
-        [Parameter(Mandatory)][string]$EdgeConfig
+        [Parameter(Mandatory)][string]$EdgeConfig,
+        [Parameter(Mandatory)][string]$ServiceURL,
+        [Parameter(Mandatory)][string]$CaBundle,
+        [Parameter(Mandatory)][string]$RuntimeDirectory
     )
     $sessionID = 'native-local-' + [Guid]::NewGuid().ToString('N')
     $sessionStart = @{
@@ -180,6 +183,58 @@ function Invoke-NativeHookVerification {
         throw 'Native AgentGrant verification failed: opaque token leaked into the user-facing decision reason.'
     }
     Write-Host 'PASS: signed prompt intent -> exact gateway operation -> Agent STS -> trusted one-use grant injection'
+
+    # Keep the bearer grant out of console output and process arguments. curl
+    # reads it from a current-run file that is removed immediately after the
+    # live consume/replay check.
+    $transactionID = [Guid]::NewGuid().ToString('N')
+    $consumeRequestPath = Join-Path $RuntimeDirectory "agent-grant-consume-$transactionID.json"
+    $consumeResponsePath = Join-Path $RuntimeDirectory "agent-grant-response-$transactionID.json"
+    try {
+        $consumeRequest = @{
+            agent_grant = $grantResult.hookSpecificOutput.updatedInput._bap_agent_grant
+            operation = $grantResult.hookSpecificOutput.updatedInput._bap_operation
+        } | ConvertTo-Json -Compress -Depth 20
+        [IO.File]::WriteAllText($consumeRequestPath, $consumeRequest)
+
+        $curlArguments = @(
+            '--silent', '--show-error', '--output', $consumeResponsePath,
+            '--write-out', '%{http_code}', '--ssl-no-revoke', '--cacert', $CaBundle,
+            '--request', 'POST', '--header', "Authorization: Bearer $env:BAP_EDGE_API_KEY",
+            '--header', 'Content-Type: application/json', '--data-binary', "@$consumeRequestPath",
+            "$ServiceURL/bap/v1/agent-sts/consume"
+        )
+        $consumeStatus = (& curl.exe @curlArguments | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $consumeStatus -ne '200') {
+            throw "Native AgentGrant verification failed: first live consume returned HTTP $consumeStatus."
+        }
+        $consumeResponse = Get-Content -LiteralPath $consumeResponsePath -Raw | ConvertFrom-Json
+        if (-not $consumeResponse.consumed -or -not $consumeResponse.grant_id) {
+            throw 'Native AgentGrant verification failed: live STS did not confirm consumption.'
+        }
+        Write-Host 'PASS: live Agent STS consume -> HTTP 200'
+
+        $replayStatus = (& curl.exe @curlArguments | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or $replayStatus -ne '403') {
+            throw "Native AgentGrant verification failed: replay returned HTTP $replayStatus instead of 403."
+        }
+        Write-Host 'PASS: exact AgentGrant replay -> HTTP 403'
+
+        $auditPath = Join-Path (Join-Path $RuntimeDirectory 'service-state') 'audit.jsonl'
+        $auditEvents = @()
+        if (Test-Path -LiteralPath $auditPath) {
+            $auditEvents = @(Get-Content -LiteralPath $auditPath | ForEach-Object { $_ | ConvertFrom-Json })
+        }
+        if (-not ($auditEvents | Where-Object { $_.reason_code -eq 'AGENT_GRANT_ISSUED' }) -or
+            -not ($auditEvents | Where-Object { $_.reason_code -eq 'AGENT_GRANT_CONSUMED' })) {
+            throw 'Native AgentGrant verification failed: signed issue/consume audit events were not recorded.'
+        }
+        Write-Host 'PASS: signed audit -> AGENT_GRANT_ISSUED + AGENT_GRANT_CONSUMED'
+    } finally {
+        foreach ($sensitivePath in @($consumeRequestPath, $consumeResponsePath)) {
+            if (Test-Path -LiteralPath $sensitivePath) { [IO.File]::Delete($sensitivePath) }
+        }
+    }
 }
 
 $edgeBinary = Join-Path $PSScriptRoot 'dist\bap-edge-windows-amd64.exe'
@@ -267,7 +322,8 @@ try {
         Write-Host "Using the BAP Service already listening on $serviceURL."
     }
 
-    Invoke-NativeHookVerification -EdgeBinary $edgeBinary -EdgeConfig $edgeConfig
+    Invoke-NativeHookVerification -EdgeBinary $edgeBinary -EdgeConfig $edgeConfig `
+        -ServiceURL $serviceURL -CaBundle $caBundle -RuntimeDirectory $runtimeDirectory
 
     New-Item -ItemType Directory -Force -Path $settingsDirectory | Out-Null
     $settings = if ($settingsExisted) { Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json } else {
@@ -300,7 +356,7 @@ try {
     $settingsWritten = $true
 
     if ($VerifyOnly) {
-        Write-Host 'PASS: native BAP Service, signed policy synchronization, Edge allow/deny verification, and local hook settings merge.'
+        Write-Host 'PASS: native BAP Service, signed policy synchronization, Edge policy, AgentGrant issue/consume/replay, audit, and local hook settings merge.'
         return
     }
 
