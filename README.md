@@ -228,6 +228,45 @@ replace it if the company mandates an immutable full model identifier.
 The detailed privacy and replay rules are in the
 [exact fixture certification guide](docs/bap-edge/claude-fixture-certification.md#exact-container-free-company-baseline).
 
+### Show that BAP is working
+
+After the Sonnet fixture manifest exists, use the same demo entry point for
+every supported development runtime:
+
+```powershell
+# Installed Go; Windows EXEs; no Docker/Podman
+.\Demo-Bap.ps1 -Runtime Native
+
+# Docker-backed Service, MySQL, audit, and policy lifecycle
+.\Demo-Bap.ps1 -Runtime Docker
+
+# Podman-backed Service, MySQL, audit, and policy lifecycle
+.\Demo-Bap.ps1 -Runtime Podman
+
+# Prefer Podman/Docker; fall back to native Go when neither is usable
+.\Demo-Bap.ps1 -Runtime Auto
+```
+
+Native mode reruns the strict native MVP-0 gate, displays the privacy-safe company
+fixture result, verifies the signed JSONL audit chain, and prints the manifest
+and retained native-run evidence paths. A successful demonstration ends with
+`DEMO PASSED`. Docker and Podman run the container-backed build, policy,
+database, status, fixture, and audit demonstration. The native gate directly proves safe allow, destructive/default/manual-
+only deny, signed policy synchronization, prompt advisory, fixture replay, and
+audit integrity; it does not depend on Sonnet agreeing to issue a dangerous
+tool call.
+
+For an optional visible Claude UI demonstration, run:
+
+```powershell
+.\Start-BapNativeLocal.bat -UseCompanyClaude
+```
+
+Then ask Claude to call `git status --short` (allowed) and
+`python -c "print(1)"` (harmless if attempted, but default-denied by BAP). The
+automated native demo remains the authoritative evidence if the model refuses
+to issue a requested tool call.
+
 Both local-model launchers select `http://127.0.0.1:8080`, supply the local demo
 credential expected by ccbridge, select the requested local model, and limit
 the initial Claude tool contract to `Bash`. The smaller tool contract matters

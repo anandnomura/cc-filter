@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
+    [ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Auto',
     [switch]$SkipBuild,
     [switch]$KeepRunning
 )
@@ -10,6 +10,23 @@ $ErrorActionPreference = 'Stop'
 function Show-Step([int]$Number, [string]$Message) {
     Write-Host ""
     Write-Host "=== DEMO STEP ${Number}: $Message ===" -ForegroundColor Cyan
+}
+
+if ($Runtime -eq 'Auto') {
+    . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
+    try {
+        $Runtime = Get-BapContainerEngine -Runtime Auto
+    } catch {
+        . (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
+        if (-not (Get-BapGoCommand)) { throw }
+        $Runtime = 'Native'
+        Write-Warning 'No Docker/Podman runtime is usable; the demo is falling back to native Go.'
+    }
+}
+
+if ($Runtime -eq 'Native') {
+    & (Join-Path $PSScriptRoot 'Demo-BapNative.ps1')
+    return
 }
 
 Show-Step 1 'Build and run all Go tests inside a container'
@@ -28,7 +45,7 @@ Show-Step 3 'Start BAP Service over HTTPS'
 Show-Step 4 'Run case-by-case authorization and audit acceptance tests'
 & (Join-Path $PSScriptRoot 'Test-PolicyRollout.ps1') -Runtime $Runtime
 & (Join-Path $PSScriptRoot 'Test-Bap.ps1') -Runtime $Runtime
-& (Join-Path $PSScriptRoot 'Test-ClaudeFixtures.ps1') -Runtime $Runtime
+& (Join-Path $PSScriptRoot 'Test-ClaudeFixtures.ps1') -Runtime $Runtime -RequireCompanyFixtures
 & (Join-Path $PSScriptRoot 'Show-BapStatus.ps1') -Runtime $Runtime
 
 Show-Step 5 'Verify the signed audit hash chain'

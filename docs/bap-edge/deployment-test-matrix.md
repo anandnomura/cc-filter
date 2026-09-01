@@ -26,6 +26,26 @@ one is added and certified.
 
 ## Fastest way to test every main scenario
 
+### One-command demonstrations
+
+After creating the required Sonnet fixture manifest, `Demo-Bap.ps1` is the
+common entry point on Windows:
+
+```powershell
+.\Demo-Bap.ps1 -Runtime Native
+.\Demo-Bap.ps1 -Runtime Docker
+.\Demo-Bap.ps1 -Runtime Podman
+.\Demo-Bap.ps1 -Runtime Auto
+```
+
+`Auto` prefers an available Podman or Docker engine and falls back to approved
+native Go when neither is usable. Native proves the portable Service/Edge,
+signed policy, allow/deny/manual-only decisions, prompt advisory, company
+fixture replay, and signed JSONL audit chain. Docker and Podman additionally
+exercise their local MySQL, container networking, status, and lifecycle paths.
+All demo modes require the company fixture manifest and finish with
+`DEMO PASSED` only after their applicable gates succeed.
+
 ### 1. Native Go on Windows, including Linux cross-builds
 
 ```powershell

@@ -14,6 +14,22 @@ For a container-free company workstation, install approved Go 1.23.12+ and run:
 This runs the portable/native MVP-0A gate. It does not pretend to cover the live
 MySQL or OCI/container lifecycle checks described below.
 
+## One-command demonstrations
+
+Once the company Sonnet fixture manifest has been created, use:
+
+```powershell
+.\Demo-Bap.ps1 -Runtime Native
+.\Demo-Bap.ps1 -Runtime Docker
+.\Demo-Bap.ps1 -Runtime Podman
+.\Demo-Bap.ps1 -Runtime Auto
+```
+
+Every mode requires the company fixture certification. `Auto` selects
+Podman/Docker when available and otherwise uses native Go. Native mode prints
+the retained evidence paths and verifies its signed JSONL audit chain; the
+container modes include their MySQL-backed integration and audit checks.
+
 ## Docker acceptance test
 
 From a normal PowerShell window:

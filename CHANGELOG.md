@@ -58,6 +58,10 @@ All notable changes to cc-filter are documented in this file.
   default; CLI-capable company installations require explicit opt-in
 - Reduced the required live company-model gate to one safe Sonnet tool call;
   destructive and manual-only denials remain deterministic Edge/policy tests
+- Added `Demo-BapNative.ps1` as a one-command company demonstration of the
+  strict native gate, fixture evidence, and signed audit-chain integrity
+- Unified demonstrations under `Demo-Bap.ps1 -Runtime
+  Native|Docker|Podman|Auto`; every mode now requires company fixtures
 
 ### Changed
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call
