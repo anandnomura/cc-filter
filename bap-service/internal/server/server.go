@@ -15,9 +15,11 @@ import (
 	"sync"
 	"time"
 
+	"cc-filter/bap-service/internal/agentsts"
 	"cc-filter/bap-service/internal/audit"
 	"cc-filter/bap-service/internal/cedaradapter"
 	"cc-filter/bap-service/internal/metrics"
+	"cc-filter/internal/agentgrant"
 	"cc-filter/internal/auditwire"
 	"cc-filter/internal/authzen"
 	"cc-filter/internal/grants"
@@ -42,6 +44,13 @@ type Server struct {
 	readinessSuppressed uint64
 	policyEnvelope      policybundle.Envelope
 	policyBundle        policybundle.Bundle
+	agentSTS            *agentsts.Service
+	role                string
+	stsIssueAPIKey      string
+	stsIssuePrincipal   string
+	stsConsumeAPIKey    string
+	stsConsumePrincipal string
+	legacyAuthZEN       bool
 }
 
 type ProposalStore interface {
@@ -56,7 +65,35 @@ type AuditStore interface {
 }
 
 func New(engine *cedaradapter.Engine, privateKey ed25519.PrivateKey, issuer, audience string, grantTTL time.Duration, proposalStore ProposalStore, auditStore AuditStore, apiKey, principal string) *Server {
-	return &Server{engine: engine, privateKey: privateKey, issuer: issuer, audience: audience, grantTTL: grantTTL, proposals: proposalStore, audit: auditStore, apiKey: apiKey, principal: principal, metrics: metrics.New()}
+	return &Server{engine: engine, privateKey: privateKey, issuer: issuer, audience: audience, grantTTL: grantTTL, proposals: proposalStore, audit: auditStore, apiKey: apiKey, principal: principal, metrics: metrics.New(), agentSTS: agentsts.New(privateKey, issuer), role: "combined", stsIssueAPIKey: apiKey, stsIssuePrincipal: principal, stsConsumeAPIKey: apiKey, stsConsumePrincipal: principal}
+}
+
+func (s *Server) SetRole(role string) error {
+	if role != "combined" && role != "agent-sts" {
+		return fmt.Errorf("unsupported BAP Service role %q", role)
+	}
+	s.role = role
+	return nil
+}
+
+func (s *Server) SetAgentSTSClients(issueAPIKey, issuePrincipal, consumeAPIKey, consumePrincipal string) error {
+	if issuePrincipal == "" || consumePrincipal == "" {
+		return fmt.Errorf("Agent STS issue and consume principals are required")
+	}
+	if issuePrincipal == consumePrincipal {
+		return fmt.Errorf("Agent STS Edge and gateway principals must be distinct")
+	}
+	s.stsIssueAPIKey, s.stsIssuePrincipal = issueAPIKey, issuePrincipal
+	s.stsConsumeAPIKey, s.stsConsumePrincipal = consumeAPIKey, consumePrincipal
+	return nil
+}
+
+func (s *Server) SetAgentSTSLedger(ledger agentsts.Ledger) error {
+	if ledger == nil {
+		return fmt.Errorf("Agent STS ledger is required")
+	}
+	s.agentSTS = agentsts.NewWithLedger(s.privateKey, s.issuer, ledger)
+	return nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -64,14 +101,86 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /metrics", s.prometheusMetrics)
-	mux.HandleFunc("GET /.well-known/authzen-configuration", s.metadata)
-	mux.Handle("POST /access/v1/evaluation", s.authenticate(http.HandlerFunc(s.evaluate)))
-	mux.Handle("POST /bap/v1/edge/sync", s.authenticate(http.HandlerFunc(s.syncPolicy)))
-	mux.Handle("POST /bap/v1/audit/grant-consumption", s.authenticate(http.HandlerFunc(s.auditGrantConsumption)))
-	mux.Handle("POST /bap/v1/audit/outcome", s.authenticate(http.HandlerFunc(s.auditOutcome)))
-	mux.Handle("POST /bap/v1/audit/edge-denial", s.authenticate(http.HandlerFunc(s.auditEdgeDenial)))
-	mux.Handle("POST /bap/v1/audit/edge-decision", s.authenticate(http.HandlerFunc(s.auditEdgeDecision)))
+	mux.Handle("POST /bap/v1/agent-sts/issue", s.authenticateAgentSTS(s.stsIssueAPIKey, s.stsIssuePrincipal, http.HandlerFunc(s.issueAgentGrant)))
+	mux.Handle("POST /bap/v1/agent-sts/consume", s.authenticateAgentSTS(s.stsConsumeAPIKey, s.stsConsumePrincipal, http.HandlerFunc(s.consumeAgentGrant)))
+	if s.role != "agent-sts" {
+		mux.Handle("POST /bap/v1/edge/sync", s.authenticate(http.HandlerFunc(s.syncPolicy)))
+		mux.Handle("POST /bap/v1/audit/outcome", s.authenticate(http.HandlerFunc(s.auditOutcome)))
+		mux.Handle("POST /bap/v1/audit/edge-denial", s.authenticate(http.HandlerFunc(s.auditEdgeDenial)))
+		mux.Handle("POST /bap/v1/audit/edge-decision", s.authenticate(http.HandlerFunc(s.auditEdgeDecision)))
+		if s.legacyAuthZEN {
+			mux.HandleFunc("GET /.well-known/authzen-configuration", s.metadata)
+			mux.Handle("POST /access/v1/evaluation", s.authenticate(http.HandlerFunc(s.evaluate)))
+			mux.Handle("POST /bap/v1/audit/grant-consumption", s.authenticate(http.HandlerFunc(s.auditGrantConsumption)))
+		}
+	}
 	return requestLogging(s.traceRequest(s.observeHTTP(mux)))
+}
+
+func (s *Server) issueAgentGrant(w http.ResponseWriter, r *http.Request) {
+	if s.policyBundle.Version == 0 || s.agentSTS == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent_sts_unavailable"})
+		return
+	}
+	var request agentgrant.IssueRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	caller := callerFrom(r.Context())
+	response, claims, err := s.agentSTS.Issue(request, caller.Principal, caller.Fingerprint, s.policyBundle, time.Now().UTC())
+	if err != nil {
+		s.metrics.Decision(false, "AGENT_GRANT_ISSUE_DENY", "agent_sts")
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "agent_grant_denied", "reason": err.Error()})
+		return
+	}
+	if s.audit != nil {
+		allowed := true
+		event := authorizationEvent(request.Operation, "agent_sts_issue", claims.GrantID, "AGENT_GRANT_ISSUED", fmt.Sprintf("bundle:%d:%s", claims.PolicyVersion, claims.PolicyDigest), &allowed, caller, traceFrom(r.Context()))
+		event.GrantID, event.IntentHash = claims.GrantID, claims.IntentHash
+		if err := s.audit.Append(event); err != nil {
+			s.metrics.AuditFailure("agent_grant_issue")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
+			return
+		}
+	}
+	s.metrics.Decision(true, "AGENT_GRANT_ISSUED", "agent_sts")
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) consumeAgentGrant(w http.ResponseWriter, r *http.Request) {
+	if s.policyBundle.Version == 0 || s.agentSTS == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent_sts_unavailable"})
+		return
+	}
+	var request agentgrant.ConsumeRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	response, claims, err := s.agentSTS.Consume(request, s.policyBundle, time.Now().UTC())
+	if err != nil {
+		s.metrics.Decision(false, "AGENT_GRANT_CONSUME_DENY", "agent_sts")
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "invalid_agent_grant", "reason": err.Error()})
+		return
+	}
+	if s.audit != nil {
+		allowed := true
+		caller := callerFrom(r.Context())
+		event := authorizationEvent(request.Operation, "agent_sts_consume", claims.GrantID, "AGENT_GRANT_CONSUMED", fmt.Sprintf("bundle:%d:%s", claims.PolicyVersion, claims.PolicyDigest), &allowed, caller, traceFrom(r.Context()))
+		event.GrantID, event.IntentHash = claims.GrantID, claims.IntentHash
+		if err := s.audit.Append(event); err != nil {
+			s.metrics.AuditFailure("agent_grant_consume")
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
+			return
+		}
+	}
+	s.metrics.Decision(true, "AGENT_GRANT_CONSUMED", "agent_sts")
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) SetPolicyBundle(bundle policybundle.Bundle, envelope policybundle.Envelope) {
@@ -476,6 +585,37 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) authenticateAgentSTS(apiKey, expectedPrincipal string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			certificate := r.TLS.PeerCertificates[0]
+			if expectedPrincipal == "" || certificate.Subject.CommonName != expectedPrincipal {
+				s.rejectAuthentication(w, r)
+				return
+			}
+			sum := sha256.Sum256(certificate.Raw)
+			caller := callerIdentity{Principal: certificate.Subject.CommonName, Fingerprint: "sha256:" + hex.EncodeToString(sum[:])}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerContextKey{}, caller)))
+			return
+		}
+		provided := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if apiKey == "" || provided == "" || len(provided) != len(apiKey) || subtle.ConstantTimeCompare([]byte(provided), []byte(apiKey)) != 1 {
+			s.rejectAuthentication(w, r)
+			return
+		}
+		sum := sha256.Sum256([]byte(provided))
+		caller := callerIdentity{Principal: expectedPrincipal, Fingerprint: "sha256:" + hex.EncodeToString(sum[:])}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerContextKey{}, caller)))
+	})
+}
+
+func (s *Server) rejectAuthentication(w http.ResponseWriter, r *http.Request) {
+	s.metrics.AuthenticationFailure()
+	s.logEvent("authentication_failed", r, nil)
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_client"})
+}
+
 func callerFrom(ctx context.Context) callerIdentity {
 	caller, _ := ctx.Value(callerContextKey{}).(callerIdentity)
 	return caller
@@ -553,7 +693,7 @@ func (s *Server) observeHTTP(next http.Handler) http.Handler {
 func metricRoute(path string) string {
 	switch path {
 	case "/healthz", "/readyz", "/metrics", "/.well-known/authzen-configuration",
-		"/access/v1/evaluation", "/bap/v1/audit/grant-consumption", "/bap/v1/audit/outcome", "/bap/v1/audit/edge-denial":
+		"/access/v1/evaluation", "/bap/v1/agent-sts/issue", "/bap/v1/agent-sts/consume", "/bap/v1/audit/grant-consumption", "/bap/v1/audit/outcome", "/bap/v1/audit/edge-denial":
 		return path
 	default:
 		return "other"

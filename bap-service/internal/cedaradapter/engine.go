@@ -97,6 +97,8 @@ func cedarAttributes(properties map[string]any) map[string]any {
 		"networkHost":      "",
 		"mcpServer":        "",
 		"mcpTool":          "",
+		"httpMethod":       "",
+		"bodyDigest":       "",
 	}
 	for key := range result {
 		if value, ok := properties[key]; ok {

@@ -112,7 +112,7 @@ if (-not (Test-BapReadiness -CaBundle $caBundle)) {
 Write-Host 'Building BAP Edge from the current source...'
 & (Join-Path $PSScriptRoot 'Build-BapEdge.ps1') -Runtime $engine
 
-$requiredRuntimeFiles = @('dev-ca.pem', 'bundle-public.pem', 'edge-api-key.txt')
+$requiredRuntimeFiles = @('dev-ca.pem', 'bundle-public.pem', 'grant-public.pem', 'edge-api-key.txt')
 foreach ($name in $requiredRuntimeFiles) {
     $path = Join-Path $runtimeDirectory $name
     if (-not (Test-Path -LiteralPath $path)) { throw "BAP runtime file is missing: $path" }
@@ -125,10 +125,12 @@ $claudeSettings = Join-Path $localDirectory 'claude-settings.json'
 New-Item -ItemType Directory -Force -Path $localDirectory, $edgeStateDirectory | Out-Null
 
 $bundlePublicKey = ConvertTo-YamlPath (Join-Path $runtimeDirectory 'bundle-public.pem')
+$grantPublicKey = ConvertTo-YamlPath (Join-Path $runtimeDirectory 'grant-public.pem')
 $caPath = ConvertTo-YamlPath $caBundle
 $statePath = ConvertTo-YamlPath $edgeStateDirectory
 @"
 service_url: "https://127.0.0.1:8443"
+public_key_path: "$grantPublicKey"
 bundle_public_key_path: "$bundlePublicKey"
 ca_bundle_path: "$caPath"
 subject_id: "claude-code-local"

@@ -21,7 +21,7 @@ Linux operators can run `scripts/initialize-certificates.sh`.
 | `.bap/runtime/<engine>/dev-ca.pem` | No | BAP Edge trusts the local HTTPS server certificate |
 | `.bap/runtime/<engine>/tls-cert.pem` | No | BAP Service HTTPS endpoint |
 | `.bap/runtime/<engine>/tls-key.pem` | **Yes** | BAP Service only |
-| `.bap/runtime/<engine>/grant-public.pem` | No | BAP Edge verifies grants |
+| `.bap/runtime/<engine>/grant-public.pem` | No | BAP Edge verifies one-use AgentGrants |
 | `.bap/runtime/<engine>/grant-private.pem` | **Yes** | BAP Service signs grants |
 | `.bap/runtime/<engine>/bundle-public.pem` | No | BAP Edge verifies signed policy bundles |
 | `.bap/runtime/<engine>/bundle-private.pem` | **Yes** | BAP Service signs policy bundles |

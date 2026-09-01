@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"cc-filter/internal/agentgrant"
 	"cc-filter/internal/auditwire"
 	"cc-filter/internal/authzen"
 	"cc-filter/internal/grants"
@@ -25,15 +26,59 @@ import (
 )
 
 type Client struct {
-	baseURL   string
-	audience  string
-	publicKey ed25519.PublicKey
-	apiKey    string
-	http      *http.Client
+	baseURL    string
+	stsBaseURL string
+	stsIssuer  string
+	audience   string
+	publicKey  ed25519.PublicKey
+	apiKey     string
+	stsAPIKey  string
+	http       *http.Client
+}
+
+func (c *Client) IssueAgentGrant(ctx context.Context, request agentgrant.IssueRequest, trace tracecontext.Context) (agentgrant.IssueResponse, error) {
+	var result agentgrant.IssueResponse
+	body, err := json.Marshal(request)
+	if err != nil {
+		return result, err
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.stsBaseURL+"/bap/v1/agent-sts/issue", bytes.NewReader(body))
+	if err != nil {
+		return result, err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	httpRequest.Header.Set("X-Request-ID", requestID())
+	applyTrace(httpRequest, trace.TraceParent())
+	c.authorizeWithKey(httpRequest, c.stsAPIKey)
+	response, err := c.http.Do(httpRequest)
+	if err != nil {
+		return result, fmt.Errorf("call BAP Agent STS: %w", err)
+	}
+	defer response.Body.Close()
+	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if response.StatusCode != http.StatusOK {
+		return result, fmt.Errorf("BAP Agent STS denied issuance with HTTP %d", response.StatusCode)
+	}
+	if err := json.Unmarshal(responseBody, &result); err != nil || result.Token == "" || result.GrantID == "" {
+		return result, fmt.Errorf("decode BAP Agent STS response")
+	}
+	return result, nil
 }
 
 func NewClient(config Config) (*Client, error) {
-	if config.APIKey() == "" && config.ClientCertificatePath == "" {
+	stsURL := config.AgentSTSURL
+	if stsURL == "" {
+		stsURL = config.ServiceURL
+	}
+	stsIssuer := config.AgentSTSIssuer
+	if stsIssuer == "" {
+		stsIssuer = "bap-agent-sts-local"
+	}
+	stsAPIKey := config.APIKey()
+	if config.AgentSTSAPIKeyEnv != "" {
+		stsAPIKey = config.AgentSTSAPIKey()
+	}
+	if (config.APIKey() == "" || stsAPIKey == "") && config.ClientCertificatePath == "" {
 		return nil, fmt.Errorf("required BAP credential environment variable %s is empty", config.APIKeyEnv)
 	}
 	var publicKey ed25519.PublicKey
@@ -41,7 +86,7 @@ func NewClient(config Config) (*Client, error) {
 	if config.PublicKeyPath != "" {
 		publicKey, err = grants.LoadPublicKey(config.PublicKeyPath)
 		if err != nil {
-			return nil, fmt.Errorf("load legacy BAP grant verification key: %w", err)
+			return nil, fmt.Errorf("load BAP AgentGrant verification key: %w", err)
 		}
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -69,7 +114,7 @@ func NewClient(config Config) (*Client, error) {
 	}
 	transport.TLSClientConfig = tlsConfig
 	return &Client{
-		baseURL: strings.TrimRight(config.ServiceURL, "/"), audience: "bap-edge", publicKey: publicKey, apiKey: config.APIKey(),
+		baseURL: strings.TrimRight(config.ServiceURL, "/"), stsBaseURL: strings.TrimRight(stsURL, "/"), stsIssuer: stsIssuer, audience: "bap-edge", publicKey: publicKey, apiKey: config.APIKey(), stsAPIKey: stsAPIKey,
 		http: &http.Client{Timeout: config.Timeout(), Transport: transport},
 	}, nil
 }
@@ -222,8 +267,12 @@ func applyTrace(request *http.Request, traceParent string) {
 }
 
 func (c *Client) authorize(request *http.Request) {
-	if c.apiKey != "" {
-		request.Header.Set("Authorization", "Bearer "+c.apiKey)
+	c.authorizeWithKey(request, c.apiKey)
+}
+
+func (c *Client) authorizeWithKey(request *http.Request, key string) {
+	if key != "" {
+		request.Header.Set("Authorization", "Bearer "+key)
 	}
 }
 
@@ -232,6 +281,18 @@ func (c *Client) VerifyGrant(token, requestHash string) error {
 		return fmt.Errorf("legacy grant verification is not configured")
 	}
 	_, err := grants.Verify(c.publicKey, token, c.audience, requestHash, time.Now().UTC())
+	return err
+}
+
+func (c *Client) VerifyAgentGrant(token string, operation authzen.EvaluationRequest, bundle policybundle.Bundle, audience string) error {
+	if len(c.publicKey) == 0 {
+		return fmt.Errorf("AgentGrant verification key is not configured")
+	}
+	hash, err := agentgrant.HashOperation(operation)
+	if err != nil {
+		return err
+	}
+	_, err = agentgrant.Verify(c.publicKey, token, agentgrant.VerifyOptions{Issuer: c.stsIssuer, Audience: audience, RequestHash: hash, PolicyVersion: bundle.Version, PolicyDigest: bundle.RulesDigest, RevocationEpoch: bundle.RevocationEpoch, Now: time.Now().UTC()})
 	return err
 }
 

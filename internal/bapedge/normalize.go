@@ -3,6 +3,7 @@ package bapedge
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"cc-filter/internal/agentgrant"
 	"cc-filter/internal/authzen"
 )
 
@@ -122,13 +124,38 @@ func NormalizeWithPolicy(input HookInput, subjectID, workloadID string, policy N
 		policy.Profile = "standard-developer"
 	}
 	host := ""
-	if action == "network.fetch" {
+	if action == "network.fetch" || action == "gateway.execute" {
 		parsed, parseErr := url.Parse(target)
-		if parseErr != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Hostname() == "" || net.ParseIP(parsed.Hostname()) != nil {
-			return authzen.EvaluationRequest{}, fmt.Errorf("WebFetch.url must be an HTTPS URL with a DNS hostname")
+		if parseErr != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Hostname() == "" || net.ParseIP(parsed.Hostname()) != nil || parsed.User != nil || parsed.Fragment != "" {
+			return authzen.EvaluationRequest{}, fmt.Errorf("tool URL must be HTTPS with a DNS hostname and no credentials or fragment")
 		}
 		host = strings.ToLower(parsed.Hostname())
-		target = parsed.Scheme + "://" + host
+		if action == "network.fetch" {
+			target = parsed.Scheme + "://" + host
+		} else {
+			if parsed.RawQuery != "" {
+				return authzen.EvaluationRequest{}, fmt.Errorf("gateway URL query parameters require an explicit future policy contract")
+			}
+			parsed.Scheme, parsed.Host = "https", host
+			target = parsed.String()
+		}
+	}
+	httpMethod, bodyDigest := "", ""
+	if action == "gateway.execute" {
+		httpMethod, _ = optionalString(input.ToolInput, "method")
+		httpMethod = strings.ToUpper(httpMethod)
+		if !regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE)$`).MatchString(httpMethod) {
+			return authzen.EvaluationRequest{}, fmt.Errorf("gateway method is not supported")
+		}
+		body, exists := input.ToolInput["body"]
+		if !exists {
+			body = nil
+		}
+		canonicalBody, marshalErr := json.Marshal(body)
+		if marshalErr != nil {
+			return authzen.EvaluationRequest{}, fmt.Errorf("gateway body must be JSON-compatible")
+		}
+		bodyDigest = "sha256:" + hashID(string(canonicalBody))
 	}
 	subagentType, _ := optionalString(input.ToolInput, "subagent_type")
 	approvedNetwork := action == "network.fetch" && matchesDomain(host, policy.AllowedNetworkDomains)
@@ -155,12 +182,33 @@ func NormalizeWithPolicy(input HookInput, subjectID, workloadID string, policy N
 			"shellApproved": action != "command.execute",
 			"policyProfile": policy.Profile, "approvedNetwork": approvedNetwork, "approvedMCP": approvedMCP,
 			"approvedDelegate": approvedDelegate, "networkHost": host, "mcpServer": mcpServer, "mcpTool": mcpTool,
+			"httpMethod": httpMethod, "bodyDigest": bodyDigest,
 		}},
 		Context: map[string]any{"session_id": input.SessionID, "workload_id": workloadID, "tool_use_id": input.ToolUseID, "workspace": workspace, "asserted_user": assertedUser},
 	}, nil
 }
 
 func classifyStrict(input HookInput, workspace string) (action, target, pathValue, command, mcpServer, mcpTool string, err error) {
+	if input.ToolName == agentgrant.GatewayToolName {
+		if _, exists := input.ToolInput["_bap_agent_grant"]; exists {
+			err = fmt.Errorf("reserved BAP transport field was supplied by the model")
+			return
+		}
+		if _, exists := input.ToolInput["_bap_operation"]; exists {
+			err = fmt.Errorf("reserved BAP transport field was supplied by the model")
+			return
+		}
+		if _, fieldErr := requiredField(input.ToolInput, "method"); fieldErr != nil {
+			err = fmt.Errorf("%s.method %w", input.ToolName, fieldErr)
+			return
+		}
+		if _, fieldErr := requiredField(input.ToolInput, "url"); fieldErr != nil {
+			err = fmt.Errorf("%s.url %w", input.ToolName, fieldErr)
+			return
+		}
+		target, err = optionalString(input.ToolInput, "url")
+		return "gateway.execute", target, "", "", "bap_gateway", "execute", err
+	}
 	if strings.HasPrefix(input.ToolName, "mcp__") {
 		parts := strings.SplitN(input.ToolName, "__", 3)
 		if len(parts) != 3 || parts[1] == "" || parts[2] == "" {

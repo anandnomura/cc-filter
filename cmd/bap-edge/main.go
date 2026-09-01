@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"cc-filter/configs"
+	"cc-filter/internal/agentgrant"
 	"cc-filter/internal/auditwire"
+	"cc-filter/internal/authzen"
 	"cc-filter/internal/bapedge"
 	"cc-filter/internal/filter"
 	"cc-filter/internal/policybundle"
@@ -57,7 +59,7 @@ func main() {
 			os.Exit(2)
 		}
 		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_filter_completed", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "pass", Source: "local_filter"})
-		matchedRuleIDs, classifierErr := classifyPrompt(config, input.Prompt)
+		bundle, matches, _, classifierErr := classifyPrompt(config, input.Prompt)
 		if classifierErr != nil {
 			// Prompt classification improves UX but is not an authorization
 			// boundary. PreToolUse remains fail-closed and authoritative.
@@ -65,13 +67,35 @@ func main() {
 			fmt.Print(local.Output)
 			return
 		}
-		if len(matchedRuleIDs) == 0 {
+		sessions, stateErr := bapedge.NewSessionStore(config.StateDirectory)
+		if stateErr != nil {
+			deny("BAP Edge intent state error: " + stateErr.Error())
+		}
+		workloadID, stateErr := sessions.LoadOrCreate(input.SessionID)
+		if stateErr != nil {
+			deny("BAP Edge workload identity error: " + stateErr.Error())
+		}
+		manualIDs, grantIntentIDs := splitPromptMatches(matches)
+		if len(grantIntentIDs) > 0 {
+			_, stateErr = sessions.RecordIntent(input.SessionID, workloadID, input.Prompt, grantIntentIDs, time.Now().UTC())
+		} else {
+			stateErr = sessions.ClearIntent(input.SessionID, workloadID)
+		}
+		if stateErr != nil {
+			deny("BAP Edge could not update classified intent: " + stateErr.Error())
+		}
+		if len(matches) == 0 {
 			_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "no_match", Source: "signed_policy_bundle"})
 			fmt.Print(local.Output)
 			return
 		}
-		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "manual_only_advisory", ReasonCode: strings.Join(matchedRuleIDs, ","), Source: "signed_policy_bundle"})
-		promptAdvisoryOutput(local.Output)
+		allIDs := append(append([]string(nil), manualIDs...), grantIntentIDs...)
+		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "matched", ReasonCode: strings.Join(allIDs, ","), Source: "signed_policy_bundle"})
+		if len(manualIDs) > 0 {
+			promptAdvisoryOutput(local.Output)
+		} else {
+			promptGrantContextOutput(local.Output, bundle.Version)
+		}
 		return
 	}
 	client, err := bapedge.NewClient(config)
@@ -176,6 +200,24 @@ func main() {
 		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", Level: "error", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: "deny", ReasonCode: "LOCAL_POLICY_ERROR", Source: "signed_policy_bundle"})
 		deny("BAP local authorization failed closed: " + err.Error())
 	}
+	agentGrantToken := ""
+	if decision.AgentGrantRequired {
+		intent, loadErr := sessions.LoadIntent(input.SessionID)
+		if loadErr != nil {
+			deny("AgentGrant denied: no recent matching intent is bound to this session")
+		}
+		issued, issueErr := client.IssueAgentGrant(context.Background(), agentgrant.IssueRequest{EdgeInstanceID: edgeInstanceID, Operation: request, Intent: intent}, operationTrace)
+		if issueErr != nil {
+			deny("BAP Agent STS denied this operation: " + issueErr.Error())
+		}
+		if verifyErr := client.VerifyAgentGrant(issued.Token, request, bundle, decision.GrantAudience); verifyErr != nil {
+			deny("BAP Edge rejected the Agent STS response: " + verifyErr.Error())
+		}
+		agentGrantToken = issued.Token
+		decision.Allowed = true
+		decision.Reason = "Allowed with a verified, short-lived, one-use AgentGrant"
+		decision.ReasonCode = "AGENT_GRANT_ISSUED"
+	}
 	fixtureDecision := "deny"
 	if decision.Allowed {
 		fixtureDecision = "allow"
@@ -199,27 +241,58 @@ func main() {
 		}
 		deny(decision.Reason)
 	}
+	if agentGrantToken != "" {
+		allowWithUpdatedInput(decision.Reason, input.ToolInput, agentGrantToken, request)
+		return
+	}
 	allow(decision.Reason)
 }
 
-func classifyPrompt(config bapedge.Config, prompt string) ([]string, error) {
+func classifyPrompt(config bapedge.Config, prompt string) (policybundle.Bundle, []policybundle.PromptMatch, string, error) {
 	client, err := bapedge.NewClient(config)
 	if err != nil {
-		return nil, err
+		return policybundle.Bundle{}, nil, "", err
 	}
 	store, err := bapedge.NewPolicyStore(config)
 	if err != nil {
-		return nil, err
+		return policybundle.Bundle{}, nil, "", err
 	}
 	edgeInstanceID, err := bapedge.LoadOrCreateEdgeInstanceID(config.StateDirectory)
 	if err != nil {
-		return nil, err
+		return policybundle.Bundle{}, nil, "", err
 	}
 	bundle, err := bapedge.EnsurePolicy(context.Background(), client, store, edgeInstanceID, false, time.Now().UTC())
 	if err != nil {
-		return nil, err
+		return policybundle.Bundle{}, nil, "", err
 	}
-	return policybundle.MatchPrompt(bundle, prompt), nil
+	return bundle, policybundle.MatchPromptRules(bundle, prompt), edgeInstanceID, nil
+}
+
+func splitPromptMatches(matches []policybundle.PromptMatch) (manual, grant []string) {
+	for _, match := range matches {
+		if match.Effect == "manual-only-advisory" {
+			manual = append(manual, match.ID)
+		} else if match.Effect == "agent-grant-intent" {
+			grant = append(grant, match.ID)
+		}
+	}
+	return manual, grant
+}
+
+func promptGrantContextOutput(parentOutput string, bundleVersion uint64) {
+	message := fmt.Sprintf("BAP classified this as AgentGrant intent under signed policy bundle %d. If a protected operation is proposed, use the managed BAP gateway tool; PreToolUse and Agent STS will re-evaluate the exact request. This classification is not authorization.", bundleVersion)
+	value := map[string]any{}
+	if strings.TrimSpace(parentOutput) != "" {
+		_ = json.Unmarshal([]byte(parentOutput), &value)
+	}
+	hookOutput, _ := value["hookSpecificOutput"].(map[string]any)
+	if hookOutput == nil {
+		hookOutput = map[string]any{}
+	}
+	hookOutput["hookEventName"] = "UserPromptSubmit"
+	hookOutput["additionalContext"] = appendHookMessage(hookOutput["additionalContext"], message)
+	value["hookSpecificOutput"] = hookOutput
+	_ = json.NewEncoder(os.Stdout).Encode(value)
 }
 
 func promptAdvisoryOutput(parentOutput string) {
@@ -257,6 +330,21 @@ func isDeny(output string) bool {
 }
 
 func allow(reason string) { hookDecision("allow", reason) }
+
+func allowWithUpdatedInput(reason string, original map[string]any, token string, operation authzen.EvaluationRequest) {
+	updated := make(map[string]any, len(original)+1)
+	for key, value := range original {
+		updated[key] = value
+	}
+	// Claude created the original input. The trusted hook injects this opaque
+	// field only after Agent STS issuance; the gateway consumes and strips it.
+	updated["_bap_agent_grant"] = token
+	updated["_bap_operation"] = operation
+	value := map[string]any{"hookSpecificOutput": map[string]any{
+		"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": reason, "updatedInput": updated,
+	}}
+	_ = json.NewEncoder(os.Stdout).Encode(value)
+}
 
 func deny(reason string) {
 	hookDecision("deny", reason)

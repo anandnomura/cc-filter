@@ -28,7 +28,9 @@
             "approvedDelegate": {"type": "Boolean", "required": true},
             "networkHost": {"type": "String", "required": true},
             "mcpServer": {"type": "String", "required": true},
-            "mcpTool": {"type": "String", "required": true}
+            "mcpTool": {"type": "String", "required": true},
+            "httpMethod": {"type": "String", "required": true},
+            "bodyDigest": {"type": "String", "required": true}
           }
         }
       }
@@ -67,7 +69,8 @@
       "notification.send": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
       "file.send": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
       "findings.report": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
-      "feedback.prepare": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}}
+      "feedback.prepare": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}},
+      "gateway.execute": {"appliesTo": {"principalTypes": ["Agent"], "resourceTypes": ["ToolInvocation"], "context": {"type": "Record", "attributes": {}}}}
     }
   }
 }

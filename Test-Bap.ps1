@@ -32,7 +32,7 @@ $baselineProposals = (& $engine exec bap-service-local bap-service proposals lis
 $baselineProposalCount = if ($null -eq $baselineProposals) { 0 } else { @($baselineProposals).Count }
 $metadata = (& curl.exe --silent --show-error --fail --ssl-no-revoke --cacert $caBundle 'https://127.0.0.1:8443/.well-known/authzen-configuration') | ConvertFrom-Json
 if (-not $metadata.access_evaluation_endpoint) { throw 'AuthZEN metadata is missing the evaluation endpoint.' }
-$unauthenticatedStatus = & curl.exe --silent --output NUL --write-out '%{http_code}' --ssl-no-revoke --cacert $caBundle -X POST -H 'Content-Type: application/json' --data '{}' 'https://127.0.0.1:8443/access/v1/evaluation'
+$unauthenticatedStatus = & curl.exe --silent --output NUL --write-out '%{http_code}' --ssl-no-revoke --cacert $caBundle -X POST -H 'Content-Type: application/json' --data '{}' 'https://127.0.0.1:8443/bap/v1/agent-sts/issue'
 if ($unauthenticatedStatus -ne '401') { throw "Expected unauthenticated evaluation to return 401, got $unauthenticatedStatus." }
 Write-Host 'PASS: unauthenticated authorization request -> 401'
 $unauthenticatedSyncStatus = & curl.exe --silent --output NUL --write-out '%{http_code}' --ssl-no-revoke --cacert $caBundle -X POST -H 'Content-Type: application/json' --data '{}' 'https://127.0.0.1:8443/bap/v1/edge/sync'

@@ -22,7 +22,7 @@ import (
 	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 type Config struct {
 	DSN                   string
@@ -187,6 +187,14 @@ func (s *Store) migrate(ctx context.Context) error {
 			KEY ix_bap_proposal_status_last_seen (status, last_seen),
 			KEY ix_bap_proposal_occurrences (occurrences)
 		) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS bap_agent_grants (
+			grant_id VARCHAR(128) NOT NULL PRIMARY KEY,
+			status VARCHAR(16) NOT NULL,
+			issued_at DATETIME(6) NOT NULL,
+			expires_at DATETIME(6) NOT NULL,
+			consumed_at DATETIME(6) NULL,
+			KEY ix_bap_agent_grants_expiry (status, expires_at)
+		) ENGINE=InnoDB`,
 		`INSERT IGNORE INTO bap_schema_migrations (version, applied_at) VALUES (1, UTC_TIMESTAMP(6))`,
 	}
 	for _, statement := range statements {
@@ -211,6 +219,36 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT IGNORE INTO bap_schema_migrations (version, applied_at) VALUES (?, UTC_TIMESTAMP(6))`, schemaVersion)
 	return err
+}
+
+// Reserve implements the Agent STS durable one-use ledger.
+func (s *Store) Reserve(grantID string, expiresAt time.Time, now time.Time) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx, `INSERT INTO bap_agent_grants (grant_id, status, issued_at, expires_at) VALUES (?, 'ISSUED', ?, ?)`, grantID, now.UTC(), expiresAt.UTC())
+	if err != nil {
+		return fmt.Errorf("reserve AgentGrant: %w", err)
+	}
+	return nil
+}
+
+// Consume is the cross-replica compare-and-set. Exactly one caller can change
+// an unexpired grant from ISSUED to CONSUMED.
+func (s *Store) Consume(grantID string, now time.Time) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, `UPDATE bap_agent_grants SET status = 'CONSUMED', consumed_at = ? WHERE grant_id = ? AND status = 'ISSUED' AND expires_at > ?`, now.UTC(), grantID, now.UTC())
+	if err != nil {
+		return fmt.Errorf("consume AgentGrant: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read AgentGrant consumption result: %w", err)
+	}
+	if changed != 1 {
+		return errors.New("AgentGrant is unknown, expired, or already consumed")
+	}
+	return nil
 }
 
 func (s *Store) ensureAuditColumn(ctx context.Context, name, definition string) error {

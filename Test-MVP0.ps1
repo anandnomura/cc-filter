@@ -33,6 +33,7 @@ if ($Runtime -eq 'Native') {
     Write-Host 'PASS: native model-independent MVP-0A certification foundation.'
     Write-Host 'PASS: portable policy, bypass, signed rollout, rollback, tamper, expiry, audit, and hook-contract tests.'
     Write-Host 'PASS: native Windows Service/Edge synchronization and allow/deny/manual-only/prompt-advisory verification.'
+    Write-Host 'PASS: AgentGrant intent, STS issuance, trusted injection, exact binding, atomic consumption, and replay denial.'
     Write-Warning 'NOT RUN in Native mode: live Docker/Podman MySQL lifecycle, container networking, OCI image, and container failure-recovery checks.'
     if ($RequireCompanyFixtures) {
         Write-Host 'PASS: required exact company Claude Code/model fixtures are certified.'
@@ -75,6 +76,7 @@ Write-Host 'PASS: model-independent MVP-0A certification foundation.'
 Write-Host 'PASS: control-plane/data-plane contract: signed central rules, local Cedar decisions, bounded offline lease, rollback/tamper/expiry default deny.'
 Write-Host 'PASS: exact Edge hook contract: git status --short and centrally configured ls -al allowed; git reset --hard denied.'
 Write-Host 'PASS: data-driven bypass corpus and live signed policy rollout lifecycle.'
+Write-Host 'PASS: data-driven AgentGrant policy, Agent STS, and gateway enforcement tests.'
 if ($RequireCompanyFixtures) {
     Write-Host 'PASS: required exact company Claude Code/model fixtures are certified.'
 } else {

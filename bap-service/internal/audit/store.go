@@ -34,6 +34,8 @@ type Event struct {
 	ResourceID            string    `json:"resource_id,omitempty"`
 	TargetSummary         string    `json:"target_summary,omitempty"`
 	DecisionID            string    `json:"decision_id,omitempty"`
+	GrantID               string    `json:"grant_id,omitempty"`
+	IntentHash            string    `json:"intent_hash,omitempty"`
 	Allowed               *bool     `json:"allowed,omitempty"`
 	ReasonCode            string    `json:"reason_code,omitempty"`
 	PolicyVersion         string    `json:"policy_version,omitempty"`

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"cc-filter/internal/agentgrant"
 	"cc-filter/internal/auditwire"
 )
 
@@ -28,6 +29,11 @@ func stateDirectory(configured string) (string, error) {
 }
 
 type SessionStore struct{ directory string }
+
+type sessionState struct {
+	WorkloadID string                     `json:"workload_id"`
+	Intent     *agentgrant.IntentEvidence `json:"intent,omitempty"`
+}
 
 func NewSessionStore(configured string) (*SessionStore, error) {
 	base, err := stateDirectory(configured)
@@ -52,7 +58,7 @@ func (s *SessionStore) LoadOrCreate(sessionID string) (string, error) {
 		return "", err
 	}
 	workloadID := "bapw_" + randomHex(24)
-	data, _ := json.Marshal(map[string]string{"workload_id": workloadID})
+	data, _ := json.Marshal(sessionState{WorkloadID: workloadID})
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if os.IsExist(err) {
 		return s.LoadOrCreate(sessionID)
@@ -70,6 +76,40 @@ func (s *SessionStore) LoadOrCreate(sessionID string) (string, error) {
 	return workloadID, nil
 }
 
+// RecordIntent stores only a prompt hash and signed-policy rule IDs. Prompt
+// text is deliberately excluded from local state and Agent STS requests.
+func (s *SessionStore) RecordIntent(sessionID, workloadID, prompt string, ruleIDs []string, now time.Time) (agentgrant.IntentEvidence, error) {
+	intent := agentgrant.IntentEvidence{SessionID: sessionID, WorkloadID: workloadID, IntentHash: agentgrant.HashIntent(prompt), RuleIDs: append([]string(nil), ruleIDs...), CapturedAt: now.UTC().Unix()}
+	if err := s.write(sessionID, sessionState{WorkloadID: workloadID, Intent: &intent}); err != nil {
+		return intent, err
+	}
+	return intent, nil
+}
+
+func (s *SessionStore) ClearIntent(sessionID, workloadID string) error {
+	return s.write(sessionID, sessionState{WorkloadID: workloadID})
+}
+
+func (s *SessionStore) write(sessionID string, state sessionState) error {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path(sessionID), data, 0600)
+}
+
+func (s *SessionStore) LoadIntent(sessionID string) (agentgrant.IntentEvidence, error) {
+	data, err := os.ReadFile(s.path(sessionID))
+	if err != nil {
+		return agentgrant.IntentEvidence{}, err
+	}
+	var state sessionState
+	if json.Unmarshal(data, &state) != nil || state.Intent == nil {
+		return agentgrant.IntentEvidence{}, fmt.Errorf("no classified AgentGrant intent exists for this session")
+	}
+	return *state.Intent, nil
+}
+
 func (s *SessionStore) Remove(sessionID string) error {
 	err := os.Remove(s.path(sessionID))
 	if os.IsNotExist(err) {
@@ -84,9 +124,7 @@ func (s *SessionStore) path(sessionID string) string {
 }
 
 func decodeWorkload(data []byte) (string, error) {
-	var value struct {
-		WorkloadID string `json:"workload_id"`
-	}
+	var value sessionState
 	if err := json.Unmarshal(data, &value); err != nil || value.WorkloadID == "" {
 		return "", fmt.Errorf("invalid BAP session state")
 	}

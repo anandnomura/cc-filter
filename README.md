@@ -3,8 +3,9 @@
 This fork adds a BAP Edge endpoint data plane for Claude Code and a separate
 network-ready BAP Service rule control plane. BAP Service distributes signed,
 versioned rule bundles; BAP Edge verifies them, classifies traffic, evaluates
-Cedar locally, and enforces each decision. The service retains a legacy OpenID
-AuthZEN evaluation API during migration.
+Cedar locally, and enforces each decision. Escalated protected-API operations
+use the separate short-lived, one-use
+[AgentGrant/Agent STS path](docs/bap-edge/agent-grant-sts.md).
 
 **Start here:** [BAP Edge operator guide](docs/bap-edge/README.md)
 
@@ -59,6 +60,9 @@ Run these from the repository root.
 # Build only BAP Service as a Windows EXE
 .\Build-BapService-Native.ps1 -Target Windows
 
+# Opt in to a second STS-only EXE; combined BAP Service remains the default
+.\Build-BapService-Native.ps1 -Target Windows -SeparateAgentSTS
+
 # Cross-compile BAP Service for Linux AMD64 from Windows Go
 .\Build-BapService-Native.ps1 -Target Linux -Architecture amd64
 
@@ -73,6 +77,9 @@ Run these from the repository root.
 
 # Build the development artifacts with Docker
 .\Build-Bap.ps1 -Runtime Docker
+
+# Build combined Service plus a separate STS-only OCI image
+.\Build-Bap.ps1 -Runtime Docker -SeparateAgentSTS
 
 # Build the development artifacts with Podman
 .\Build-Bap.ps1 -Runtime Podman
@@ -146,6 +153,11 @@ launcher with a bare `claude` command.
 
 # Complete MVP-0 certification gate
 .\Test-MVP0.ps1 -Runtime Docker
+
+# Focused AgentGrant/STS + gateway security transaction
+.\Test-AgentGrant.ps1 -Runtime Native
+.\Test-AgentGrant.ps1 -Runtime Docker
+.\Test-AgentGrant.ps1 -Runtime Podman
 ```
 
 ### Capture and certify company Claude fixtures without containers

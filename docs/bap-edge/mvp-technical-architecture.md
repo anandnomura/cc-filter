@@ -26,7 +26,7 @@ flowchart LR
     end
 
     subgraph CP["Company BAP control plane"]
-        API["BAP Service control plane<br/>Go HTTPS service"]
+        API["BAP Service control plane<br/>policy distribution + Agent STS"]
         AUTH["Endpoint authentication<br/>mTLS target; bearer development"]
         POLICY["Versioned Cedar + registries<br/>lease + epoch + kill switch"]
         SIGN["Ed25519 bundle signer"]
@@ -44,6 +44,12 @@ flowchart LR
     API -->|"signed bundle + directive"| EDGE
     EDGE -->|"asynchronous decision + outcome audit"| API
     EDGE -->|"allow or deny"| CC
+
+    EDGE -->|"grant-required only<br/>exact operation + intent evidence"| API
+    API -->|"signed 60-second<br/>one-use AgentGrant"| EDGE
+    EDGE -->|"trusted updatedInput<br/>grant + exact operation"| GW["Customized BAP gateway"]
+    GW -->|"atomic consume"| API
+    GW -->|"business request only<br/>gateway service identity"| BACKEND["Protected company API"]
 
     classDef endpoint fill:#e8f1ff,stroke:#2457a6,color:#0b1f3a;
     classDef control fill:#f1eaff,stroke:#6f42c1,color:#24143d;
@@ -64,7 +70,9 @@ source of rule truth; it does not decide each tool operation in the hot path.
 | Claude integration | Deterministically invokes BAP around lifecycle and tool events | Claude Code managed command hooks | Implemented; exact Sonnet release certification remains |
 | BAP Edge | Local PDP/PEP, normalization, bundle verification, Cedar evaluation, fail-closed enforcement | Static Go 1.23 Windows executable | Signed-bundle baseline implemented |
 | cc-filter | Fast local content/path/command blocks and prompt redaction | Embedded YAML rules and Go filtering | Implemented baseline; needs versioned bypass corpus |
-| BAP protocol | Control-plane synchronization and asynchronous data-plane audit | HTTPS JSON `/bap/v1/edge/sync` and audit extensions | Implemented baseline; persistent push remains |
+| BAP protocol | Policy synchronization, asynchronous audit, and escalated AgentGrant transactions | HTTPS JSON `/bap/v1/edge/sync`, `/bap/v1/agent-sts/issue`, `/bap/v1/agent-sts/consume` | Reference vertical slice implemented; persistent push and durable STS ledger remain |
+| Agent STS | Issues exact, short-lived, one-use capabilities only for grant-required operations | Ed25519 AgentGrant plus atomic state transition | In-memory solid example; shared transactional store required for production |
+| BAP gateway | Resource-side enforcement before a protected API | Go enforcement reference for a customized Spring Cloud Gateway filter | Request/tamper/replay contract implemented and tested |
 | BAP authentication | Rejects unregistered synchronization/audit callers | TLS 1.2+, optional verified mTLS, bearer for development | mTLS transport implemented; enrollment/revocation remains |
 | Policy engine | Local permit, explicit forbid, and default deny from central signed policy | Cedar through `cedar-go` inside Edge | Integration implemented; company corpus remains |
 | Client/model certification | Privacy-safe schema capture, representative replay, model equivalence, fixture hashes, policy version/digest binding | Edge capture plus `bap-fixture` verifier | Framework implemented; exact company captures remain |
@@ -138,8 +146,8 @@ operating-system security boundary by themselves.
 ## Synchronization and local decision contract
 
 The [OpenID AuthZEN Authorization API 1.0](https://openid.net/specs/authorization-api-1_0.html)
-is retained as the normalization model and legacy migration API. The active
-traffic path synchronizes a signed bundle, then evaluates the same
+is used as the normalized authorization model. The active traffic path
+synchronizes a signed bundle, then evaluates the same
 Subject-Action-Resource-Context shape locally:
 
 | SARC field | BAP example | Meaning |
@@ -155,8 +163,10 @@ The active control-plane/data-plane contract implements:
 - local Cedar allow/deny in BAP Edge;
 - `POST /bap/v1/audit/edge-decision` and outcome/denial audit extensions.
 
-The AuthZEN discovery/evaluation and legacy grant endpoints remain during
-migration but are no longer called for normal Edge traffic decisions.
+Escalated gateway operations use the AgentGrant flow documented in
+[AgentGrant and Agent STS](agent-grant-sts.md). Ordinary permits do not call
+the STS, and local forbids, manual-only decisions, unknown operations, stale
+policy, missing intent, and offline issuance all fail closed.
 
 ## Tool normalization and Cedar enforcement
 

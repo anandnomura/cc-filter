@@ -55,3 +55,25 @@ func TestNormalizeFineGrainedOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeGatewayOperationBindsBusinessRequest(t *testing.T) {
+	input := HookInput{SessionID: "session", ToolUseID: "tool-use", CWD: t.TempDir(), ToolName: "mcp__bap_gateway__execute", ToolInput: map[string]any{
+		"method": "post", "url": "https://api.staging.company.example/orders/deploy", "body": map[string]any{"release": "2026.08"},
+	}}
+	request, err := Normalize(input, "claude-code-local", "workload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Action.Name != "gateway.execute" || request.Resource.Properties["httpMethod"] != "POST" || request.Resource.Properties["networkHost"] != "api.staging.company.example" || request.Resource.Properties["bodyDigest"] == "" {
+		t.Fatalf("gateway request was not fully bound: %+v", request)
+	}
+}
+
+func TestNormalizeGatewayRejectsModelSuppliedGrant(t *testing.T) {
+	input := HookInput{CWD: t.TempDir(), ToolName: "mcp__bap_gateway__execute", ToolInput: map[string]any{
+		"method": "POST", "url": "https://api.staging.company.example/orders/deploy", "_bap_agent_grant": "forged",
+	}}
+	if _, err := Normalize(input, "claude-code-local", "workload"); err == nil {
+		t.Fatal("model-supplied reserved AgentGrant field was accepted")
+	}
+}

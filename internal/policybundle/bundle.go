@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,21 +24,22 @@ import (
 const SchemaVersion = 1
 
 type Source struct {
-	SchemaVersion       int           `json:"schema_version"`
-	Version             uint64        `json:"version"`
-	ValidForSeconds     int64         `json:"valid_for_seconds"`
-	RefreshAfterSeconds int64         `json:"refresh_after_seconds"`
-	MaxOfflineSeconds   int64         `json:"max_offline_seconds"`
-	MinimumEdgeVersion  string        `json:"minimum_edge_version"`
-	RevocationEpoch     uint64        `json:"revocation_epoch"`
-	ForceUpdate         bool          `json:"force_update"`
-	KillSwitch          bool          `json:"kill_switch"`
-	PolicyProfile       string        `json:"policy_profile"`
-	AllowedNetwork      []string      `json:"allowed_network_domains"`
-	ApprovedMCP         []string      `json:"approved_mcp_tools"`
-	ApprovedDelegates   []string      `json:"approved_subagent_types"`
-	PromptRules         []PromptRule  `json:"prompt_rules,omitempty"`
-	CommandRules        []CommandRule `json:"command_rules"`
+	SchemaVersion       int              `json:"schema_version"`
+	Version             uint64           `json:"version"`
+	ValidForSeconds     int64            `json:"valid_for_seconds"`
+	RefreshAfterSeconds int64            `json:"refresh_after_seconds"`
+	MaxOfflineSeconds   int64            `json:"max_offline_seconds"`
+	MinimumEdgeVersion  string           `json:"minimum_edge_version"`
+	RevocationEpoch     uint64           `json:"revocation_epoch"`
+	ForceUpdate         bool             `json:"force_update"`
+	KillSwitch          bool             `json:"kill_switch"`
+	PolicyProfile       string           `json:"policy_profile"`
+	AllowedNetwork      []string         `json:"allowed_network_domains"`
+	ApprovedMCP         []string         `json:"approved_mcp_tools"`
+	ApprovedDelegates   []string         `json:"approved_subagent_types"`
+	PromptRules         []PromptRule     `json:"prompt_rules,omitempty"`
+	CommandRules        []CommandRule    `json:"command_rules"`
+	AgentGrantRules     []AgentGrantRule `json:"agent_grant_rules,omitempty"`
 }
 
 // PromptRule is an advisory natural-language signal. It can make handling
@@ -48,6 +51,29 @@ type PromptRule struct {
 	Profiles []string `json:"profiles,omitempty"`
 	Owner    string   `json:"owner"`
 	Approval string   `json:"approval"`
+}
+
+// AgentGrantRule selects concrete operations that require an online Agent STS
+// decision. It never overrides a Cedar forbid or a manual-only command rule.
+type AgentGrantRule struct {
+	ID                  string   `json:"id"`
+	Action              string   `json:"action"`
+	Tool                string   `json:"tool"`
+	Methods             []string `json:"methods"`
+	Hosts               []string `json:"hosts"`
+	Paths               []string `json:"paths"`
+	IntentRuleIDs       []string `json:"intent_rule_ids"`
+	Audience            string   `json:"audience"`
+	MaxTTLSeconds       int64    `json:"max_ttl_seconds"`
+	MaxIntentAgeSeconds int64    `json:"max_intent_age_seconds"`
+	Profiles            []string `json:"profiles,omitempty"`
+	Owner               string   `json:"owner"`
+	Approval            string   `json:"approval"`
+}
+
+type PromptMatch struct {
+	ID     string
+	Effect string
 }
 
 type CommandRule struct {
@@ -66,24 +92,25 @@ type CommandRule struct {
 }
 
 type Bundle struct {
-	SchemaVersion       int           `json:"schema_version"`
-	Version             uint64        `json:"version"`
-	RulesDigest         string        `json:"rules_digest"`
-	IssuedAt            time.Time     `json:"issued_at"`
-	ExpiresAt           time.Time     `json:"expires_at"`
-	RefreshAfterSeconds int64         `json:"refresh_after_seconds"`
-	MaxOfflineSeconds   int64         `json:"max_offline_seconds"`
-	MinimumEdgeVersion  string        `json:"minimum_edge_version"`
-	RevocationEpoch     uint64        `json:"revocation_epoch"`
-	ForceUpdate         bool          `json:"force_update"`
-	KillSwitch          bool          `json:"kill_switch"`
-	PolicyProfile       string        `json:"policy_profile"`
-	AllowedNetwork      []string      `json:"allowed_network_domains"`
-	ApprovedMCP         []string      `json:"approved_mcp_tools"`
-	ApprovedDelegates   []string      `json:"approved_subagent_types"`
-	PromptRules         []PromptRule  `json:"prompt_rules,omitempty"`
-	CedarPolicy         string        `json:"cedar_policy"`
-	CommandRules        []CommandRule `json:"command_rules"`
+	SchemaVersion       int              `json:"schema_version"`
+	Version             uint64           `json:"version"`
+	RulesDigest         string           `json:"rules_digest"`
+	IssuedAt            time.Time        `json:"issued_at"`
+	ExpiresAt           time.Time        `json:"expires_at"`
+	RefreshAfterSeconds int64            `json:"refresh_after_seconds"`
+	MaxOfflineSeconds   int64            `json:"max_offline_seconds"`
+	MinimumEdgeVersion  string           `json:"minimum_edge_version"`
+	RevocationEpoch     uint64           `json:"revocation_epoch"`
+	ForceUpdate         bool             `json:"force_update"`
+	KillSwitch          bool             `json:"kill_switch"`
+	PolicyProfile       string           `json:"policy_profile"`
+	AllowedNetwork      []string         `json:"allowed_network_domains"`
+	ApprovedMCP         []string         `json:"approved_mcp_tools"`
+	ApprovedDelegates   []string         `json:"approved_subagent_types"`
+	PromptRules         []PromptRule     `json:"prompt_rules,omitempty"`
+	CedarPolicy         string           `json:"cedar_policy"`
+	CommandRules        []CommandRule    `json:"command_rules"`
+	AgentGrantRules     []AgentGrantRule `json:"agent_grant_rules,omitempty"`
 }
 
 type Envelope struct {
@@ -107,12 +134,17 @@ type SyncResponse struct {
 }
 
 type Decision struct {
-	Allowed       bool
-	ManualOnly    bool
-	Reason        string
-	ReasonCode    string
-	RuleIDs       []string
-	PolicyVersion string
+	Allowed               bool
+	ManualOnly            bool
+	AgentGrantRequired    bool
+	Reason                string
+	ReasonCode            string
+	RuleIDs               []string
+	PolicyVersion         string
+	GrantAudience         string
+	GrantTTL              time.Duration
+	GrantIntentMaxAge     time.Duration
+	RequiredIntentRuleIDs []string
 }
 
 func LoadSource(data []byte) (Source, error) {
@@ -136,7 +168,7 @@ func LoadSource(data []byte) (Source, error) {
 	}
 	ids := map[string]bool{}
 	for i, rule := range source.PromptRules {
-		if rule.ID == "" || rule.Effect != "manual-only-advisory" || len(rule.Patterns) == 0 || rule.Owner == "" || rule.Approval == "" {
+		if rule.ID == "" || (rule.Effect != "manual-only-advisory" && rule.Effect != "agent-grant-intent") || len(rule.Patterns) == 0 || rule.Owner == "" || rule.Approval == "" {
 			return source, fmt.Errorf("prompt rule %d is incomplete", i)
 		}
 		if ids[rule.ID] {
@@ -175,6 +207,42 @@ func LoadSource(data []byte) (Source, error) {
 			}
 		}
 	}
+	for i, rule := range source.AgentGrantRules {
+		if rule.ID == "" || rule.Action == "" || rule.Tool == "" || len(rule.Methods) == 0 || len(rule.Hosts) == 0 || len(rule.Paths) == 0 || len(rule.IntentRuleIDs) == 0 || rule.Audience == "" || rule.MaxTTLSeconds <= 0 || rule.MaxTTLSeconds > 300 || rule.MaxIntentAgeSeconds <= 0 || rule.MaxIntentAgeSeconds > 900 || rule.Owner == "" || rule.Approval == "" {
+			return source, fmt.Errorf("agent grant rule %d is incomplete", i)
+		}
+		if ids[rule.ID] {
+			return source, fmt.Errorf("duplicate policy rule id %q", rule.ID)
+		}
+		ids[rule.ID] = true
+		for _, method := range rule.Methods {
+			if method != strings.ToUpper(method) || !regexp.MustCompile(`^[A-Z]+$`).MatchString(method) {
+				return source, fmt.Errorf("agent grant rule %s has invalid HTTP method", rule.ID)
+			}
+		}
+		for _, host := range rule.Hosts {
+			if host != strings.ToLower(host) || net.ParseIP(host) != nil || !regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(host) {
+				return source, fmt.Errorf("agent grant rule %s has invalid exact DNS host %q", rule.ID, host)
+			}
+		}
+		for _, path := range rule.Paths {
+			if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "?#") {
+				return source, fmt.Errorf("agent grant rule %s has invalid exact path %q", rule.ID, path)
+			}
+		}
+		for _, intentRuleID := range rule.IntentRuleIDs {
+			found := false
+			for _, promptRule := range source.PromptRules {
+				if promptRule.ID == intentRuleID && promptRule.Effect == "agent-grant-intent" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return source, fmt.Errorf("agent grant rule %s references unknown grant intent rule %q", rule.ID, intentRuleID)
+			}
+		}
+	}
 	return source, nil
 }
 
@@ -203,6 +271,7 @@ func Build(source Source, cedarPolicy []byte, now time.Time) (Bundle, error) {
 		RevocationEpoch: source.RevocationEpoch, ForceUpdate: source.ForceUpdate, KillSwitch: source.KillSwitch,
 		PolicyProfile: source.PolicyProfile, AllowedNetwork: source.AllowedNetwork, ApprovedMCP: source.ApprovedMCP,
 		ApprovedDelegates: source.ApprovedDelegates, PromptRules: append([]PromptRule(nil), source.PromptRules...), CedarPolicy: string(cedarPolicy), CommandRules: rules,
+		AgentGrantRules: append([]AgentGrantRule(nil), source.AgentGrantRules...),
 	}, nil
 }
 
@@ -211,8 +280,20 @@ func Build(source Source, cedarPolicy []byte, now time.Time) (Bundle, error) {
 // against the eventual structured tool invocation.
 func MatchPrompt(bundle Bundle, prompt string) []string {
 	matched := make([]string, 0)
+	for _, match := range MatchPromptRules(bundle, prompt) {
+		if match.Effect == "manual-only-advisory" {
+			matched = append(matched, match.ID)
+		}
+	}
+	return matched
+}
+
+// MatchPromptRules returns signed intent classifications without retaining or
+// returning prompt text. Authorization still requires a concrete tool request.
+func MatchPromptRules(bundle Bundle, prompt string) []PromptMatch {
+	matched := make([]PromptMatch, 0)
 	for _, rule := range bundle.PromptRules {
-		if rule.Effect != "manual-only-advisory" || !profileMatches(bundle.PolicyProfile, rule.Profiles) {
+		if !profileMatches(bundle.PolicyProfile, rule.Profiles) {
 			continue
 		}
 		matchesAll := true
@@ -224,7 +305,7 @@ func MatchPrompt(bundle Bundle, prompt string) []string {
 			}
 		}
 		if matchesAll {
-			matched = append(matched, rule.ID)
+			matched = append(matched, PromptMatch{ID: rule.ID, Effect: rule.Effect})
 		}
 	}
 	return matched
@@ -328,6 +409,7 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 	ruleIDs := []string{}
 	action := request.Action.Name
 	manualOnly := false
+	agentRule := matchAgentGrantRule(bundle, request)
 	if action == "command.execute" {
 		command, _ := properties["command"].(string)
 		approved, forbidden, commandManualOnly, matched, err := classifyCommand(bundle, command, now)
@@ -389,7 +471,37 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 	if len(diagnostic.Reasons) > 0 {
 		return Decision{Reason: "An explicit signed BAP policy forbid applied", ReasonCode: "LOCAL_EXPLICIT_FORBID", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
 	}
+	if agentRule != nil {
+		return Decision{
+			AgentGrantRequired:    true,
+			Reason:                "This operation requires a short-lived, one-use BAP AgentGrant",
+			ReasonCode:            "AGENT_GRANT_REQUIRED",
+			RuleIDs:               []string{agentRule.ID},
+			PolicyVersion:         policyVersion,
+			GrantAudience:         agentRule.Audience,
+			GrantTTL:              time.Duration(agentRule.MaxTTLSeconds) * time.Second,
+			GrantIntentMaxAge:     time.Duration(agentRule.MaxIntentAgeSeconds) * time.Second,
+			RequiredIntentRuleIDs: append([]string(nil), agentRule.IntentRuleIDs...),
+		}, nil
+	}
 	return Decision{Reason: "No signed BAP policy permit matched", ReasonCode: "LOCAL_NO_MATCHING_POLICY", RuleIDs: ruleIDs, PolicyVersion: policyVersion}, nil
+}
+
+func matchAgentGrantRule(bundle Bundle, request authzen.EvaluationRequest) *AgentGrantRule {
+	tool, _ := request.Resource.Properties["tool"].(string)
+	method, _ := request.Resource.Properties["httpMethod"].(string)
+	host, _ := request.Resource.Properties["networkHost"].(string)
+	target, _ := request.Resource.Properties["target"].(string)
+	parsedTarget, _ := url.Parse(target)
+	for index := range bundle.AgentGrantRules {
+		rule := &bundle.AgentGrantRules[index]
+		if rule.Action == request.Action.Name && strings.EqualFold(rule.Tool, tool) &&
+			matchesExact(strings.ToUpper(method), rule.Methods) && matchesExact(host, rule.Hosts) && matchesExact(parsedTarget.EscapedPath(), rule.Paths) &&
+			profileMatches(bundle.PolicyProfile, rule.Profiles) {
+			return rule
+		}
+	}
+	return nil
 }
 
 func classifyCommand(bundle Bundle, command string, now time.Time) (bool, bool, bool, []string, error) {
@@ -496,7 +608,7 @@ func splitCommand(command string) ([]string, error) {
 }
 
 func cedarAttributes(properties map[string]any) map[string]any {
-	result := map[string]any{"tool": "", "target": "", "path": "", "command": "", "protected": false, "outsideWorkspace": false, "securityControl": false, "destructive": false, "privileged": false, "exfiltration": false, "obfuscated": false, "shellApproved": false, "policyProfile": "read-only", "approvedNetwork": false, "approvedMCP": false, "approvedDelegate": false, "networkHost": "", "mcpServer": "", "mcpTool": ""}
+	result := map[string]any{"tool": "", "target": "", "path": "", "command": "", "protected": false, "outsideWorkspace": false, "securityControl": false, "destructive": false, "privileged": false, "exfiltration": false, "obfuscated": false, "shellApproved": false, "policyProfile": "read-only", "approvedNetwork": false, "approvedMCP": false, "approvedDelegate": false, "networkHost": "", "mcpServer": "", "mcpTool": "", "httpMethod": "", "bodyDigest": ""}
 	for key := range result {
 		if value, ok := properties[key]; ok {
 			result[key] = value

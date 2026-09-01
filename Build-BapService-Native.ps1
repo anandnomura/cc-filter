@@ -1,7 +1,8 @@
 param(
     [ValidateSet('Windows', 'Linux', 'All')][string]$Target = 'Windows',
     [ValidateSet('amd64', 'arm64', 'All')][string]$Architecture = 'amd64',
-    [string]$Version = ''
+    [string]$Version = '',
+    [switch]$SeparateAgentSTS
 )
 
 Set-StrictMode -Version Latest
@@ -55,6 +56,16 @@ try {
         "$($hash.ToLowerInvariant())  $([IO.Path]::GetFileName($output))" | Set-Content -LiteralPath "$output.sha256" -Encoding ascii
         Write-Host "BAP Service $($buildTarget.OS)/$($buildTarget.Architecture) binary: $output"
         Write-Host "SHA-256: $hash"
+		if ($SeparateAgentSTS) {
+			$extension = if ($buildTarget.OS -eq 'windows') { '.exe' } else { '' }
+			$stsOutput = Join-Path $dist "bap-agent-sts-$($buildTarget.OS)-$($buildTarget.Architecture)$extension"
+			& $goCommand build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$Version -X main.defaultRole=agent-sts" -o $stsOutput ./bap-service/cmd
+			if ($LASTEXITCODE -ne 0) { throw "Native BAP Agent STS compilation failed for $($buildTarget.OS)/$($buildTarget.Architecture)." }
+			$stsHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $stsOutput).Hash
+			"$($stsHash.ToLowerInvariant())  $([IO.Path]::GetFileName($stsOutput))" | Set-Content -LiteralPath "$stsOutput.sha256" -Encoding ascii
+			Write-Host "Separate BAP Agent STS $($buildTarget.OS)/$($buildTarget.Architecture) binary: $stsOutput"
+			Write-Host "SHA-256: $stsHash"
+		}
     }
 } finally {
     $env:CGO_ENABLED = $previousCGO

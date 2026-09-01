@@ -11,6 +11,8 @@ import (
 
 type Config struct {
 	ServiceURL            string `yaml:"service_url"`
+	AgentSTSURL           string `yaml:"agent_sts_url,omitempty"`
+	AgentSTSIssuer        string `yaml:"agent_sts_issuer,omitempty"`
 	PublicKeyPath         string `yaml:"public_key_path"`
 	BundlePublicKeyPath   string `yaml:"bundle_public_key_path,omitempty"`
 	CABundlePath          string `yaml:"ca_bundle_path,omitempty"`
@@ -19,6 +21,7 @@ type Config struct {
 	CacheDirectory        string `yaml:"cache_directory,omitempty"`
 	StateDirectory        string `yaml:"state_directory,omitempty"`
 	APIKeyEnv             string `yaml:"api_key_env"`
+	AgentSTSAPIKeyEnv     string `yaml:"agent_sts_api_key_env,omitempty"`
 	SubjectID             string `yaml:"subject_id"`
 	TimeoutMS             int    `yaml:"timeout_ms"`
 }
@@ -43,8 +46,20 @@ func LoadConfig(path string) (Config, error) {
 	if config.APIKeyEnv == "" {
 		config.APIKeyEnv = "BAP_EDGE_API_KEY"
 	}
+	if config.AgentSTSURL == "" {
+		config.AgentSTSURL = config.ServiceURL
+	}
+	if config.AgentSTSIssuer == "" {
+		config.AgentSTSIssuer = "bap-agent-sts-local"
+	}
+	if config.AgentSTSAPIKeyEnv == "" {
+		config.AgentSTSAPIKeyEnv = config.APIKeyEnv
+	}
 	if err := validateServiceURL(config.ServiceURL); err != nil {
 		return Config{}, err
+	}
+	if err := validateServiceURL(config.AgentSTSURL); err != nil {
+		return Config{}, fmt.Errorf("agent_sts_url: %w", err)
 	}
 	if config.TimeoutMS <= 0 {
 		config.TimeoutMS = 3000
@@ -54,4 +69,5 @@ func LoadConfig(path string) (Config, error) {
 
 func (c Config) Timeout() time.Duration { return time.Duration(c.TimeoutMS) * time.Millisecond }
 
-func (c Config) APIKey() string { return os.Getenv(c.APIKeyEnv) }
+func (c Config) APIKey() string         { return os.Getenv(c.APIKeyEnv) }
+func (c Config) AgentSTSAPIKey() string { return os.Getenv(c.AgentSTSAPIKeyEnv) }

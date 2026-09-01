@@ -24,10 +24,17 @@ import (
 	"cc-filter/internal/policybundle"
 )
 
-var version = "dev"
+var (
+	version     = "dev"
+	defaultRole = "combined"
+)
 
 func main() {
-	log.Printf("starting BAP Service version=%s", version)
+	role := env("BAP_SERVICE_ROLE", defaultRole)
+	if role != "combined" && role != "agent-sts" {
+		log.Fatalf("BAP_SERVICE_ROLE must be combined or agent-sts, got %q", role)
+	}
+	log.Printf("starting BAP Service version=%s role=%s", version, role)
 	address := env("BAP_LISTEN_ADDRESS", ":8080")
 	policyPath := env("BAP_POLICY_PATH", "policies/agent-tools.cedar")
 	keyDirectory := env("BAP_STATE_DIRECTORY", env("BAP_KEY_DIRECTORY", ".bap/runtime"))
@@ -64,7 +71,7 @@ func main() {
 				log.Fatalf("initialize policy bundle signing key: %v", err)
 			}
 		}
-		log.Printf("certificates initialized; distribute CA %s, bundle public key %s, and legacy grant public key %s", caPath, bundlePublicPath, publicPath)
+		log.Printf("certificates initialized; distribute CA %s, bundle public key %s, and AgentGrant public key %s", caPath, bundlePublicPath, publicPath)
 		return
 	}
 	if env("BAP_DEVELOPMENT_TLS", "false") == "true" {
@@ -93,9 +100,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("load audit signing key: %v; run initialize-certificates first", err)
 	}
-	bundlePrivateKey, err := grants.LoadPrivateKey(bundlePrivatePath)
-	if err != nil {
-		log.Fatalf("load policy bundle signing key: %v; run initialize-certificates first", err)
+	var bundlePrivateKey ed25519.PrivateKey
+	if role != "agent-sts" {
+		bundlePrivateKey, err = grants.LoadPrivateKey(bundlePrivatePath)
+		if err != nil {
+			log.Fatalf("load policy bundle signing key: %v; run initialize-certificates first", err)
+		}
 	}
 	var auditStore server.AuditStore
 	var proposalStore server.ProposalStore
@@ -172,28 +182,75 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	bundleSourceData, err := os.ReadFile(bundleSourcePath)
-	if err != nil {
-		log.Fatalf("read policy bundle source: %v", err)
-	}
-	bundleSource, err := policybundle.LoadSource(bundleSourceData)
-	if err != nil {
-		log.Fatal(err)
-	}
-	cedarPolicy, err := os.ReadFile(policyPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	bundle, envelope, err := policybundle.Activate(bundleSource, cedarPolicy, bundlePrivateKey, "bap-bundle-local", filepath.Join(keyDirectory, "active-policy-bundle.json"), time.Now().UTC())
-	if err != nil {
-		log.Fatal(err)
+	activeBundlePath := env("BAP_ACTIVE_POLICY_BUNDLE_PATH", filepath.Join(keyDirectory, "active-policy-bundle.json"))
+	var bundle policybundle.Bundle
+	var envelope policybundle.Envelope
+	if role == "agent-sts" {
+		envelopeData, readErr := os.ReadFile(activeBundlePath)
+		if readErr != nil {
+			log.Fatalf("load signed active policy bundle for Agent STS: %v", readErr)
+		}
+		if decodeErr := json.Unmarshal(envelopeData, &envelope); decodeErr != nil {
+			log.Fatalf("decode signed active policy bundle for Agent STS: %v", decodeErr)
+		}
+		bundlePublicKey, loadErr := grants.LoadPublicKey(bundlePublicPath)
+		if loadErr != nil {
+			log.Fatalf("load policy bundle verification key: %v", loadErr)
+		}
+		bundle, err = policybundle.Verify(bundlePublicKey, envelope, time.Now().UTC())
+		if err != nil {
+			log.Fatalf("verify signed active policy bundle for Agent STS: %v", err)
+		}
+	} else {
+		bundleSourceData, readErr := os.ReadFile(bundleSourcePath)
+		if readErr != nil {
+			log.Fatalf("read policy bundle source: %v", readErr)
+		}
+		bundleSource, loadErr := policybundle.LoadSource(bundleSourceData)
+		if loadErr != nil {
+			log.Fatal(loadErr)
+		}
+		cedarPolicy, readErr := os.ReadFile(policyPath)
+		if readErr != nil {
+			log.Fatal(readErr)
+		}
+		bundle, envelope, err = policybundle.Activate(bundleSource, cedarPolicy, bundlePrivateKey, "bap-bundle-local", activeBundlePath, time.Now().UTC())
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 	apiKey := os.Getenv("BAP_EDGE_API_KEY")
-	if apiKey == "" && os.Getenv("BAP_CLIENT_CA_PATH") == "" {
+	clientCAPath := os.Getenv("BAP_CLIENT_CA_PATH")
+	if role == "combined" && apiKey == "" && clientCAPath == "" {
 		log.Fatal("BAP_EDGE_API_KEY is required unless mutual TLS client authentication is configured")
 	}
 	principal := env("BAP_EDGE_PRINCIPAL", "local-user")
-	service := server.New(engine, privateKey, "bap-service-local", "bap-edge", 30*time.Second, proposalStore, auditStore, apiKey, principal)
+	service := server.New(engine, privateKey, env("BAP_AGENT_STS_ISSUER", "bap-agent-sts-local"), "bap-edge", 30*time.Second, proposalStore, auditStore, apiKey, principal)
+	if err := service.SetRole(role); err != nil {
+		log.Fatal(err)
+	}
+	stsEdgeKey, stsGatewayKey := os.Getenv("BAP_AGENT_STS_EDGE_API_KEY"), os.Getenv("BAP_AGENT_STS_GATEWAY_API_KEY")
+	stsEdgePrincipal, stsGatewayPrincipal := os.Getenv("BAP_AGENT_STS_EDGE_PRINCIPAL"), os.Getenv("BAP_AGENT_STS_GATEWAY_PRINCIPAL")
+	configureSeparateSTSAuth := role == "agent-sts" || stsEdgeKey != "" || stsGatewayKey != "" || stsEdgePrincipal != "" || stsGatewayPrincipal != ""
+	if configureSeparateSTSAuth {
+		if stsEdgePrincipal == "" || stsGatewayPrincipal == "" {
+			log.Fatal("BAP_AGENT_STS_EDGE_PRINCIPAL and BAP_AGENT_STS_GATEWAY_PRINCIPAL are required for separate STS authentication")
+		}
+		if clientCAPath == "" && (stsEdgeKey == "" || stsGatewayKey == "") {
+			log.Fatal("separate Agent STS requires both client API keys unless mutual TLS is configured")
+		}
+		if err := service.SetAgentSTSClients(stsEdgeKey, stsEdgePrincipal, stsGatewayKey, stsGatewayPrincipal); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if databaseStore != nil {
+		if err := service.SetAgentSTSLedger(databaseStore); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("Agent STS uses the transactional MySQL one-use ledger")
+	} else {
+		log.Printf("WARNING: Agent STS uses an in-memory one-use ledger; this is local development only")
+	}
 	service.SetPolicyBundle(bundle, envelope)
 	log.Printf("BAP Service listening on %s", address)
 	certPath := os.Getenv("BAP_TLS_CERT_PATH")
@@ -201,9 +258,16 @@ func main() {
 	if (certPath == "") != (keyPath == "") {
 		log.Fatal("BAP_TLS_CERT_PATH and BAP_TLS_KEY_PATH must be configured together")
 	}
+	if role == "agent-sts" && certPath == "" {
+		log.Fatal("the separate Agent STS role requires TLS; configure BAP_TLS_CERT_PATH and BAP_TLS_KEY_PATH")
+	}
 	if certPath != "" {
 		log.Printf("TLS is enabled")
-		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+		minimumTLS := uint16(tls.VersionTLS12)
+		if role == "agent-sts" {
+			minimumTLS = tls.VersionTLS13
+		}
+		tlsConfig := &tls.Config{MinVersion: minimumTLS}
 		if clientCAPath := os.Getenv("BAP_CLIENT_CA_PATH"); clientCAPath != "" {
 			caPEM, err := os.ReadFile(clientCAPath)
 			if err != nil {

@@ -41,7 +41,8 @@ View current Service, Edge, lease, kill-switch, and audit-queue posture with:
 | Component | Location | Runs where | Purpose |
 |---|---|---|---|
 | BAP Edge | repository root and `cmd/bap-edge` | Developer workstation | Endpoint data plane, local PDP/PEP, signed-bundle verification, local Cedar decisions, workload/session binding, audit retry |
-| BAP Service | `bap-service/` | Local container for development; company network for production | Rule control plane, signed bundle distribution, version/revocation directives, audit ingestion, legacy AuthZEN migration API |
+| BAP Service | `bap-service/` | Local container for development; company network for production | Rule control plane, signed bundle distribution, Agent STS issuance/consumption, version/revocation directives, audit ingestion |
+| BAP Agent gateway | `bap-service/internal/agentgateway` reference core | Protected company ingress | Consumes one-use AgentGrants, strips BAP metadata, and forwards with gateway identity |
 | Cedar policies | `bap-service/policies/` | BAP Service only | Human-readable allow and forbid rules |
 
 ## Compilation quick reference
@@ -54,10 +55,12 @@ already checked into `vendor/` and require Go 1.23.12 or newer.
 | BAP Edge, Windows AMD64 | `.\Build-BapEdge.ps1 -Runtime Native` | `dist\bap-edge-windows-amd64.exe` |
 | BAP Edge, Windows AMD64 + Linux AMD64/ARM64 | `.\Build-BapEdge.ps1 -Runtime Native -Targets All` | `dist\bap-edge-*` |
 | BAP Service, Windows AMD64 EXE | `.\Build-BapService-Native.ps1 -Target Windows` | `dist\bap-service-windows-amd64.exe` |
+| Combined Service + separate STS Windows EXE | `.\Build-BapService-Native.ps1 -Target Windows -SeparateAgentSTS` | normal Service plus `dist\bap-agent-sts-windows-amd64.exe` |
 | BAP Service, Linux AMD64 binary | `.\Build-BapService-Native.ps1 -Target Linux -Architecture amd64` | `dist\bap-service-linux-amd64` |
 | BAP Service, Linux AMD64 + ARM64 binaries | `.\Build-BapService-Native.ps1 -Target Linux -Architecture All` | `dist\bap-service-linux-*` |
 | Default local Windows Edge + Service EXEs | `.\Build-Bap.ps1 -Runtime Native` | Windows Edge and Service under `dist\` |
 | BAP Service OCI image | `.\Build-BapService.ps1 -Runtime Docker` | local image `bap-service:local` |
+| Combined Service + separate STS OCI images | `.\Build-BapService.ps1 -Runtime Docker -SeparateAgentSTS` | `bap-service:local` and `bap-agent-sts:local` |
 | Automatic build | `.\Build-Bap.ps1 -Runtime Auto` | OCI artifacts when a runtime works; native binaries otherwise |
 
 Windows Go compiles the Windows EXEs directly and can cross-compile the Linux
@@ -144,6 +147,7 @@ that lease BAP Edge fails closed. Claude can continue reasoning without tools.
 - [MVP-0A local certification and remaining live-model gate](mvp0-certification.md)
 - [Architecture and request flow](architecture.md)
 - [Manual execution boundary for privileged database, SSH, and platform access](manual-execution-boundary.md)
+- [AgentGrant, Agent STS, trusted transport, gateway transaction, and test commands](agent-grant-sts.md)
 - [Edge YAML and service environment reference](configuration.md)
 - [MySQL storage, local operation, and enterprise database switch](storage.md)
 - [Audit trail, integrity, privacy, and operations](audit-trail.md)

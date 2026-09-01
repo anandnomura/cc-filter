@@ -79,6 +79,57 @@ func TestPolicySyncAuthenticationAndDirectives(t *testing.T) {
 	}
 }
 
+func TestAgentSTSRoleExposesOnlySTSAndOperationalEndpoints(t *testing.T) {
+	service := &Server{apiKey: "test-api-key", principal: "gateway", metrics: metrics.New(), role: "agent-sts"}
+	handler := service.Handler()
+	for _, path := range []string{"/bap/v1/edge/sync", "/access/v1/evaluation", "/bap/v1/audit/outcome"} {
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(`{}`)))
+		request.Header.Set("Authorization", "Bearer test-api-key")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("STS-only role exposed %s with status %d", path, response.Code)
+		}
+	}
+	request := httptest.NewRequest(http.MethodPost, "/bap/v1/agent-sts/issue", bytes.NewReader([]byte(`{}`)))
+	request.Header.Set("Authorization", "Bearer test-api-key")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code == http.StatusNotFound {
+		t.Fatal("STS-only role did not expose Agent STS issuance")
+	}
+}
+
+func TestAgentSTSIssueAndConsumeRequireDistinctClients(t *testing.T) {
+	service := &Server{metrics: metrics.New(), role: "agent-sts"}
+	if err := service.SetAgentSTSClients("edge-secret", "edge-device", "gateway-secret", "orders-gateway"); err != nil {
+		t.Fatal(err)
+	}
+	handler := service.Handler()
+	status := func(path, key string) int {
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(`{}`)))
+		request.Header.Set("Authorization", "Bearer "+key)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response.Code
+	}
+	if got := status("/bap/v1/agent-sts/issue", "gateway-secret"); got != http.StatusUnauthorized {
+		t.Fatalf("gateway credential called issue endpoint: status=%d", got)
+	}
+	if got := status("/bap/v1/agent-sts/consume", "edge-secret"); got != http.StatusUnauthorized {
+		t.Fatalf("Edge credential called consume endpoint: status=%d", got)
+	}
+	if got := status("/bap/v1/agent-sts/issue", "edge-secret"); got == http.StatusUnauthorized || got == http.StatusNotFound {
+		t.Fatalf("Edge credential did not authenticate to issue endpoint: status=%d", got)
+	}
+	if got := status("/bap/v1/agent-sts/consume", "gateway-secret"); got == http.StatusUnauthorized || got == http.StatusNotFound {
+		t.Fatalf("gateway credential did not authenticate to consume endpoint: status=%d", got)
+	}
+	if err := service.SetAgentSTSClients("a", "same", "b", "same"); err == nil {
+		t.Fatal("same principal was accepted for issue and consume")
+	}
+}
+
 func TestMutualTLSIdentityTakesAuthorityFromVerifiedCertificate(t *testing.T) {
 	service := &Server{apiKey: "bearer-is-not-required", principal: "bearer", metrics: metrics.New()}
 	var caller callerIdentity
@@ -108,7 +159,9 @@ func TestAuthZENEvaluationEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	auditStore := &recordingAuditStore{}
-	server := httptest.NewServer(New(engine, privateKey, "test", "bap-edge", time.Minute, nil, auditStore, "test-api-key", "test-user").Handler())
+	service := New(engine, privateKey, "test", "bap-edge", time.Minute, nil, auditStore, "test-api-key", "test-user")
+	service.legacyAuthZEN = true // internal coverage only; production handlers leave this false
+	server := httptest.NewServer(service.Handler())
 	defer server.Close()
 
 	request := authzen.EvaluationRequest{

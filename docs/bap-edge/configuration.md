@@ -22,6 +22,8 @@ The managed Windows installer writes `C:\Program Files\BAP Edge\bap-edge.yaml`:
 
 ```yaml
 service_url: "https://127.0.0.1:8443"
+agent_sts_url: "https://127.0.0.1:8443"
+agent_sts_issuer: "bap-agent-sts-local"
 public_key_path: "C:\\Program Files\\BAP Edge\\grant-public.pem"
 bundle_public_key_path: "C:\\Program Files\\BAP Edge\\bundle-public.pem"
 ca_bundle_path: "C:\\Program Files\\BAP Edge\\service-ca-bundle.pem"
@@ -31,18 +33,22 @@ subject_id: "claude-code-local"
 timeout_ms: 3000
 state_directory: ""
 api_key_env: "BAP_EDGE_API_KEY"
+agent_sts_api_key_env: "BAP_EDGE_API_KEY"
 ```
 
 | Setting | Meaning |
 |---|---|
 | `service_url` | BAP Service base URL; network URLs must use HTTPS |
-| `public_key_path` | Optional legacy Ed25519 grant verification key; not used for local traffic decisions |
+| `agent_sts_url` | Separate Agent STS URL; defaults to `service_url` for combined/local deployment |
+| `agent_sts_issuer` | Exact expected signed-token issuer; must match Service `BAP_AGENT_STS_ISSUER` |
+| `public_key_path` | Agent STS Ed25519 public key; required when signed policy can return `AGENT_GRANT_REQUIRED` |
 | `bundle_public_key_path` | Ed25519 policy-bundle verification public key |
 | `ca_bundle_path` | Private/company CA bundle; omit when system trust is sufficient |
 | `client_certificate_path`, `client_key_path` | Optional per-device mTLS identity; configure both together |
 | `subject_id` | Cedar/AuthZEN agent subject configured by the administrator |
 | `timeout_ms` | Per-service-call timeout; defaults to 3000 |
 | `state_directory` | Signed bundle/rollback state, synchronization lease, instance/session mappings, audit retry spool, and privacy-safe logs; empty uses OS user cache |
+| `agent_sts_api_key_env` | Edge-to-STS issue credential variable; defaults to `api_key_env` only for combined/local deployment |
 | `api_key_env` | Name—not value—of the dedicated credential environment variable |
 
 The secret is deliberately absent from YAML. The installer provisions
@@ -65,10 +71,11 @@ prepare but must not execute. It returns `MANUAL_EXECUTION_REQUIRED`; a matching
 `forbid` always takes precedence. Add native and `.exe` names explicitly when a
 client must be covered on both Linux/macOS and Windows.
 
-`prompt_rules` are signed, centrally distributed advisory rules. Every regular
-expression in a rule's `patterns` array must match before the rule fires. The
-only supported effect is `manual-only-advisory`. A match adds guidance to the
-`UserPromptSubmit` hook; it never returns an allow decision and never weakens
+`prompt_rules` are signed and centrally distributed. Every regular expression
+in a rule's `patterns` array must match before the rule fires. Supported effects
+are `manual-only-advisory` and `agent-grant-intent`. A match adds guidance or
+records hashed short-lived intent evidence in the `UserPromptSubmit` hook; it
+never returns an allow decision and never weakens
 `PreToolUse`. Keep the patterns broad enough to recognize normal phrasing but
 require both an operation signal and a resource/tool signal to avoid warning on
 purely explanatory questions. Prompt text is classified locally and is not

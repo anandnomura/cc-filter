@@ -42,7 +42,7 @@ forbid (
     action in [
         Action::"file.write", Action::"notebook.write", Action::"command.execute",
         Action::"network.fetch", Action::"network.search", Action::"mcp.invoke",
-        Action::"agent.delegate", Action::"skill.invoke"
+        Action::"agent.delegate", Action::"skill.invoke", Action::"gateway.execute"
     ],
     resource is ToolInvocation
 ) when { resource.policyProfile == "read-only" };

@@ -3,12 +3,15 @@ param(
     [Alias('Uninstall')][switch]$Undo,
     [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
     [string]$ServiceUrl = 'https://127.0.0.1:8443',
+    [string]$AgentSTSUrl = '',
+    [string]$AgentSTSIssuer = 'bap-agent-sts-local',
     [string]$GrantPublicKeyPath = '',
     [string]$BundlePublicKeyPath = '',
     [string]$CaBundlePath = '',
     [string]$ClientCertificatePath = '',
     [string]$ClientKeyPath = '',
     [string]$ApiKey = '',
+    [string]$AgentSTSApiKey = '',
     [string]$EdgeBinaryPath = ''
 )
 
@@ -17,6 +20,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
 $isLocalDevelopment = $ServiceUrl -eq 'https://127.0.0.1:8443'
+if (-not $AgentSTSUrl) { $AgentSTSUrl = $ServiceUrl }
+if ($AgentSTSUrl -ne $ServiceUrl -and -not $AgentSTSApiKey -and -not $ClientCertificatePath) {
+    throw 'A separate -AgentSTSUrl requires -AgentSTSApiKey or mutual TLS client credentials.'
+}
 if (($ClientCertificatePath -and -not $ClientKeyPath) -or ($ClientKeyPath -and -not $ClientCertificatePath)) {
     throw 'Provide both -ClientCertificatePath and -ClientKeyPath for mutual TLS.'
 }
@@ -162,6 +169,8 @@ if ($ClientCertificatePath) {
 }
 @"
 service_url: "$ServiceUrl"
+agent_sts_url: "$AgentSTSUrl"
+agent_sts_issuer: "$AgentSTSIssuer"
 public_key_path: "$(if ($publicKeySource) { $publicKeyPath.Replace('\', '\\') } else { '' })"
 bundle_public_key_path: "$($bundlePublicKeyPath.Replace('\', '\\'))"
 ca_bundle_path: "$($configuredCaPath.Replace('\', '\\'))"
@@ -172,9 +181,13 @@ timeout_ms: 3000
 cache_directory: ""
 state_directory: ""
 api_key_env: "BAP_EDGE_API_KEY"
+agent_sts_api_key_env: "$(if ($AgentSTSApiKey) { 'BAP_AGENT_STS_EDGE_API_KEY' } else { 'BAP_EDGE_API_KEY' })"
 "@ | Set-Content -LiteralPath $configPath -Encoding utf8
 if ($ApiKey) {
     [Environment]::SetEnvironmentVariable('BAP_EDGE_API_KEY', $ApiKey, 'Machine')
+}
+if ($AgentSTSApiKey) {
+    [Environment]::SetEnvironmentVariable('BAP_AGENT_STS_EDGE_API_KEY', $AgentSTSApiKey, 'Machine')
 }
 
 $quotedBinary = '"' + $binaryPath + '"'

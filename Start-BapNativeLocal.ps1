@@ -146,6 +146,40 @@ function Invoke-NativeHookVerification {
         }
         Write-Host "PASS: prompt $($case.Label) -> $(if ($hasAdvisory) { 'manual-only advisory' } else { 'no advisory' })"
     }
+
+    $grantPrompt = @{
+        hook_event_name = 'UserPromptSubmit'
+        session_id = $sessionID
+        cwd = $PSScriptRoot
+        prompt = 'Deploy release 2026.08 of orders to staging'
+    }
+    $grantPromptResult = (($grantPrompt | ConvertTo-Json -Compress -Depth 8) | & $EdgeBinary --config $EdgeConfig | ConvertFrom-Json)
+    if ($grantPromptResult.hookSpecificOutput.additionalContext -notmatch 'AgentGrant intent') {
+        throw 'Native AgentGrant verification failed: signed prompt intent did not match.'
+    }
+
+    $gatewayCall = @{
+        hook_event_name = 'PreToolUse'
+        session_id = $sessionID
+        tool_use_id = 'native-grant-' + [Guid]::NewGuid().ToString('N')
+        cwd = $PSScriptRoot
+        tool_name = 'mcp__bap_gateway__execute'
+        tool_input = @{
+            method = 'POST'
+            url = 'https://api.staging.company.example/orders/deploy'
+            body = @{ release = '2026.08' }
+        }
+    }
+    $grantResult = (($gatewayCall | ConvertTo-Json -Compress -Depth 12) | & $EdgeBinary --config $EdgeConfig | ConvertFrom-Json)
+    if ($grantResult.hookSpecificOutput.permissionDecision -ne 'allow' -or
+        -not $grantResult.hookSpecificOutput.updatedInput._bap_agent_grant -or
+        -not $grantResult.hookSpecificOutput.updatedInput._bap_operation) {
+        throw 'Native AgentGrant verification failed: STS grant was not verified and injected into trusted tool input.'
+    }
+    if ($grantResult.hookSpecificOutput.permissionDecisionReason -match 'eyJ') {
+        throw 'Native AgentGrant verification failed: opaque token leaked into the user-facing decision reason.'
+    }
+    Write-Host 'PASS: signed prompt intent -> exact gateway operation -> Agent STS -> trusted one-use grant injection'
 }
 
 $edgeBinary = Join-Path $PSScriptRoot 'dist\bap-edge-windows-amd64.exe'
@@ -189,8 +223,9 @@ Remove-Item Env:BAP_DATABASE_DSN_FILE -ErrorAction SilentlyContinue
 
 $caBundle = Join-Path $serviceState 'dev-ca.pem'
 $bundlePublicKey = Join-Path $serviceState 'bundle-public.pem'
+$grantPublicKey = Join-Path $serviceState 'grant-public.pem'
 $serviceURL = "https://127.0.0.1:$Port"
-if (-not (Test-Path -LiteralPath $caBundle) -or -not (Test-Path -LiteralPath $bundlePublicKey)) {
+if (-not (Test-Path -LiteralPath $caBundle) -or -not (Test-Path -LiteralPath $bundlePublicKey) -or -not (Test-Path -LiteralPath $grantPublicKey)) {
     Write-Host 'Initializing native local TLS and signing keys...'
     & $serviceBinary initialize-certificates
     if ($LASTEXITCODE -ne 0) { throw 'BAP Service certificate initialization failed.' }
@@ -198,6 +233,7 @@ if (-not (Test-Path -LiteralPath $caBundle) -or -not (Test-Path -LiteralPath $bu
 
 @"
 service_url: "$serviceURL"
+public_key_path: "$(ConvertTo-YamlPath $grantPublicKey)"
 bundle_public_key_path: "$(ConvertTo-YamlPath $bundlePublicKey)"
 ca_bundle_path: "$(ConvertTo-YamlPath $caBundle)"
 subject_id: "claude-code-local"
