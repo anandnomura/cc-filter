@@ -14,12 +14,15 @@ import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 import static org.springframework.http.HttpStatus.FORBIDDEN;
 import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
 
 @Component
 public final class BapAgentGrantGatewayFilterFactory extends AbstractGatewayFilterFactory<BapAgentGrantGatewayFilterFactory.Config> {
+    private static final Logger log = LoggerFactory.getLogger(BapAgentGrantGatewayFilterFactory.class);
     private final ObjectMapper mapper;
     private final EnvelopeValidator validator;
     private final GrantConsumer consumer;
@@ -48,7 +51,10 @@ public final class BapAgentGrantGatewayFilterFactory extends AbstractGatewayFilt
                 return reactor.core.publisher.Mono.error(new ResponseStatusException(FORBIDDEN, "BAP API envelope denied"));
             }
             return consumer.consume(envelope.agentGrant(), envelope.operation())
-                    .onErrorMap(error -> new ResponseStatusException(SERVICE_UNAVAILABLE, "Agent STS consumption failed"))
+                    .onErrorMap(error -> {
+                        log.warn("Agent STS consumption failed: {}", error.toString());
+                        return new ResponseStatusException(SERVICE_UNAVAILABLE, "Agent STS consumption failed", error);
+                    })
                     .flatMap(consumed -> {
                         byte[] backendBody = validator.backendBody(envelope);
                         String backendKey = System.getenv(config.backendApiKeyEnv);

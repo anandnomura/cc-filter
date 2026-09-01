@@ -36,10 +36,11 @@ type Backend interface {
 type Gateway struct {
 	consumer Consumer
 	backend  Backend
+	resource string
 }
 
-func New(consumer Consumer, backend Backend) *Gateway {
-	return &Gateway{consumer: consumer, backend: backend}
+func New(consumer Consumer, backend Backend, resource string) *Gateway {
+	return &Gateway{consumer: consumer, backend: backend, resource: resource}
 }
 
 func (g *Gateway) Execute(ctx context.Context, input Input) (any, error) {
@@ -49,7 +50,10 @@ func (g *Gateway) Execute(ctx context.Context, input Input) (any, error) {
 	if err := validateEnvelope(input); err != nil {
 		return nil, err
 	}
-	consumed, err := g.consumer.Consume(ctx, agentgrant.ConsumeRequest{Token: input.Grant, Operation: input.Operation})
+	if err := agentgrant.ValidateResource(g.resource); err != nil {
+		return nil, errors.New("gateway resource indicator is invalid")
+	}
+	consumed, err := g.consumer.Consume(ctx, agentgrant.ConsumeRequest{Token: input.Grant, Resource: g.resource, Operation: input.Operation})
 	if err != nil || !consumed.Consumed || consumed.GrantID == "" {
 		return nil, errors.New("AgentGrant consumption was denied")
 	}

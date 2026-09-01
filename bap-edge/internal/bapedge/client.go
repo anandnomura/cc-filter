@@ -284,7 +284,7 @@ func (c *Client) VerifyGrant(token, requestHash string) error {
 	return err
 }
 
-func (c *Client) VerifyAgentGrant(token string, operation authzen.EvaluationRequest, bundle policybundle.Bundle, audience string) error {
+func (c *Client) VerifyAgentGrant(token string, operation authzen.EvaluationRequest, bundle policybundle.Bundle, resource string) error {
 	if len(c.publicKey) == 0 {
 		return fmt.Errorf("AgentGrant verification key is not configured")
 	}
@@ -292,7 +292,7 @@ func (c *Client) VerifyAgentGrant(token string, operation authzen.EvaluationRequ
 	if err != nil {
 		return err
 	}
-	_, err = agentgrant.Verify(c.publicKey, token, agentgrant.VerifyOptions{Issuer: c.stsIssuer, Audience: audience, RequestHash: hash, PolicyVersion: bundle.Version, PolicyDigest: bundle.RulesDigest, RevocationEpoch: bundle.RevocationEpoch, Now: time.Now().UTC()})
+	_, err = agentgrant.Verify(c.publicKey, token, agentgrant.VerifyOptions{Issuer: c.stsIssuer, Audience: resource, Resource: resource, RequestHash: hash, PolicyVersion: bundle.Version, PolicyDigest: bundle.RulesDigest, RevocationEpoch: bundle.RevocationEpoch, Now: time.Now().UTC()})
 	return err
 }
 

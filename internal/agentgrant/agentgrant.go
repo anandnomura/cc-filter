@@ -15,10 +15,13 @@ import (
 	"time"
 
 	"bap-system/internal/authzen"
+	"bap-system/internal/resourceindicator"
 )
 
-const Type = "BAP-AgentGrant-EdDSA-v1"
+const Type = "BAP-AgentGrant-EdDSA-v2"
 const GatewayToolName = "mcp__bap_gateway__execute"
+
+var ErrInvalidTarget = errors.New("invalid_target")
 
 type IntentEvidence struct {
 	SessionID  string   `json:"session_id"`
@@ -42,6 +45,7 @@ type Claims struct {
 	Tool                  string   `json:"tool"`
 	Action                string   `json:"action"`
 	Resource              string   `json:"resource"`
+	OperationResourceID   string   `json:"operation_resource_id"`
 	RequestHash           string   `json:"request_hash"`
 	IntentHash            string   `json:"intent_hash"`
 	IntentRuleIDs         []string `json:"intent_rule_ids"`
@@ -57,6 +61,7 @@ type Claims struct {
 
 type IssueRequest struct {
 	EdgeInstanceID string                    `json:"edge_instance_id"`
+	Resource       string                    `json:"resource"`
 	Operation      authzen.EvaluationRequest `json:"operation"`
 	Intent         IntentEvidence            `json:"intent"`
 }
@@ -66,10 +71,12 @@ type IssueResponse struct {
 	GrantID   string `json:"grant_id"`
 	ExpiresAt string `json:"expires_at"`
 	Audience  string `json:"audience"`
+	Resource  string `json:"resource"`
 }
 
 type ConsumeRequest struct {
 	Token     string                    `json:"agent_grant"`
+	Resource  string                    `json:"resource"`
 	Operation authzen.EvaluationRequest `json:"operation"`
 }
 
@@ -82,6 +89,7 @@ type ConsumeResponse struct {
 type VerifyOptions struct {
 	Issuer          string
 	Audience        string
+	Resource        string
 	RequestHash     string
 	PolicyVersion   uint64
 	PolicyDigest    string
@@ -98,6 +106,9 @@ func (r IssueRequest) Validate() error {
 	if r.EdgeInstanceID == "" || r.Operation.Validate() != nil {
 		return errors.New("edge_instance_id and a valid operation are required")
 	}
+	if err := ValidateResource(r.Resource); err != nil {
+		return err
+	}
 	sessionID, _ := r.Operation.Context["session_id"].(string)
 	workloadID, _ := r.Operation.Context["workload_id"].(string)
 	if r.Intent.SessionID == "" || r.Intent.WorkloadID == "" || r.Intent.IntentHash == "" || len(r.Intent.RuleIDs) == 0 {
@@ -105,6 +116,14 @@ func (r IssueRequest) Validate() error {
 	}
 	if r.Intent.SessionID != sessionID || r.Intent.WorkloadID != workloadID {
 		return errors.New("intent evidence is not bound to the operation session and workload")
+	}
+	return nil
+}
+
+// ValidateResource applies BAP's mandatory single-resource RFC 8707 profile.
+func ValidateResource(resource string) error {
+	if err := resourceindicator.Validate(resource); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidTarget, err)
 	}
 	return nil
 }
@@ -152,6 +171,9 @@ func Verify(publicKey ed25519.PublicKey, token string, options VerifyOptions) (C
 	if claims.Audience != options.Audience {
 		return claims, errors.New("AgentGrant audience mismatch")
 	}
+	if options.Resource == "" || claims.Resource != options.Resource || claims.Audience != options.Resource {
+		return claims, fmt.Errorf("%w: AgentGrant resource mismatch", ErrInvalidTarget)
+	}
 	if options.Issuer == "" || claims.Issuer != options.Issuer {
 		return claims, errors.New("AgentGrant issuer mismatch")
 	}
@@ -190,8 +212,11 @@ func NewID() (string, error) {
 }
 
 func validateClaims(claims Claims) error {
-	if claims.Issuer == "" || claims.Audience == "" || claims.GrantID == "" || claims.Subject == "" || claims.Principal == "" || claims.CredentialFingerprint == "" || claims.EdgeInstanceID == "" || claims.SessionID == "" || claims.WorkloadID == "" || claims.ToolUseID == "" || claims.Tool == "" || claims.Action == "" || claims.Resource == "" || claims.RequestHash == "" || claims.IntentHash == "" || len(claims.IntentRuleIDs) == 0 || len(claims.PolicyRuleIDs) == 0 || claims.PolicyVersion == 0 || claims.PolicyDigest == "" || claims.MaxUses != 1 || claims.IssuedAt == 0 || claims.NotBefore == 0 || claims.ExpiresAt <= claims.NotBefore {
+	if claims.Issuer == "" || claims.Audience == "" || claims.GrantID == "" || claims.Subject == "" || claims.Principal == "" || claims.CredentialFingerprint == "" || claims.EdgeInstanceID == "" || claims.SessionID == "" || claims.WorkloadID == "" || claims.ToolUseID == "" || claims.Tool == "" || claims.Action == "" || claims.OperationResourceID == "" || claims.RequestHash == "" || claims.IntentHash == "" || len(claims.IntentRuleIDs) == 0 || len(claims.PolicyRuleIDs) == 0 || claims.PolicyVersion == 0 || claims.PolicyDigest == "" || claims.MaxUses != 1 || claims.IssuedAt == 0 || claims.NotBefore == 0 || claims.ExpiresAt <= claims.NotBefore {
 		return errors.New("AgentGrant claims are incomplete")
+	}
+	if err := resourceindicator.Validate(claims.Resource); err != nil || claims.Audience != claims.Resource {
+		return errors.New("AgentGrant resource and audience binding is invalid")
 	}
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -166,6 +167,10 @@ func (s *Server) issueAgentGrant(w http.ResponseWriter, r *http.Request) {
 	response, claims, err := s.agentSTS.Issue(request, caller.Principal, caller.Fingerprint, s.policyBundle, time.Now().UTC())
 	if err != nil {
 		s.metrics.Decision(false, "AGENT_GRANT_ISSUE_DENY", "agent_sts")
+		if errors.Is(err, agentgrant.ErrInvalidTarget) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_target", "reason": err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "agent_grant_denied", "reason": err.Error()})
 		return
 	}
@@ -198,6 +203,10 @@ func (s *Server) consumeAgentGrant(w http.ResponseWriter, r *http.Request) {
 	response, claims, err := s.agentSTS.ConsumeForAudiences(request, s.policyBundle, time.Now().UTC(), stsAudiencesFrom(r.Context()))
 	if err != nil {
 		s.metrics.Decision(false, "AGENT_GRANT_CONSUME_DENY", "agent_sts")
+		if errors.Is(err, agentgrant.ErrInvalidTarget) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_target", "reason": err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "invalid_agent_grant", "reason": err.Error()})
 		return
 	}

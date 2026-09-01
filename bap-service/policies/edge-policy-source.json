@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": 6,
+  "version": 7,
   "valid_for_seconds": 2592000,
   "refresh_after_seconds": 900,
   "max_offline_seconds": 3600,
@@ -21,8 +21,8 @@
     {"id":"intent.mcp.change-create","effect":"agent-grant-intent","patterns":["(?i)\\b(create|open|submit)\\b","(?i)\\bchange(?: request)?\\b","(?i)\\borders\\b"],"profiles":["standard-developer"],"owner":"change-platform","approval":"agent-grant-mvp1"}
   ],
   "agent_grant_rules": [
-    {"id":"agentgrant.orders-staging.deploy","resource_type":"api","action":"gateway.execute","tool":"mcp__bap_gateway__execute","methods":["POST"],"hosts":["api.staging.company.example"],"paths":["/orders/deploy"],"intent_rule_ids":["intent.gateway.orders-staging-deploy"],"audience":"bap-spring-gateway","max_ttl_seconds":60,"max_intent_age_seconds":300,"profiles":["standard-developer"],"owner":"orders-platform","approval":"agent-grant-mvp1"},
-    {"id":"agentgrant.mcp.change-create","resource_type":"mcp","action":"mcp.invoke","tool":"mcp__bap_mcp_pep__change_create","mcp_servers":["bap_mcp_pep"],"mcp_tools":["change_create"],"intent_rule_ids":["intent.mcp.change-create"],"audience":"bap-mcp-pep","max_ttl_seconds":60,"max_intent_age_seconds":300,"profiles":["standard-developer"],"owner":"change-platform","approval":"agent-grant-mvp1"}
+    {"id":"agentgrant.orders-staging.deploy","resource_type":"api","action":"gateway.execute","tool":"mcp__bap_gateway__execute","methods":["POST"],"hosts":["api.staging.company.example"],"paths":["/orders/deploy"],"intent_rule_ids":["intent.gateway.orders-staging-deploy"],"resource":"https://api.staging.company.example/orders/deploy","max_ttl_seconds":60,"max_intent_age_seconds":300,"profiles":["standard-developer"],"owner":"orders-platform","approval":"agent-grant-mvp1"},
+    {"id":"agentgrant.mcp.change-create","resource_type":"mcp","action":"mcp.invoke","tool":"mcp__bap_mcp_pep__change_create","mcp_servers":["bap_mcp_pep"],"mcp_tools":["change_create"],"intent_rule_ids":["intent.mcp.change-create"],"resource":"https://bap-mcp-pep.company.example/mcp","max_ttl_seconds":60,"max_intent_age_seconds":300,"profiles":["standard-developer"],"owner":"change-platform","approval":"agent-grant-mvp1"}
   ],
   "command_rules": [
     {"id":"command.git.status","executable":"git","subcommand":"status","effect":"eligible-for-permit","argument_patterns":[],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},

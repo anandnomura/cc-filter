@@ -1,5 +1,9 @@
 # Resource PEPs: API and MCP
 
+For production configuration use the [deployment guide](deployment-guide.md).
+For exact automated and human verification use the
+[protected-resource acceptance guide](protected-resource-acceptance.md).
+
 BAP Edge does not execute a protected operation merely because local policy
 matched. It obtains a short-lived, one-use AgentGrant from Agent STS. The PEP
 at the resource boundary consumes that exact grant, removes BAP transport
@@ -175,10 +179,14 @@ Replace `Native` with `Docker` or `Podman` for a container start. The BAP
 Service must configure matching consumers, for example:
 
 ```powershell
-$env:BAP_AGENT_STS_CONSUMERS_JSON = '[{"principal":"api-pep","api_key_env":"BAP_API_PEP_STS_API_KEY","audiences":["bap-spring-gateway"]},{"principal":"mcp-pep","api_key_env":"BAP_MCP_PEP_STS_API_KEY","audiences":["bap-mcp-pep"]}]'
+$env:BAP_AGENT_STS_CONSUMERS_JSON = '[{"principal":"api-pep","api_key_env":"BAP_API_PEP_STS_API_KEY","audiences":["https://api.staging.company.example/orders/deploy"]},{"principal":"mcp-pep","api_key_env":"BAP_MCP_PEP_STS_API_KEY","audiences":["https://bap-mcp-pep.company.example/mcp"]}]'
+$env:BAP_API_PEP_RESOURCE = 'https://api.staging.company.example/orders/deploy'
 ```
 
 Production should source secrets from the approved workload identity or secret
 manager rather than literal shell values, use TLS for every STS/backend hop,
 and replace the MVP in-memory Agent STS ledger with a shared transactional
 store before running multiple Service replicas.
+
+This reference is not yet COAZ-MCP Binding 1.0 conformant. The exact standards
+status and missing requirements are documented in the acceptance guide.

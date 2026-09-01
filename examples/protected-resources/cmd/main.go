@@ -29,8 +29,12 @@ func main() {
 		write(w, http.StatusOK, map[string]int64{"api_calls": apiCalls.Load(), "mcp_calls": mcpCalls.Load()})
 	})
 	mux.HandleFunc("POST /orders/deploy", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+apiKey || r.Header.Get("Idempotency-Key") == "" {
-			write(w, http.StatusUnauthorized, map[string]string{"error": "api_pep_identity_required"})
+		if r.Header.Get("Authorization") != "Bearer "+apiKey {
+			write(w, http.StatusUnauthorized, map[string]string{"error": "api_pep_backend_identity_invalid"})
+			return
+		}
+		if r.Header.Get("Idempotency-Key") == "" {
+			write(w, http.StatusUnauthorized, map[string]string{"error": "api_pep_grant_id_required"})
 			return
 		}
 		var body map[string]any

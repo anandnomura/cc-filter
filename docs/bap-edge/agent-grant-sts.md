@@ -94,10 +94,32 @@ The example signed rule is intentionally narrow:
 - host: `api.staging.company.example`;
 - exact path: `/orders/deploy`;
 - required intent: orders + staging + deploy/release/rollout;
-- audience: `bap-spring-gateway`;
+- RFC 8707 resource and token audience:
+  `https://api.staging.company.example/orders/deploy`;
 - maximum lifetime: 60 seconds;
 - maximum age of matching intent evidence: 300 seconds;
 - maximum uses: one.
+
+## Strict resource indicators
+
+BAP applies a mandatory, single-resource profile of
+[RFC 8707](https://www.rfc-editor.org/rfc/rfc8707.html) to its custom Agent STS
+protocol. Signed policy assigns one HTTPS `resource` URI to each AgentGrant
+rule. Edge derives the issue parameter from that policy rather than model
+input. The issued token's `aud` and `resource` claims must both equal the URI.
+The API or MCP PEP repeats its independently configured URI when consuming the
+grant, and its authenticated STS identity must be allowed for that URI.
+
+Missing, malformed, non-HTTPS, query-bearing, fragment-bearing, unknown, or
+mismatched values fail with `invalid_target` before grant reservation or the
+atomic consume transition. The resource URI identifies one protected API or
+MCP server; the separate operation hash continues to bind the exact method,
+path/tool, and parameters.
+
+BAP does not expose a separate OAuth authorization endpoint. Its issue endpoint
+combines authorization and token issuance, and both issue and consume mandate
+the resource parameter. If a standard OAuth authorization endpoint is added,
+it must apply the same validator and policy mapping.
 
 The example gateway enforcement core is in
 `bap-service/internal/agentgateway`. It is the behavior that a Spring Cloud
@@ -114,7 +136,7 @@ Claude subscription/API key, or the company Claude wrapper. Run it from an
 ordinary PowerShell window at the repository root:
 
 ```powershell
-cd C:\Users\User\pyprj\bap-system
+cd C:\path\to\bap-system
 .\Build-Bap.ps1 -Runtime Native
 .\Test-AgentGrant.ps1 -Runtime Native
 .\Start-BapNativeLocal.ps1 -VerifyOnly -Port 18443
@@ -150,9 +172,10 @@ placed in a process argument. Its temporary request file is deleted by the
 test. The retained run directory shown at the end contains logs, keys, policy
 state, and the signed audit—not the temporary bearer-token file.
 
-`Test-AgentGrant.ps1` supplies the deeper negative suite: wrong/stale intent,
-wrong audience, host/path/method or body tampering, policy digest/version and
-revocation-epoch changes, expiry, replay, reserved-field injection, and proof
+`Test-AgentGrant.ps1` supplies the deeper negative suite: missing, malformed,
+query-bearing, and cross-resource indicators; wrong/stale intent; wrong PEP
+identity; host/path/method or body tampering; policy digest/version and
+revocation-epoch changes; expiry; replay; reserved-field injection; and proof
 that the example gateway does not invoke its backend before atomic consume.
 The live native test exercises Edge plus the real STS HTTP endpoint; gateway
 forwarding remains an integration test until the managed Spring Cloud Gateway

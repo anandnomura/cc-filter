@@ -16,9 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"bap-system/bap-service/internal/agentsts"
 	"bap-system/bap-service/internal/audit"
 	"bap-system/bap-service/internal/cedaradapter"
 	"bap-system/bap-service/internal/metrics"
+	"bap-system/internal/agentgrant"
 	"bap-system/internal/auditwire"
 	"bap-system/internal/authzen"
 	"bap-system/internal/grants"
@@ -127,6 +129,31 @@ func TestAgentSTSIssueAndConsumeRequireDistinctClients(t *testing.T) {
 	}
 	if err := service.SetAgentSTSClients("a", "same", "b", "same"); err == nil {
 		t.Fatal("same principal was accepted for issue and consume")
+	}
+}
+
+func TestAgentSTSIssueReturnsInvalidTargetForMissingResource(t *testing.T) {
+	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	service := &Server{
+		metrics: metrics.New(), policyBundle: policybundle.Bundle{Version: 1},
+		agentSTS: agentsts.New(privateKey, "issuer"),
+	}
+	requestBody := agentgrant.IssueRequest{
+		EdgeInstanceID: "edge-1",
+		Operation: authzen.EvaluationRequest{
+			Subject: authzen.Entity{Type: "agent", ID: "claude"}, Action: authzen.Action{Name: "gateway.execute"},
+			Resource: authzen.Entity{Type: "tool-invocation", ID: "operation", Properties: map[string]any{"tool": agentgrant.GatewayToolName}},
+			Context:  map[string]any{"session_id": "session", "workload_id": "workload", "tool_use_id": "tool"},
+		},
+		Intent: agentgrant.IntentEvidence{SessionID: "session", WorkloadID: "workload", IntentHash: "sha256:intent", RuleIDs: []string{"intent"}, CapturedAt: time.Now().Unix()},
+	}
+	body, _ := json.Marshal(requestBody)
+	request := httptest.NewRequest(http.MethodPost, "/bap/v1/agent-sts/issue", bytes.NewReader(body))
+	request = request.WithContext(context.WithValue(request.Context(), callerContextKey{}, callerIdentity{Principal: "edge", Fingerprint: "sha256:edge"}))
+	response := httptest.NewRecorder()
+	service.issueAgentGrant(response, request)
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte(`"error":"invalid_target"`)) {
+		t.Fatalf("status=%d body=%s, want invalid_target", response.Code, response.Body.String())
 	}
 }
 

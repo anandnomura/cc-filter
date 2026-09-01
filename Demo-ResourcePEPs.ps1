@@ -62,13 +62,14 @@ $env:BAP_MCP_PEP_STS_API_KEY = New-Secret
 $env:BAP_ORDERS_BACKEND_API_KEY = New-Secret
 $env:BAP_MCP_UPSTREAM_API_KEY = New-Secret
 $env:BAP_AGENT_STS_CONSUMERS_JSON = @(
-    @{ principal='demo-api-pep'; api_key_env='BAP_API_PEP_STS_API_KEY'; audiences=@('bap-spring-gateway') },
-    @{ principal='demo-mcp-pep'; api_key_env='BAP_MCP_PEP_STS_API_KEY'; audiences=@('bap-mcp-pep') }
+    @{ principal='demo-api-pep'; api_key_env='BAP_API_PEP_STS_API_KEY'; audiences=@('https://api.staging.company.example/orders/deploy') },
+    @{ principal='demo-mcp-pep'; api_key_env='BAP_MCP_PEP_STS_API_KEY'; audiences=@('https://bap-mcp-pep.company.example/mcp') }
 ) | ConvertTo-Json -Compress
 $env:BAP_STATE_DIRECTORY = $serviceState
 $env:BAP_POLICY_PATH = Join-Path $PSScriptRoot 'bap-service\policies\agent-tools.cedar'
 $env:BAP_BUNDLE_SOURCE_PATH = Join-Path $PSScriptRoot 'bap-service\policies\edge-policy-source.json'
-$env:BAP_LISTEN_ADDRESS = "127.0.0.1:$ServicePort"
+$serviceListenHost = if ($Runtime -eq 'Native') { '127.0.0.1' } else { '0.0.0.0' }
+$env:BAP_LISTEN_ADDRESS = "${serviceListenHost}:$ServicePort"
 $env:BAP_DEVELOPMENT_TLS = 'true'
 Remove-Item Env:BAP_DATABASE_DSN, Env:BAP_DATABASE_DSN_FILE -ErrorAction SilentlyContinue
 

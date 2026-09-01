@@ -37,5 +37,8 @@ The rename is outside the repository and therefore creates no Git change.
 Start with:
 
 - [Resource PEP build, test, start, and demo commands](resource-peps.md)
+- [Complete development and production deployment guide](deployment-guide.md)
+- [Protected-resource automated and human acceptance guide](protected-resource-acceptance.md)
+- [Native, Docker, Podman and production operator runbooks](../runbooks/README.md)
 - [BAP Edge operator guide](../bap-edge/README.md)
 - [AgentGrant and Agent STS](../bap-edge/agent-grant-sts.md)

@@ -1,6 +1,7 @@
 {
   "listen_address": "127.0.0.1:8765",
   "agent_sts_url": "https://127.0.0.1:8443",
+  "resource": "https://bap-mcp-pep.company.example/mcp",
   "agent_sts_api_key_env": "BAP_MCP_PEP_STS_API_KEY",
   "agent_sts_ca_path": ".bap/native-local/service-state/dev-ca.pem",
   "upstream_url": "http://127.0.0.1:18765/mcp",

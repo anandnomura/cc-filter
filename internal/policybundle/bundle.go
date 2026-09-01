@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"bap-system/internal/authzen"
+	"bap-system/internal/resourceindicator"
 	cedar "github.com/cedar-policy/cedar-go"
 )
 
@@ -66,7 +67,7 @@ type AgentGrantRule struct {
 	MCPServers          []string `json:"mcp_servers,omitempty"`
 	MCPTools            []string `json:"mcp_tools,omitempty"`
 	IntentRuleIDs       []string `json:"intent_rule_ids"`
-	Audience            string   `json:"audience"`
+	Resource            string   `json:"resource"`
 	MaxTTLSeconds       int64    `json:"max_ttl_seconds"`
 	MaxIntentAgeSeconds int64    `json:"max_intent_age_seconds"`
 	Profiles            []string `json:"profiles,omitempty"`
@@ -145,6 +146,7 @@ type Decision struct {
 	RuleIDs               []string
 	PolicyVersion         string
 	GrantAudience         string
+	GrantResource         string
 	GrantTTL              time.Duration
 	GrantIntentMaxAge     time.Duration
 	RequiredIntentRuleIDs []string
@@ -211,8 +213,11 @@ func LoadSource(data []byte) (Source, error) {
 		}
 	}
 	for i, rule := range source.AgentGrantRules {
-		if rule.ID == "" || (rule.ResourceType != "api" && rule.ResourceType != "mcp") || rule.Action == "" || rule.Tool == "" || len(rule.IntentRuleIDs) == 0 || rule.Audience == "" || rule.MaxTTLSeconds <= 0 || rule.MaxTTLSeconds > 300 || rule.MaxIntentAgeSeconds <= 0 || rule.MaxIntentAgeSeconds > 900 || rule.Owner == "" || rule.Approval == "" {
+		if rule.ID == "" || (rule.ResourceType != "api" && rule.ResourceType != "mcp") || rule.Action == "" || rule.Tool == "" || len(rule.IntentRuleIDs) == 0 || rule.Resource == "" || rule.MaxTTLSeconds <= 0 || rule.MaxTTLSeconds > 300 || rule.MaxIntentAgeSeconds <= 0 || rule.MaxIntentAgeSeconds > 900 || rule.Owner == "" || rule.Approval == "" {
 			return source, fmt.Errorf("agent grant rule %d is incomplete", i)
+		}
+		if err := resourceindicator.Validate(rule.Resource); err != nil {
+			return source, fmt.Errorf("agent grant rule %s has invalid resource: %w", rule.ID, err)
 		}
 		if rule.ResourceType == "api" && (len(rule.Methods) == 0 || len(rule.Hosts) == 0 || len(rule.Paths) == 0 || len(rule.MCPServers) != 0 || len(rule.MCPTools) != 0) {
 			return source, fmt.Errorf("agent grant API rule %s must define only exact methods, hosts, and paths", rule.ID)
@@ -396,6 +401,11 @@ func Verify(publicKey ed25519.PublicKey, envelope Envelope, now time.Time) (Bund
 	if _, err := cedar.NewPolicyListFromBytes("bundle.cedar", []byte(bundle.CedarPolicy)); err != nil {
 		return bundle, errors.New("policy bundle contains invalid Cedar")
 	}
+	for _, rule := range bundle.AgentGrantRules {
+		if err := resourceindicator.Validate(rule.Resource); err != nil {
+			return bundle, fmt.Errorf("policy bundle contains invalid AgentGrant resource for %s: %w", rule.ID, err)
+		}
+	}
 	return bundle, nil
 }
 
@@ -493,7 +503,8 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 			ReasonCode:            "AGENT_GRANT_REQUIRED",
 			RuleIDs:               []string{agentRule.ID},
 			PolicyVersion:         policyVersion,
-			GrantAudience:         agentRule.Audience,
+			GrantAudience:         agentRule.Resource,
+			GrantResource:         agentRule.Resource,
 			GrantTTL:              time.Duration(agentRule.MaxTTLSeconds) * time.Second,
 			GrantIntentMaxAge:     time.Duration(agentRule.MaxIntentAgeSeconds) * time.Second,
 			RequiredIntentRuleIDs: append([]string(nil), agentRule.IntentRuleIDs...),
@@ -509,7 +520,8 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 			ReasonCode:            "AGENT_GRANT_REQUIRED",
 			RuleIDs:               []string{agentRule.ID},
 			PolicyVersion:         policyVersion,
-			GrantAudience:         agentRule.Audience,
+			GrantAudience:         agentRule.Resource,
+			GrantResource:         agentRule.Resource,
 			GrantTTL:              time.Duration(agentRule.MaxTTLSeconds) * time.Second,
 			GrantIntentMaxAge:     time.Duration(agentRule.MaxIntentAgeSeconds) * time.Second,
 			RequiredIntentRuleIDs: append([]string(nil), agentRule.IntentRuleIDs...),

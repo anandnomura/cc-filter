@@ -23,6 +23,7 @@ import (
 
 	"bap-system/internal/agentgrant"
 	"bap-system/internal/authzen"
+	"bap-system/internal/resourceindicator"
 )
 
 const ProtocolVersion = "2025-06-18"
@@ -30,6 +31,7 @@ const ProtocolVersion = "2025-06-18"
 type Config struct {
 	ListenAddress                        string       `json:"listen_address"`
 	STSURL                               string       `json:"agent_sts_url"`
+	Resource                             string       `json:"resource"`
 	STSAPIKeyEnv                         string       `json:"agent_sts_api_key_env"`
 	STSCAPath                            string       `json:"agent_sts_ca_path,omitempty"`
 	UpstreamURL                          string       `json:"upstream_url"`
@@ -69,6 +71,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if config.STSAPIKeyEnv == "" || config.UpstreamKeyEnv == "" {
 		return config, errors.New("MCP PEP credential environment-variable names are required")
+	}
+	if err := resourceindicator.Validate(config.Resource); err != nil {
+		return config, fmt.Errorf("invalid MCP PEP resource indicator: %w", err)
 	}
 	for _, raw := range []string{config.STSURL, config.UpstreamURL} {
 		parsed, parseErr := url.Parse(raw)
@@ -308,7 +313,7 @@ func validateOperation(policy ToolPolicy, arguments map[string]any, operation au
 }
 
 func (s *Server) consume(ctx context.Context, token string, operation authzen.EvaluationRequest) (string, error) {
-	payload, _ := json.Marshal(agentgrant.ConsumeRequest{Token: token, Operation: operation})
+	payload, _ := json.Marshal(agentgrant.ConsumeRequest{Token: token, Resource: s.config.Resource, Operation: operation})
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(s.config.STSURL, "/")+"/bap/v1/agent-sts/consume", bytes.NewReader(payload))
 	if err != nil {
 		return "", err

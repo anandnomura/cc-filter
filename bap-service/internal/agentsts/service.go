@@ -66,6 +66,9 @@ func (s *Service) Issue(request agentgrant.IssueRequest, principal, fingerprint 
 	if !decision.AgentGrantRequired {
 		return agentgrant.IssueResponse{}, empty, fmt.Errorf("operation is not eligible for AgentGrant: %s", decision.ReasonCode)
 	}
+	if request.Resource != decision.GrantResource {
+		return agentgrant.IssueResponse{}, empty, fmt.Errorf("%w: requested resource is not authorized by policy", agentgrant.ErrInvalidTarget)
+	}
 	if request.Intent.CapturedAt <= 0 || capturedAt.After(now.Add(30*time.Second)) || decision.GrantIntentMaxAge <= 0 || now.Sub(capturedAt) > decision.GrantIntentMaxAge {
 		return agentgrant.IssueResponse{}, empty, errors.New("intent evidence is stale or not yet valid")
 	}
@@ -86,11 +89,11 @@ func (s *Service) Issue(request agentgrant.IssueRequest, principal, fingerprint 
 	toolUseID, _ := request.Operation.Context["tool_use_id"].(string)
 	tool, _ := request.Operation.Resource.Properties["tool"].(string)
 	claims := agentgrant.Claims{
-		Issuer: s.issuer, Audience: decision.GrantAudience, GrantID: grantID,
+		Issuer: s.issuer, Audience: decision.GrantResource, Resource: decision.GrantResource, GrantID: grantID,
 		Subject: request.Operation.Subject.ID, Principal: principal, CredentialFingerprint: fingerprint,
 		EdgeInstanceID: request.EdgeInstanceID, SessionID: sessionID, WorkloadID: workloadID,
 		ToolUseID: toolUseID, Tool: tool, Action: request.Operation.Action.Name,
-		Resource: request.Operation.Resource.ID, RequestHash: requestHash,
+		OperationResourceID: request.Operation.Resource.ID, RequestHash: requestHash,
 		IntentHash: request.Intent.IntentHash, IntentRuleIDs: matchedIntent, PolicyRuleIDs: append([]string(nil), decision.RuleIDs...),
 		PolicyVersion: bundle.Version, PolicyDigest: bundle.RulesDigest, RevocationEpoch: bundle.RevocationEpoch,
 		MaxUses: 1, IssuedAt: now.Unix(), NotBefore: now.Add(-2 * time.Second).Unix(), ExpiresAt: now.Add(decision.GrantTTL).Unix(),
@@ -102,7 +105,7 @@ func (s *Service) Issue(request agentgrant.IssueRequest, principal, fingerprint 
 	if err := s.ledger.Reserve(grantID, time.Unix(claims.ExpiresAt, 0).UTC(), now); err != nil {
 		return agentgrant.IssueResponse{}, empty, err
 	}
-	return agentgrant.IssueResponse{Token: token, GrantID: grantID, ExpiresAt: time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339), Audience: claims.Audience}, claims, nil
+	return agentgrant.IssueResponse{Token: token, GrantID: grantID, ExpiresAt: time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339), Audience: claims.Audience, Resource: claims.Resource}, claims, nil
 }
 
 func (s *Service) Consume(request agentgrant.ConsumeRequest, bundle policybundle.Bundle, now time.Time) (agentgrant.ConsumeResponse, agentgrant.Claims, error) {
@@ -117,6 +120,9 @@ func (s *Service) ConsumeForAudiences(request agentgrant.ConsumeRequest, bundle 
 	if request.Token == "" || request.Operation.Validate() != nil {
 		return agentgrant.ConsumeResponse{}, empty, errors.New("a valid operation and AgentGrant are required")
 	}
+	if err := agentgrant.ValidateResource(request.Resource); err != nil {
+		return agentgrant.ConsumeResponse{}, empty, err
+	}
 	hash, err := agentgrant.HashOperation(request.Operation)
 	if err != nil {
 		return agentgrant.ConsumeResponse{}, empty, err
@@ -125,11 +131,14 @@ func (s *Service) ConsumeForAudiences(request agentgrant.ConsumeRequest, bundle 
 	if err != nil || !decision.AgentGrantRequired {
 		return agentgrant.ConsumeResponse{}, empty, errors.New("operation is no longer AgentGrant eligible")
 	}
-	if len(allowedAudiences) > 0 && !containsFold(allowedAudiences, decision.GrantAudience) {
+	if request.Resource != decision.GrantResource {
+		return agentgrant.ConsumeResponse{}, empty, fmt.Errorf("%w: requested resource is not authorized by policy", agentgrant.ErrInvalidTarget)
+	}
+	if len(allowedAudiences) > 0 && !containsExact(allowedAudiences, decision.GrantResource) {
 		return agentgrant.ConsumeResponse{}, empty, errors.New("resource PEP is not authorized for this AgentGrant audience")
 	}
 	claims, err := agentgrant.Verify(s.privateKey.Public().(ed25519.PublicKey), request.Token, agentgrant.VerifyOptions{
-		Issuer: s.issuer, Audience: decision.GrantAudience, RequestHash: hash, PolicyVersion: bundle.Version,
+		Issuer: s.issuer, Audience: decision.GrantResource, Resource: request.Resource, RequestHash: hash, PolicyVersion: bundle.Version,
 		PolicyDigest: bundle.RulesDigest, RevocationEpoch: bundle.RevocationEpoch, Now: now,
 	})
 	if err != nil {
@@ -141,9 +150,9 @@ func (s *Service) ConsumeForAudiences(request agentgrant.ConsumeRequest, bundle 
 	return agentgrant.ConsumeResponse{Consumed: true, GrantID: claims.GrantID}, claims, nil
 }
 
-func containsFold(values []string, wanted string) bool {
+func containsExact(values []string, wanted string) bool {
 	for _, value := range values {
-		if strings.EqualFold(strings.TrimSpace(value), wanted) {
+		if strings.TrimSpace(value) == wanted {
 			return true
 		}
 	}

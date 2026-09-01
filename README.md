@@ -10,7 +10,12 @@ operations use the short-lived, one-use
 
 **Start here:** [BAP System map](docs/bap-system/README.md),
 [BAP Edge operator guide](docs/bap-edge/README.md), and
-[resource PEP commands](docs/bap-system/resource-peps.md).
+[resource PEP commands](docs/bap-system/resource-peps.md). Production operators
+should use the [complete deployment guide](docs/bap-system/deployment-guide.md),
+and testers should use the
+[protected-resource acceptance guide](docs/bap-system/protected-resource-acceptance.md).
+Exact start, verify, stop and rollback procedures for every runtime are in the
+[operator runbooks](docs/runbooks/README.md).
 
 Run `Test-PolicyRollout.ps1` for the focused command/bypass and signed rollout
 gate, or `Test-MVP0.ps1` for the complete certification; MVP-0 invokes the

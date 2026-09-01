@@ -9,7 +9,14 @@ if ($state.runtime -eq 'Native') {
         if ($process) { Stop-Process -Id $processID -Force }
     }
 } else {
-    foreach ($container in @($state.containers)) { & $state.engine rm --force $container 2>$null | Out-Null }
+    $logDirectory = Join-Path $PSScriptRoot '.bap\resource-peps'
+    foreach ($container in @($state.containers)) {
+        $enginePath = (Get-Command $state.engine -ErrorAction Stop | Select-Object -First 1).Source
+        Start-Process -FilePath $enginePath -ArgumentList @('logs', $container) -Wait -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $logDirectory "$container.container.log") `
+            -RedirectStandardError (Join-Path $logDirectory "$container.container.err.log")
+        & $state.engine rm --force $container 2>$null | Out-Null
+    }
 }
 [IO.File]::Delete($statePath)
 Write-Host 'PASS: resource PEPs stopped.'

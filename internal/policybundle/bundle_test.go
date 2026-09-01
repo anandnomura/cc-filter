@@ -125,7 +125,7 @@ func TestProtectedMCPRuleRequiresGrantWithoutRelaxingReadOnlyForbid(t *testing.T
 		}},
 	}
 	decision, err := Authorize(bundle, request, now.Add(time.Minute))
-	if err != nil || decision.Allowed || !decision.AgentGrantRequired || decision.GrantAudience != "bap-mcp-pep" {
+	if err != nil || decision.Allowed || !decision.AgentGrantRequired || decision.GrantAudience != "https://bap-mcp-pep.company.example/mcp" || decision.GrantResource != decision.GrantAudience {
 		t.Fatalf("protected MCP call should require its exact AgentGrant: decision=%#v err=%v", decision, err)
 	}
 	bundle.PolicyProfile = "read-only"

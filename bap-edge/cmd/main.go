@@ -206,11 +206,14 @@ func main() {
 		if loadErr != nil {
 			deny("AgentGrant denied: no recent matching intent is bound to this session")
 		}
-		issued, issueErr := client.IssueAgentGrant(context.Background(), agentgrant.IssueRequest{EdgeInstanceID: edgeInstanceID, Operation: request, Intent: intent}, operationTrace)
+		issued, issueErr := client.IssueAgentGrant(context.Background(), agentgrant.IssueRequest{EdgeInstanceID: edgeInstanceID, Resource: decision.GrantResource, Operation: request, Intent: intent}, operationTrace)
 		if issueErr != nil {
 			deny("BAP Agent STS denied this operation: " + issueErr.Error())
 		}
-		if verifyErr := client.VerifyAgentGrant(issued.Token, request, bundle, decision.GrantAudience); verifyErr != nil {
+		if issued.Resource != decision.GrantResource || issued.Audience != decision.GrantResource {
+			deny("BAP Edge rejected an Agent STS response for a different resource")
+		}
+		if verifyErr := client.VerifyAgentGrant(issued.Token, request, bundle, decision.GrantResource); verifyErr != nil {
 			deny("BAP Edge rejected the Agent STS response: " + verifyErr.Error())
 		}
 		agentGrantToken = issued.Token

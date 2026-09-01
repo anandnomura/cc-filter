@@ -4,6 +4,8 @@ param(
     [string]$AgentSTSCAPath = '',
     [string]$OrdersBackendURL = 'http://127.0.0.1:19090',
     [string]$MCPUpstreamURL = 'http://127.0.0.1:19090/mcp',
+    [string]$APIResource = 'https://api.staging.company.example/orders/deploy',
+    [string]$MCPResource = 'https://bap-mcp-pep.company.example/mcp',
     [ValidateRange(1, 65535)][int]$APIPort = 9443,
     [ValidateRange(1, 65535)][int]$MCPPort = 8765,
     [switch]$NoBuild
@@ -25,15 +27,22 @@ $mavenCommand = Get-Command mvn -ErrorAction SilentlyContinue | Select-Object -F
 if ($Runtime -eq 'Auto') {
     if ($goCommand -and $mavenCommand) { $Runtime = 'Native' } else { $Runtime = Get-BapContainerEngine -Runtime Auto }
 }
+if ($Runtime -eq 'Podman' -and [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    $userModeNetworking = ([string](& podman machine inspect --format '{{.UserModeNetworking}}' 2>$null | Select-Object -First 1)).Trim()
+    if ($userModeNetworking -ne 'true') {
+        throw "Podman on Windows requires user-mode networking for host/container PEP tests. Run: podman machine stop; podman machine set --user-mode-networking=true; podman machine start"
+    }
+}
 if (-not $NoBuild) { & (Join-Path $PSScriptRoot 'Build-ResourcePEPs.ps1') -Runtime $Runtime }
 
 function Convert-LoopbackForContainer([string]$Value) {
     return $Value.Replace('127.0.0.1', 'host.containers.internal').Replace('localhost', 'host.containers.internal')
 }
-function Write-MCPRuntimeConfig([string]$STSURL, [string]$UpstreamURL, [string]$CAPath, [string]$OutputPath, [string]$ListenAddress, [bool]$AllowDevelopmentHostGateway = $false) {
+function Write-MCPRuntimeConfig([string]$STSURL, [string]$UpstreamURL, [string]$Resource, [string]$CAPath, [string]$OutputPath, [string]$ListenAddress, [bool]$AllowDevelopmentHostGateway = $false) {
     $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'bap-mcp-pep\mcp-pep.example.json') -Raw | ConvertFrom-Json
     $config.listen_address = $ListenAddress
     $config.agent_sts_url = $STSURL
+    $config.resource = $Resource
     $config.agent_sts_ca_path = $CAPath
     $config.upstream_url = $UpstreamURL
     $config | Add-Member -NotePropertyName allow_development_cleartext_host_gateway -NotePropertyValue $AllowDevelopmentHostGateway -Force
@@ -43,10 +52,11 @@ function Write-MCPRuntimeConfig([string]$STSURL, [string]$UpstreamURL, [string]$
 
 if ($Runtime -eq 'Native') {
     $mcpConfig = Join-Path $stateDirectory 'mcp-pep.runtime.json'
-    Write-MCPRuntimeConfig -STSURL $AgentSTSURL -UpstreamURL $MCPUpstreamURL -CAPath $AgentSTSCAPath -OutputPath $mcpConfig -ListenAddress "127.0.0.1:$MCPPort"
+    Write-MCPRuntimeConfig -STSURL $AgentSTSURL -UpstreamURL $MCPUpstreamURL -Resource $MCPResource -CAPath $AgentSTSCAPath -OutputPath $mcpConfig -ListenAddress "127.0.0.1:$MCPPort"
     $env:BAP_AGENT_STS_URL = $AgentSTSURL
     $env:BAP_AGENT_STS_CA_PATH = $AgentSTSCAPath
     $env:BAP_ORDERS_BACKEND_URL = $OrdersBackendURL
+    $env:BAP_API_PEP_RESOURCE = $APIResource
     $env:BAP_API_PEP_PORT = "$APIPort"
     $apiLog = Join-Path $stateDirectory 'api-gateway.log'
     $mcpLog = Join-Path $stateDirectory 'mcp-pep.log'
@@ -60,14 +70,17 @@ if ($Runtime -eq 'Native') {
     $containerMCP = Convert-LoopbackForContainer $MCPUpstreamURL
     $mcpConfig = Join-Path $stateDirectory 'mcp-pep.container.json'
     $containerCA = if ($AgentSTSCAPath) { '/certs/sts-ca.pem' } else { '' }
-    Write-MCPRuntimeConfig -STSURL $containerSTS -UpstreamURL $containerMCP -CAPath $containerCA -OutputPath $mcpConfig -ListenAddress '0.0.0.0:8765' -AllowDevelopmentHostGateway $true
+    $hostGateway = @('--add-host', 'host.containers.internal:host-gateway')
+    Write-MCPRuntimeConfig -STSURL $containerSTS -UpstreamURL $containerMCP -Resource $MCPResource -CAPath $containerCA -OutputPath $mcpConfig -ListenAddress '0.0.0.0:8765' -AllowDevelopmentHostGateway $true
     $commonCA = @(); if ($AgentSTSCAPath) { $resolvedCA = (Resolve-Path -LiteralPath $AgentSTSCAPath).Path; $commonCA = @('--volume', "${resolvedCA}:/certs/sts-ca.pem:ro") }
     & $engine run --detach --name bap-api-gateway-springcloud --publish "${APIPort}:9443" `
+        @hostGateway `
         --env BAP_API_PEP_STS_API_KEY --env BAP_ORDERS_BACKEND_API_KEY `
-        --env "BAP_AGENT_STS_URL=$containerSTS" --env "BAP_AGENT_STS_CA_PATH=$containerCA" --env "BAP_ORDERS_BACKEND_URL=$containerBackend" `
+        --env "BAP_AGENT_STS_URL=$containerSTS" --env "BAP_AGENT_STS_CA_PATH=$containerCA" --env "BAP_API_PEP_RESOURCE=$APIResource" --env "BAP_ORDERS_BACKEND_URL=$containerBackend" `
         @commonCA bap-api-gateway-springcloud:local | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Start Spring Cloud API Gateway PEP container failed.' }
     & $engine run --detach --name bap-mcp-pep --publish "${MCPPort}:8765" `
+        @hostGateway `
         --env BAP_MCP_PEP_STS_API_KEY --env BAP_MCP_UPSTREAM_API_KEY `
         --volume "${mcpConfig}:/app/mcp-pep.json:ro" @commonCA bap-mcp-pep:local --config /app/mcp-pep.json | Out-Null
     if ($LASTEXITCODE -ne 0) { & $engine rm --force bap-api-gateway-springcloud | Out-Null; throw 'Start BAP MCP PEP container failed.' }

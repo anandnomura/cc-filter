@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 
 $packages = @(
     './internal/agentgrant',
+    './internal/resourceindicator',
     './bap-service/internal/agentsts',
     './bap-service/internal/agentgateway',
     './bap-edge/internal/bapedge'
@@ -30,6 +31,6 @@ if ($Runtime -eq 'Native' -or ($Runtime -eq 'Auto' -and $goCommand)) {
     if ($LASTEXITCODE -ne 0) { throw 'AgentGrant container test suite failed.' }
 }
 
-Write-Host 'PASS: intent, exact request, audience, policy digest, epoch, expiry, and one-use bindings.'
+Write-Host 'PASS: mandatory single-resource indicator, exact request, audience, intent, policy, expiry, and one-use bindings.'
 Write-Host 'PASS: gateway rejects tampering/replay and invokes the backend only after atomic consumption.'
 Write-Host 'NEXT: run .\Start-BapNativeLocal.ps1 -VerifyOnly -Port 18443 to prove live Edge -> Agent STS issue/consume/replay.'

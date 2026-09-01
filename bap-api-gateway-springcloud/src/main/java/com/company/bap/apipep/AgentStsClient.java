@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.databind.JsonNode;
 import io.netty.handler.ssl.SslContextBuilder;
 import java.io.File;
+import java.net.URI;
 import java.util.Map;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,11 +18,23 @@ import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 final class AgentStsClient implements GrantConsumer {
     private final WebClient client;
     private final String apiKey;
+    private final String resource;
 
     AgentStsClient(BapPepProperties properties, WebClient.Builder builder) throws Exception {
         this.apiKey = System.getenv(properties.agentStsApiKeyEnv());
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("API PEP Agent STS credential is unavailable in " + properties.agentStsApiKeyEnv());
+        }
+        this.resource = properties.resource();
+        URI resourceUri;
+        try {
+            resourceUri = URI.create(resource);
+        } catch (RuntimeException error) {
+            throw new IllegalStateException("API PEP resource indicator is malformed", error);
+        }
+        if (!resourceUri.isAbsolute() || !"https".equals(resourceUri.getScheme()) || resourceUri.getHost() == null
+                || resourceUri.getUserInfo() != null || resourceUri.getQuery() != null || resourceUri.getFragment() != null) {
+            throw new IllegalStateException("API PEP requires one absolute HTTPS resource indicator without query or fragment");
         }
         if (properties.agentStsCaPath() != null && !properties.agentStsCaPath().isBlank()) {
             var ssl = SslContextBuilder.forClient().trustManager(new File(properties.agentStsCaPath())).build();
@@ -36,7 +49,7 @@ final class AgentStsClient implements GrantConsumer {
                 .uri("/bap/v1/agent-sts/consume")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("agent_grant", token, "operation", operation))
+                .bodyValue(Map.of("agent_grant", token, "resource", resource, "operation", operation))
                 .retrieve()
                 .bodyToMono(ConsumeResponse.class)
                 .filter(response -> response.consumed && response.grantId != null && !response.grantId.isBlank())

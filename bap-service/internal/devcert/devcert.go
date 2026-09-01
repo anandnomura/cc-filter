@@ -14,7 +14,8 @@ import (
 	"time"
 )
 
-// Ensure creates a development-only CA and a localhost server certificate.
+// Ensure creates a development-only CA and a server certificate for native and
+// container-to-host local testing.
 func Ensure(directory string) (certPath, keyPath, caPath string, err error) {
 	certPath = filepath.Join(directory, "tls-cert.pem")
 	keyPath = filepath.Join(directory, "tls-key.pem")
@@ -48,7 +49,7 @@ func Ensure(directory string) (certPath, keyPath, caPath string, err error) {
 	serverTemplate := &x509.Certificate{
 		SerialNumber: serial(), Subject: pkix.Name{CommonName: "localhost"},
 		NotBefore: now.Add(-time.Minute), NotAfter: now.AddDate(0, 1, 0),
-		DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
+		DNSNames: []string{"localhost", "host.containers.internal"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, KeyUsage: x509.KeyUsageDigitalSignature,
 	}
 	serverDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, caTemplate, serverPublic, caPrivate)
@@ -95,5 +96,9 @@ func compatibleCertificate(path string) bool {
 		return false
 	}
 	certificate, err := x509.ParseCertificate(block.Bytes)
-	return err == nil && certificate.PublicKeyAlgorithm == x509.ECDSA && time.Now().Add(24*time.Hour).Before(certificate.NotAfter)
+	return err == nil &&
+		certificate.PublicKeyAlgorithm == x509.ECDSA &&
+		certificate.VerifyHostname("localhost") == nil &&
+		certificate.VerifyHostname("host.containers.internal") == nil &&
+		time.Now().Add(24*time.Hour).Before(certificate.NotAfter)
 }

@@ -8,6 +8,8 @@ import (
 	"bap-system/internal/agentgrant"
 )
 
+const testResource = "https://api.staging.company.example/orders/deploy"
+
 type fakeConsumer struct {
 	calls int
 	err   error
@@ -34,7 +36,7 @@ func (b *fakeBackend) Execute(_ context.Context, _, _ string, _ any, idempotency
 
 func TestGatewayConsumesBeforeBackendAndStripsTransport(t *testing.T) {
 	consumer, backend := &fakeConsumer{}, &fakeBackend{}
-	gateway := New(consumer, backend)
+	gateway := New(consumer, backend, testResource)
 	input := testInput()
 	if _, err := gateway.Execute(context.Background(), input); err != nil {
 		t.Fatal(err)
@@ -46,7 +48,7 @@ func TestGatewayConsumesBeforeBackendAndStripsTransport(t *testing.T) {
 
 func TestGatewayRejectsTamperingBeforeConsumption(t *testing.T) {
 	consumer, backend := &fakeConsumer{}, &fakeBackend{}
-	gateway := New(consumer, backend)
+	gateway := New(consumer, backend, testResource)
 	input := testInput()
 	input.Body = map[string]any{"release": "changed"}
 	if _, err := gateway.Execute(context.Background(), input); err == nil {
@@ -59,7 +61,7 @@ func TestGatewayRejectsTamperingBeforeConsumption(t *testing.T) {
 
 func TestGatewayDoesNotCallBackendWhenConsumptionFails(t *testing.T) {
 	consumer, backend := &fakeConsumer{err: errors.New("replay")}, &fakeBackend{}
-	if _, err := New(consumer, backend).Execute(context.Background(), testInput()); err == nil {
+	if _, err := New(consumer, backend, testResource).Execute(context.Background(), testInput()); err == nil {
 		t.Fatal("failed consumption was accepted")
 	}
 	if backend.calls != 0 {
