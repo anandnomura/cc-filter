@@ -18,23 +18,17 @@ import (
 
 	"bap-system/bap-service/internal/agentsts"
 	"bap-system/bap-service/internal/audit"
-	"bap-system/bap-service/internal/cedaradapter"
 	"bap-system/bap-service/internal/metrics"
 	"bap-system/internal/agentgrant"
 	"bap-system/internal/auditwire"
 	"bap-system/internal/authzen"
-	"bap-system/internal/grants"
 	"bap-system/internal/policybundle"
 	"bap-system/internal/tracecontext"
 )
 
 type Server struct {
-	engine              *cedaradapter.Engine
 	privateKey          ed25519.PrivateKey
 	issuer              string
-	audience            string
-	grantTTL            time.Duration
-	proposals           ProposalStore
 	audit               AuditStore
 	apiKey              string
 	principal           string
@@ -52,7 +46,7 @@ type Server struct {
 	stsConsumeAPIKey    string
 	stsConsumePrincipal string
 	stsConsumers        []AgentSTSConsumer
-	legacyAuthZEN       bool
+	mtlsPrincipals      map[string]bool
 }
 
 // AgentSTSConsumer is one independently authenticated resource PEP. Audiences
@@ -63,10 +57,6 @@ type AgentSTSConsumer struct {
 	Audiences []string
 }
 
-type ProposalStore interface {
-	Record(authzen.EvaluationRequest) (string, error)
-}
-
 type AuditStore interface {
 	Append(audit.Event) error
 	HasEvent(string) (bool, error)
@@ -74,8 +64,8 @@ type AuditStore interface {
 	Ready(context.Context) error
 }
 
-func New(engine *cedaradapter.Engine, privateKey ed25519.PrivateKey, issuer, audience string, grantTTL time.Duration, proposalStore ProposalStore, auditStore AuditStore, apiKey, principal string) *Server {
-	return &Server{engine: engine, privateKey: privateKey, issuer: issuer, audience: audience, grantTTL: grantTTL, proposals: proposalStore, audit: auditStore, apiKey: apiKey, principal: principal, metrics: metrics.New(), agentSTS: agentsts.New(privateKey, issuer), role: "combined", stsIssueAPIKey: apiKey, stsIssuePrincipal: principal, stsConsumeAPIKey: apiKey, stsConsumePrincipal: principal}
+func New(privateKey ed25519.PrivateKey, issuer string, auditStore AuditStore, apiKey, principal string) *Server {
+	return &Server{privateKey: privateKey, issuer: issuer, audit: auditStore, apiKey: apiKey, principal: principal, metrics: metrics.New(), agentSTS: agentsts.New(privateKey, issuer), role: "combined", stsIssueAPIKey: apiKey, stsIssuePrincipal: principal, stsConsumeAPIKey: apiKey, stsConsumePrincipal: principal}
 }
 
 func (s *Server) SetRole(role string) error {
@@ -130,6 +120,26 @@ func (s *Server) SetAgentSTSLedger(ledger agentsts.Ledger) error {
 	return nil
 }
 
+// SetMTLSPrincipals restricts general Edge/control-plane APIs to explicitly
+// enrolled certificate common names. TLS CA validation remains mandatory at
+// the listener; this registry adds pilot-scale enrollment and revocation.
+func (s *Server) SetMTLSPrincipals(principals []string) error {
+	if len(principals) == 0 {
+		return fmt.Errorf("at least one mTLS principal is required")
+	}
+	registry := make(map[string]bool, len(principals))
+	for _, value := range principals {
+		principal := strings.TrimSpace(value)
+		key := strings.ToLower(principal)
+		if principal == "" || registry[key] {
+			return fmt.Errorf("mTLS principal registry contains an empty or duplicate principal")
+		}
+		registry[key] = true
+	}
+	s.mtlsPrincipals = registry
+	return nil
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -142,11 +152,6 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("POST /bap/v1/audit/outcome", s.authenticate(http.HandlerFunc(s.auditOutcome)))
 		mux.Handle("POST /bap/v1/audit/edge-denial", s.authenticate(http.HandlerFunc(s.auditEdgeDenial)))
 		mux.Handle("POST /bap/v1/audit/edge-decision", s.authenticate(http.HandlerFunc(s.auditEdgeDecision)))
-		if s.legacyAuthZEN {
-			mux.HandleFunc("GET /.well-known/authzen-configuration", s.metadata)
-			mux.Handle("POST /access/v1/evaluation", s.authenticate(http.HandlerFunc(s.evaluate)))
-			mux.Handle("POST /bap/v1/audit/grant-consumption", s.authenticate(http.HandlerFunc(s.auditGrantConsumption)))
-		}
 	}
 	return requestLogging(s.traceRequest(s.observeHTTP(mux)))
 }
@@ -321,128 +326,6 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) metadata(w http.ResponseWriter, r *http.Request) {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	baseURL := scheme + "://" + r.Host
-	writeJSON(w, http.StatusOK, map[string]any{
-		"policy_decision_point":      baseURL,
-		"access_evaluation_endpoint": baseURL + "/access/v1/evaluation",
-		"capabilities":               []string{},
-	})
-}
-
-func (s *Server) evaluate(w http.ResponseWriter, r *http.Request) {
-	caller := callerFrom(r.Context())
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	var request authzen.EvaluationRequest
-	if err := decoder.Decode(&request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request", "error_description": err.Error()})
-		return
-	}
-	if err := request.Validate(); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request", "error_description": err.Error()})
-		return
-	}
-
-	allowed, reason, reasonCode, err := s.engine.Authorize(request)
-	if err != nil {
-		s.logEvent("cedar_error", r, map[string]any{"error": err.Error()})
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "evaluation_error"})
-		return
-	}
-	decisionID := randomID()
-	context := map[string]any{"reason": reason, "reason_code": reasonCode, "decision_id": decisionID, "policy_version": s.engine.PolicyVersion()}
-	if !allowed && reasonCode == "NO_MATCHING_POLICY" && s.proposals != nil {
-		if proposalID, err := s.proposals.Record(request); err != nil {
-			s.logEvent("proposal_record_error", r, map[string]any{"error": err.Error()})
-		} else {
-			context["proposal_id"] = proposalID
-			context["proposal_status"] = "pending_admin_review"
-		}
-	}
-	if allowed {
-		hash, err := grants.HashRequest(request)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "grant_error"})
-			return
-		}
-		now := time.Now().UTC()
-		sessionID, _ := request.Context["session_id"].(string)
-		claims := grants.Claims{
-			Issuer: s.issuer, Audience: s.audience, Subject: request.Subject.ID,
-			Action: request.Action.Name, Resource: request.Resource.ID, SessionID: sessionID,
-			RequestHash: hash, DecisionID: decisionID, Principal: caller.Principal,
-			CredentialFingerprint: caller.Fingerprint, PolicyVersion: s.engine.PolicyVersion(), IssuedAt: now.Unix(), ExpiresAt: now.Add(s.grantTTL).Unix(),
-		}
-		grant, err := grants.Sign(s.privateKey, claims)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "grant_error"})
-			return
-		}
-		context["grant"] = grant
-		context["grant_type"] = grants.Type
-		context["expires_at"] = time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339)
-	}
-	if s.audit != nil {
-		allowedValue := allowed
-		event := authorizationEvent(request, "pdp_evaluation", decisionID, reasonCode, s.engine.PolicyVersion(), &allowedValue, caller, traceFrom(r.Context()))
-		if err := s.audit.Append(event); err != nil {
-			s.metrics.AuditFailure("authorization_decision")
-			s.logEvent("audit_write_error", r, map[string]any{"operation": "authorization_decision", "error": err.Error()})
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "audit_unavailable"})
-			return
-		}
-	}
-	s.metrics.Decision(allowed, reasonCode, "pdp_evaluation")
-	s.logEvent("authorization_committed", r, map[string]any{
-		"decision_id": decisionID, "action": request.Action.Name, "resource_type": request.Resource.Type,
-		"decision": map[bool]string{true: "allow", false: "deny"}[allowed], "reason_code": reasonCode,
-		"policy_version": s.engine.PolicyVersion(),
-	})
-	writeJSON(w, http.StatusOK, authzen.Decision{Decision: allowed, Context: context})
-}
-
-func (s *Server) auditGrantConsumption(w http.ResponseWriter, r *http.Request) {
-	if s.audit == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
-		return
-	}
-	caller := callerFrom(r.Context())
-	var consumption auditwire.GrantConsumption
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&consumption); err != nil || consumption.Request.Validate() != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
-		return
-	}
-	hash, err := grants.HashRequest(consumption.Request)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
-		return
-	}
-	publicKey := s.privateKey.Public().(ed25519.PublicKey)
-	claims, err := grants.Verify(publicKey, consumption.Grant, s.audience, hash, time.Now().UTC())
-	if err != nil || claims.CredentialFingerprint != caller.Fingerprint || claims.Principal != caller.Principal || claims.PolicyVersion != s.engine.PolicyVersion() {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "invalid_grant"})
-		return
-	}
-	allowed := true
-	event := authorizationEvent(consumption.Request, "cached_grant_consumption", claims.DecisionID, "CACHED_SIGNED_GRANT", claims.PolicyVersion, &allowed, caller, traceFrom(r.Context()))
-	if err := s.audit.Append(event); err != nil {
-		s.metrics.AuditFailure("grant_consumption")
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
-		return
-	}
-	s.metrics.Decision(true, "CACHED_SIGNED_GRANT", "cached_grant_consumption")
-	s.logEvent("authorization_committed", r, map[string]any{"decision_id": claims.DecisionID, "decision": "allow", "reason_code": "CACHED_SIGNED_GRANT", "source": "cached_grant_consumption", "policy_version": claims.PolicyVersion})
-	writeJSON(w, http.StatusOK, map[string]any{"recorded": true, "event_id": event.EventID})
-}
-
 func (s *Server) auditOutcome(w http.ResponseWriter, r *http.Request) {
 	if s.audit == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})
@@ -607,8 +490,9 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			certificate := r.TLS.PeerCertificates[0]
 			sum := sha256.Sum256(certificate.Raw)
 			principal := certificate.Subject.CommonName
-			if principal == "" {
-				principal = "mtls-device"
+			if principal == "" || (len(s.mtlsPrincipals) > 0 && !s.mtlsPrincipals[strings.ToLower(principal)]) {
+				s.rejectAuthentication(w, r)
+				return
 			}
 			caller := callerIdentity{Principal: principal, Fingerprint: "sha256:" + hex.EncodeToString(sum[:])}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerContextKey{}, caller)))
@@ -783,8 +667,7 @@ func (s *Server) observeHTTP(next http.Handler) http.Handler {
 
 func metricRoute(path string) string {
 	switch path {
-	case "/healthz", "/readyz", "/metrics", "/.well-known/authzen-configuration",
-		"/access/v1/evaluation", "/bap/v1/agent-sts/issue", "/bap/v1/agent-sts/consume", "/bap/v1/audit/grant-consumption", "/bap/v1/audit/outcome", "/bap/v1/audit/edge-denial":
+	case "/healthz", "/readyz", "/metrics", "/bap/v1/agent-sts/issue", "/bap/v1/agent-sts/consume", "/bap/v1/audit/outcome", "/bap/v1/audit/edge-denial":
 		return path
 	default:
 		return "other"

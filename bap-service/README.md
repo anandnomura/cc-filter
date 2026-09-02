@@ -6,9 +6,10 @@ control plane; the BAP Edge local PDP/PEP remains in the repository root.
 It validates and signs centrally owned Cedar/registry bundles, distributes
 version, refresh, revocation, forced-update, and kill-switch state over HTTPS,
 and ingests asynchronously delivered Edge decisions and outcomes. MySQL stores
-the transactional signed/hash-chained audit trail. The legacy AuthZEN decision
-and grant endpoints remain during migration but are not in the Edge traffic hot
-path.
+the transactional signed/hash-chained audit trail. The obsolete central
+AuthZEN/Cedar decision and legacy grant endpoints have been removed. BAP Edge
+is the only tool-call policy decision point; escalated operations use the
+separate AgentGrant STS contract.
 
 See the [network deployment guide](../docs/bap-edge/network-deployment.md),
 [MySQL storage guide](../docs/bap-edge/storage.md),

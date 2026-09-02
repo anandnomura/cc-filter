@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"bap-system/bap-service/internal/audit"
-	"bap-system/bap-service/internal/cedaradapter"
 	"bap-system/bap-service/internal/devcert"
 	"bap-system/bap-service/internal/mysqlstore"
 	"bap-system/bap-service/internal/proposals"
@@ -47,6 +46,13 @@ func main() {
 	bundlePrivatePath := env("BAP_BUNDLE_PRIVATE_KEY_PATH", filepath.Join(keyDirectory, "bundle-private.pem"))
 	bundlePublicPath := env("BAP_BUNDLE_PUBLIC_KEY_PATH", filepath.Join(keyDirectory, "bundle-public.pem"))
 	bundleSourcePath := env("BAP_BUNDLE_SOURCE_PATH", "policies/edge-policy-source.json")
+	activeBundlePath := env("BAP_ACTIVE_POLICY_BUNDLE_PATH", filepath.Join(keyDirectory, "active-policy-bundle.json"))
+	policyMode := env("BAP_POLICY_MODE", map[bool]string{true: "verified", false: "activate"}[role == "agent-sts"])
+	databaseDSN := envOrFile("BAP_DATABASE_DSN", "BAP_DATABASE_DSN_FILE")
+	deploymentMode := env("BAP_DEPLOYMENT_MODE", "development")
+	edgeMTLSPrincipals := splitPrincipals(os.Getenv("BAP_EDGE_MTLS_PRINCIPALS"))
+	certPath, keyPath := os.Getenv("BAP_TLS_CERT_PATH"), os.Getenv("BAP_TLS_KEY_PATH")
+	clientCAPath := os.Getenv("BAP_CLIENT_CA_PATH")
 
 	if err := os.MkdirAll(keyDirectory, 0700); err != nil {
 		log.Fatal(err)
@@ -74,11 +80,50 @@ func main() {
 		log.Printf("certificates initialized; distribute CA %s, bundle public key %s, and AgentGrant public key %s", caPath, bundlePublicPath, publicPath)
 		return
 	}
-	if env("BAP_DEVELOPMENT_TLS", "false") == "true" {
-		certPath, keyPath, caPath, err := devcert.Ensure(keyDirectory)
-		if err != nil {
-			log.Fatalf("generate local development TLS certificate: %v", err)
+	if len(os.Args) > 2 && os.Args[1] == "policy" && os.Args[2] == "activate" {
+		bundlePrivateKey, loadErr := grants.LoadPrivateKey(bundlePrivatePath)
+		if loadErr != nil {
+			log.Fatalf("load policy bundle signing key: %v", loadErr)
 		}
+		bundleSourceData, readErr := os.ReadFile(bundleSourcePath)
+		if readErr != nil {
+			log.Fatalf("read policy bundle source: %v", readErr)
+		}
+		bundleSource, loadErr := policybundle.LoadSource(bundleSourceData)
+		if loadErr != nil {
+			log.Fatal(loadErr)
+		}
+		cedarPolicy, readErr := os.ReadFile(policyPath)
+		if readErr != nil {
+			log.Fatal(readErr)
+		}
+		bundle, _, activateErr := policybundle.Activate(bundleSource, cedarPolicy, bundlePrivateKey, env("BAP_BUNDLE_KEY_ID", "bap-bundle-local"), activeBundlePath, time.Now().UTC())
+		if activateErr != nil {
+			log.Fatal(activateErr)
+		}
+		log.Printf("signed policy bundle version=%d digest=%s path=%s", bundle.Version, bundle.RulesDigest, activeBundlePath)
+		return
+	}
+	if len(os.Args) == 1 {
+		if err := validateDeployment(deploymentSettings{
+			Mode: deploymentMode, Role: role, InstanceID: os.Getenv("BAP_INSTANCE_ID"), PolicyMode: policyMode,
+			DatabaseConfigured: databaseDSN != "", DatabaseAllowInsecure: env("BAP_DATABASE_ALLOW_INSECURE", "false") == "true",
+			DatabaseCAPath: os.Getenv("BAP_DATABASE_TLS_CA_PATH"), DatabaseTLSServerName: os.Getenv("BAP_DATABASE_TLS_SERVER_NAME"),
+			DevelopmentTLS: env("BAP_DEVELOPMENT_TLS", "false") == "true", AllowKeyGeneration: env("BAP_ALLOW_KEY_GENERATION", "false") == "true",
+			TLSCertPath: certPath, TLSKeyPath: keyPath, ClientCAPath: clientCAPath, EdgeMTLSPrincipals: edgeMTLSPrincipals,
+			STSEdgePrincipal: os.Getenv("BAP_AGENT_STS_EDGE_PRINCIPAL"), STSGatewayPrincipal: os.Getenv("BAP_AGENT_STS_GATEWAY_PRINCIPAL"),
+			STSConsumersJSON: os.Getenv("BAP_AGENT_STS_CONSUMERS_JSON"),
+		}); err != nil {
+			log.Fatalf("unsafe %s deployment refused: %v", deploymentMode, err)
+		}
+		log.Printf("deployment mode=%s instance=%s policy_mode=%s", deploymentMode, env("BAP_INSTANCE_ID", "development-single-instance"), policyMode)
+	}
+	if env("BAP_DEVELOPMENT_TLS", "false") == "true" {
+		generatedCertPath, generatedKeyPath, caPath, ensureErr := devcert.Ensure(keyDirectory)
+		if ensureErr != nil {
+			log.Fatalf("generate local development TLS certificate: %v", ensureErr)
+		}
+		certPath, keyPath = generatedCertPath, generatedKeyPath
 		_ = os.Setenv("BAP_TLS_CERT_PATH", certPath)
 		_ = os.Setenv("BAP_TLS_KEY_PATH", keyPath)
 		log.Printf("local development TLS CA: %s", caPath)
@@ -101,16 +146,15 @@ func main() {
 		log.Fatalf("load audit signing key: %v; run initialize-certificates first", err)
 	}
 	var bundlePrivateKey ed25519.PrivateKey
-	if role != "agent-sts" {
+	if role != "agent-sts" && policyMode == "activate" {
 		bundlePrivateKey, err = grants.LoadPrivateKey(bundlePrivatePath)
 		if err != nil {
 			log.Fatalf("load policy bundle signing key: %v; run initialize-certificates first", err)
 		}
 	}
 	var auditStore server.AuditStore
-	var proposalStore server.ProposalStore
 	var databaseStore *mysqlstore.Store
-	if databaseDSN := envOrFile("BAP_DATABASE_DSN", "BAP_DATABASE_DSN_FILE"); databaseDSN != "" {
+	if databaseDSN != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		databaseStore, err = mysqlstore.Open(ctx, mysqlstore.Config{
 			DSN: databaseDSN, CABundlePath: os.Getenv("BAP_DATABASE_TLS_CA_PATH"),
@@ -125,7 +169,7 @@ func main() {
 			log.Fatalf("initialize MySQL storage: %v", err)
 		}
 		defer databaseStore.Close()
-		auditStore, proposalStore = databaseStore, databaseStore
+		auditStore = databaseStore
 		log.Printf("MySQL storage initialized")
 	} else {
 		log.Printf("WARNING: BAP_DATABASE_DSN is unset; using development-only JSONL storage")
@@ -133,7 +177,7 @@ func main() {
 		if err := fileAuditStore.Initialize(); err != nil {
 			log.Fatalf("audit chain failed startup verification: %v", err)
 		}
-		auditStore, proposalStore = fileAuditStore, proposals.New(proposalPath)
+		auditStore = fileAuditStore
 	}
 
 	if len(os.Args) > 2 && os.Args[1] == "proposals" && os.Args[2] == "list" {
@@ -178,20 +222,15 @@ func main() {
 		}
 		return
 	}
-	engine, err := cedaradapter.New(policyPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	activeBundlePath := env("BAP_ACTIVE_POLICY_BUNDLE_PATH", filepath.Join(keyDirectory, "active-policy-bundle.json"))
 	var bundle policybundle.Bundle
 	var envelope policybundle.Envelope
-	if role == "agent-sts" {
+	if policyMode == "verified" {
 		envelopeData, readErr := os.ReadFile(activeBundlePath)
 		if readErr != nil {
-			log.Fatalf("load signed active policy bundle for Agent STS: %v", readErr)
+			log.Fatalf("load signed active policy bundle: %v", readErr)
 		}
 		if decodeErr := json.Unmarshal(envelopeData, &envelope); decodeErr != nil {
-			log.Fatalf("decode signed active policy bundle for Agent STS: %v", decodeErr)
+			log.Fatalf("decode signed active policy bundle: %v", decodeErr)
 		}
 		bundlePublicKey, loadErr := grants.LoadPublicKey(bundlePublicPath)
 		if loadErr != nil {
@@ -199,7 +238,7 @@ func main() {
 		}
 		bundle, err = policybundle.Verify(bundlePublicKey, envelope, time.Now().UTC())
 		if err != nil {
-			log.Fatalf("verify signed active policy bundle for Agent STS: %v", err)
+			log.Fatalf("verify signed active policy bundle: %v", err)
 		}
 	} else {
 		bundleSourceData, readErr := os.ReadFile(bundleSourcePath)
@@ -214,18 +253,22 @@ func main() {
 		if readErr != nil {
 			log.Fatal(readErr)
 		}
-		bundle, envelope, err = policybundle.Activate(bundleSource, cedarPolicy, bundlePrivateKey, "bap-bundle-local", activeBundlePath, time.Now().UTC())
+		bundle, envelope, err = policybundle.Activate(bundleSource, cedarPolicy, bundlePrivateKey, env("BAP_BUNDLE_KEY_ID", "bap-bundle-local"), activeBundlePath, time.Now().UTC())
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 	apiKey := os.Getenv("BAP_EDGE_API_KEY")
-	clientCAPath := os.Getenv("BAP_CLIENT_CA_PATH")
 	if role == "combined" && apiKey == "" && clientCAPath == "" {
 		log.Fatal("BAP_EDGE_API_KEY is required unless mutual TLS client authentication is configured")
 	}
 	principal := env("BAP_EDGE_PRINCIPAL", "local-user")
-	service := server.New(engine, privateKey, env("BAP_AGENT_STS_ISSUER", "bap-agent-sts-local"), "bap-edge", 30*time.Second, proposalStore, auditStore, apiKey, principal)
+	service := server.New(privateKey, env("BAP_AGENT_STS_ISSUER", "bap-agent-sts-local"), auditStore, apiKey, principal)
+	if len(edgeMTLSPrincipals) > 0 {
+		if err := service.SetMTLSPrincipals(edgeMTLSPrincipals); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if err := service.SetRole(role); err != nil {
 		log.Fatal(err)
 	}
@@ -277,8 +320,6 @@ func main() {
 	}
 	service.SetPolicyBundle(bundle, envelope)
 	log.Printf("BAP Service listening on %s", address)
-	certPath := os.Getenv("BAP_TLS_CERT_PATH")
-	keyPath := os.Getenv("BAP_TLS_KEY_PATH")
 	if (certPath == "") != (keyPath == "") {
 		log.Fatal("BAP_TLS_CERT_PATH and BAP_TLS_KEY_PATH must be configured together")
 	}

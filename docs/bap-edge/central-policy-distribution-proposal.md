@@ -50,8 +50,10 @@ BAP Edge data plane: local PDP + PEP
 Claude tool execution
 ```
 
-The legacy AuthZEN evaluation/grant endpoints remain during migration and for
-compatibility tests. They are not used by the new Edge traffic decision path.
+The legacy central AuthZEN evaluation/grant endpoints were removed. Regression
+tests require those routes to return 404, leaving one tool-call authorization
+path: signed policy evaluated by BAP Edge. AgentGrant issuance and consumption
+are separate resource-access transactions.
 
 ## Rule bundle
 

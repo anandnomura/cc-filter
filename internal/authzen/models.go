@@ -26,12 +26,6 @@ type EvaluationRequest struct {
 	Context  map[string]any `json:"context,omitempty"`
 }
 
-// Decision follows AuthZEN. BAP-specific grant data is carried in Context.
-type Decision struct {
-	Decision bool           `json:"decision"`
-	Context  map[string]any `json:"context,omitempty"`
-}
-
 func (r EvaluationRequest) Validate() error {
 	if r.Subject.Type == "" || r.Subject.ID == "" {
 		return errors.New("subject.type and subject.id are required")
@@ -43,10 +37,6 @@ func (r EvaluationRequest) Validate() error {
 		return errors.New("resource.type and resource.id are required")
 	}
 	return nil
-}
-
-func Deny(reason string) Decision {
-	return Decision{Decision: false, Context: map[string]any{"reason": reason}}
 }
 
 func StringProperty(properties map[string]any, name string) (string, error) {

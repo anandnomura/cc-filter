@@ -14,8 +14,6 @@ applicable MVP gaps:
 
 - interactive API use requires a managed structured-tool adapter;
 - COAZ-MCP Binding 1.0 is not implemented;
-- reference PEP-to-STS authentication is distinct bearer workload credentials
-  over TLS, not client mTLS;
 - the second credential is currently PEP-owned; dynamic downstream workload
   token exchange is not yet implemented;
 - central audit export/alerting is external to the reference;
@@ -96,14 +94,19 @@ Required production environment/file inputs are detailed in the
 At minimum configure:
 
 ```text
+BAP_DEPLOYMENT_MODE=production
+BAP_INSTANCE_ID
+BAP_POLICY_MODE=verified
 BAP_LISTEN_ADDRESS
 BAP_TLS_CERT_PATH / BAP_TLS_KEY_PATH
+BAP_CLIENT_CA_PATH
+BAP_EDGE_MTLS_PRINCIPALS
 BAP_STATE_DIRECTORY
-BAP_POLICY_PATH / BAP_BUNDLE_SOURCE_PATH
+BAP_ACTIVE_POLICY_BUNDLE_PATH / BAP_BUNDLE_PUBLIC_KEY_PATH
 BAP_GRANT_PRIVATE_KEY_PATH / BAP_GRANT_PUBLIC_KEY_PATH
-BAP_BUNDLE_PRIVATE_KEY_PATH / BAP_BUNDLE_PUBLIC_KEY_PATH
 BAP_AUDIT_PRIVATE_KEY_PATH / BAP_AUDIT_PUBLIC_KEY_PATH
 BAP_AGENT_STS_EDGE_PRINCIPAL
+BAP_AGENT_STS_GATEWAY_PRINCIPAL
 BAP_AGENT_STS_CONSUMERS_JSON
 BAP_DATABASE_DSN_FILE
 BAP_DATABASE_TLS_CA_PATH
@@ -115,6 +118,12 @@ Use `BAP_SERVICE_ROLE=combined` by default. Use the separately built
 STS-only role requires TLS and exposes only operational plus issue/consume
 endpoints.
 
+Before deployment, run `bap-service policy activate` in an approved signing job
+with the bundle private key, reviewed Cedar/source paths, and an output
+`BAP_ACTIVE_POLICY_BUNDLE_PATH`. Record the resulting version and digest. The
+runtime must receive the signed envelope and public key, not the bundle private
+key. Startup refuses an invalid/missing envelope in `verified` mode.
+
 ## Configure Edge and resource PEPs
 
 1. Distribute only public verification keys and company CA certificates to
@@ -122,10 +131,12 @@ endpoints.
 2. Install BAP hooks through administrator-managed Claude settings.
 3. Deploy `managed-mcp.json` with the exact MCP PEP server name used by signed
    policy. Never store bearer secrets in it.
-4. Configure the Spring PEP with its fixed route, STS credential, exact
-   `BAP_API_PEP_RESOURCE`, verified STS CA, backend URL and backend identity.
+4. Configure the Spring PEP with its fixed route, STS credential, STS client
+   certificate/key, exact `BAP_API_PEP_RESOURCE`, verified STS CA, backend URL
+   and backend identity.
 5. Configure the MCP PEP with TLS listener, allowed origins, exact schemas,
-   STS/upstream CA files, exact argument constraints and its two identities.
+   STS client certificate/key, STS/upstream CA files, exact argument constraints
+   and its two identities.
 6. Keep `allow_development_cleartext_host_gateway=false` or absent.
 
 ## Canary verification
@@ -133,6 +144,8 @@ endpoints.
 Before enabling employee traffic:
 
 1. verify Service `/healthz`, `/readyz`, certificate chain/name and MySQL;
+   also verify the removed discovery, central evaluation, and legacy grant
+   routes return 404;
 2. verify unauthenticated issue/consume and direct backend calls are rejected;
 3. verify Edge syncs the intended bundle version/digest;
 4. run unit/integration gates against the exact promoted artifacts;
@@ -180,3 +193,7 @@ Before enabling employee traffic:
 Security, platform, resource owner and operations must sign off the inventory,
 external controls, applicable MVP gaps, canary evidence and rollback rehearsal.
 Only then is the selected native/container runtime deployable for production.
+For multiple replicas, sign-off must include shared-ledger concurrency,
+load-balancer failover, database restore, zone loss, policy consistency, audit
+continuity, capacity, RTO and RPO evidence. Startup safety gates prevent unsafe
+fallbacks; they are not a substitute for those HA exercises.

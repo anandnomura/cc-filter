@@ -93,10 +93,16 @@ HTTPS port.
 
 | Variable | Production meaning |
 |---|---|
+| `BAP_DEPLOYMENT_MODE` | `pilot` or `production`; enables fail-fast safety validation |
+| `BAP_INSTANCE_ID` | Unique stable replica identifier |
 | `BAP_LISTEN_ADDRESS` | Explicit private listener and port |
 | `BAP_TLS_CERT_PATH`, `BAP_TLS_KEY_PATH` | Company server certificate/key |
+| `BAP_CLIENT_CA_PATH` | Company CA used to require and verify client certificates |
+| `BAP_EDGE_MTLS_PRINCIPALS` | Comma-separated enrolled Edge certificate common names |
 | `BAP_STATE_DIRECTORY` | Protected persistent state directory |
 | `BAP_POLICY_PATH`, `BAP_BUNDLE_SOURCE_PATH` | Reviewed Cedar policy/bundle source |
+| `BAP_ACTIVE_POLICY_BUNDLE_PATH` | Pre-signed active policy envelope shared by every replica |
+| `BAP_POLICY_MODE` | Must be `verified`; runtime never holds the policy signing key |
 | `BAP_GRANT_PRIVATE_KEY_PATH`, `BAP_GRANT_PUBLIC_KEY_PATH` | AgentGrant signing keypair |
 | `BAP_BUNDLE_PRIVATE_KEY_PATH`, `BAP_BUNDLE_PUBLIC_KEY_PATH` | Policy signing keypair |
 | `BAP_AUDIT_PRIVATE_KEY_PATH`, `BAP_AUDIT_PUBLIC_KEY_PATH` | Audit signing keypair |
@@ -111,6 +117,28 @@ Set `BAP_ALLOW_KEY_GENERATION=false`, `BAP_DEVELOPMENT_TLS=false`, and
 store or in-memory one-use ledger. Multiple replicas must share transactional
 MySQL and consistent keys/policy.
 
+`pilot` and `production` modes enforce these requirements before opening a
+listener. They refuse development TLS, startup key generation, insecure DB TLS,
+missing TLS MySQL, missing client CA, an empty Edge enrollment list, shared STS
+issue/consume principals, or runtime policy signing. This avoids silently
+falling back to single-machine development behavior.
+
+Activate policy in a separate controlled signing job, then deploy only the
+signed envelope and public verification key to runtime instances:
+
+```powershell
+$env:BAP_POLICY_PATH = 'C:\bap-policy\agent-tools.cedar'
+$env:BAP_BUNDLE_SOURCE_PATH = 'C:\bap-policy\edge-policy-source.json'
+$env:BAP_BUNDLE_PRIVATE_KEY_PATH = 'C:\signer-secrets\bundle-private.pem'
+$env:BAP_ACTIVE_POLICY_BUNDLE_PATH = 'C:\bap-release\active-policy-bundle.json'
+dist\bap-service-windows-amd64.exe policy activate
+```
+
+Changing bundle content without increasing its version fails. Promote the
+result through review, record its version/digest/approvers, and atomically
+replace the active envelope. Runtime Service replicas use
+`BAP_POLICY_MODE=verified` and require only `BAP_BUNDLE_PUBLIC_KEY_PATH`.
+
 Example consumers (the values name injected secret variables, not secrets):
 
 ```json
@@ -120,12 +148,13 @@ Example consumers (the values name injected secret variables, not secrets):
 ]
 ```
 
-The reference PEPs authenticate to STS with distinct bearer service credentials
-over verified TLS. Service can globally require client mTLS using
-`BAP_CLIENT_CA_PATH`, and Edge supports a client certificate/key, but the two
-reference PEP clients do not yet present client certificates. Do not enable
-global mTLS until those clients are extended; use rotated secret-manager
-credentials plus verified TLS for this MVP.
+The reference PEPs support distinct bearer credentials for development and
+client mTLS for pilot/production. With `BAP_CLIENT_CA_PATH`, the Service TLS
+listener rejects every client without a company certificate. The Edge
+certificate CN must match `BAP_AGENT_STS_EDGE_PRINCIPAL` for issuance and be in
+`BAP_EDGE_MTLS_PRINCIPALS` for sync/audit. Each PEP certificate CN must match
+its entry in `BAP_AGENT_STS_CONSUMERS_JSON`; that entry also limits its exact
+resource audiences.
 
 ### BAP Edge
 
@@ -150,6 +179,7 @@ hooks through managed settings; never rely on project-local hooks in production.
 ### Spring Cloud API PEP
 
 Inject `BAP_AGENT_STS_URL`, `BAP_AGENT_STS_CA_PATH`,
+`BAP_AGENT_STS_CLIENT_CERTIFICATE_PATH`, `BAP_AGENT_STS_CLIENT_KEY_PATH`,
 `BAP_API_PEP_RESOURCE`,
 `BAP_API_PEP_STS_API_KEY`, `BAP_ORDERS_BACKEND_URL`, and
 `BAP_ORDERS_BACKEND_API_KEY`. Replace the fixed example route, external URL,
@@ -167,7 +197,9 @@ adapter connected to the Spring gateway; raw `curl` is not equivalent.
 Copy `bap-mcp-pep/mcp-pep.example.json` into protected configuration. Set its
 exact HTTPS `resource`, HTTPS
 URLs, STS/upstream CA paths, listener certificate/key, allowed origins, and
-reviewed public/upstream tool mappings. Keep
+reviewed public/upstream tool mappings. Configure
+`agent_sts_client_certificate_path` and `agent_sts_client_key_path` for the
+PEP's enrolled STS client identity. Keep
 `allow_development_cleartext_host_gateway` absent or `false` in production.
 
 Deploy the MCP endpoint using administrator-owned
@@ -207,7 +239,21 @@ unavailable. Never convert a failed consume into a bypass or token reuse.
 
 - COAZ-MCP Binding 1.0 is not implemented; see the acceptance guide.
 - the API example needs a structured-tool adapter for actual Claude use;
-- reference PEP-to-STS identity is TLS plus distinct bearer credentials, not
-  client mTLS;
 - production audit export/dashboards are deployment integrations;
 - Linux lacks a one-command PowerShell-equivalent full runner.
+
+## Multi-operator pilot and HA boundary
+
+The repository now enforces the minimum safe runtime invariants for more than a
+handful of trusted users: explicit deployment mode, enrolled mTLS identities,
+distinct STS principals/audiences, pre-signed verified policy, TLS MySQL, and a
+unique instance ID. Configuration removal of a certificate CN is the bounded
+pilot revocation mechanism; restart/roll the Service fleet after changing it.
+
+Two or more Service replicas may share the same immutable keys, signed bundle,
+and transactional MySQL ledger behind a TLS load balancer. That makes the
+authorization and one-use state replica-safe, but does not itself provide HA.
+The deployment owner must still prove database replication and restore,
+load-balancer health checks, multi-zone placement, capacity, key rotation,
+policy rollout/rollback, audit export, alerting, RTO/RPO, and failover. Do not
+claim HA until the production runbook sign-off records that evidence.

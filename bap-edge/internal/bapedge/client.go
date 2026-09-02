@@ -29,7 +29,6 @@ type Client struct {
 	baseURL    string
 	stsBaseURL string
 	stsIssuer  string
-	audience   string
 	publicKey  ed25519.PublicKey
 	apiKey     string
 	stsAPIKey  string
@@ -114,7 +113,7 @@ func NewClient(config Config) (*Client, error) {
 	}
 	transport.TLSClientConfig = tlsConfig
 	return &Client{
-		baseURL: strings.TrimRight(config.ServiceURL, "/"), stsBaseURL: strings.TrimRight(stsURL, "/"), stsIssuer: stsIssuer, audience: "bap-edge", publicKey: publicKey, apiKey: config.APIKey(), stsAPIKey: stsAPIKey,
+		baseURL: strings.TrimRight(config.ServiceURL, "/"), stsBaseURL: strings.TrimRight(stsURL, "/"), stsIssuer: stsIssuer, publicKey: publicKey, apiKey: config.APIKey(), stsAPIKey: stsAPIKey,
 		http: &http.Client{Timeout: config.Timeout(), Transport: transport},
 	}, nil
 }
@@ -177,49 +176,6 @@ func (c *Client) SyncPolicy(ctx context.Context, request policybundle.SyncReques
 	return result, nil
 }
 
-func (c *Client) Evaluate(ctx context.Context, request authzen.EvaluationRequest, trace tracecontext.Context) (authzen.Decision, error) {
-	body, err := json.Marshal(request)
-	if err != nil {
-		return authzen.Decision{}, err
-	}
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/access/v1/evaluation", bytes.NewReader(body))
-	if err != nil {
-		return authzen.Decision{}, err
-	}
-	httpRequest.Header.Set("Content-Type", "application/json")
-	c.authorize(httpRequest)
-	httpRequest.Header.Set("X-Request-ID", requestID())
-	applyTrace(httpRequest, trace.TraceParent())
-	response, err := c.http.Do(httpRequest)
-	if err != nil {
-		return authzen.Decision{}, fmt.Errorf("call BAP Service: %w", err)
-	}
-	defer response.Body.Close()
-	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-	if response.StatusCode != http.StatusOK {
-		return authzen.Decision{}, fmt.Errorf("BAP Service returned HTTP %d", response.StatusCode)
-	}
-	var decision authzen.Decision
-	if err := json.Unmarshal(responseBody, &decision); err != nil {
-		return authzen.Decision{}, fmt.Errorf("decode BAP decision: %w", err)
-	}
-	if !decision.Decision {
-		return decision, nil
-	}
-	grant, ok := decision.Context["grant"].(string)
-	if !ok || grant == "" {
-		return authzen.Decision{}, fmt.Errorf("allow decision did not contain a grant")
-	}
-	hash, err := grants.HashRequest(request)
-	if err != nil {
-		return authzen.Decision{}, err
-	}
-	if err := c.VerifyGrant(grant, hash); err != nil {
-		return authzen.Decision{}, fmt.Errorf("verify BAP grant: %w", err)
-	}
-	return decision, nil
-}
-
 func (c *Client) post(ctx context.Context, path string, value any, traceParent string) error {
 	body, err := json.Marshal(value)
 	if err != nil {
@@ -242,10 +198,6 @@ func (c *Client) post(ctx context.Context, path string, value any, traceParent s
 		return fmt.Errorf("BAP Service returned HTTP %d", response.StatusCode)
 	}
 	return nil
-}
-
-func (c *Client) AuditGrantConsumption(ctx context.Context, request authzen.EvaluationRequest, grant string, trace tracecontext.Context) error {
-	return c.post(ctx, "/bap/v1/audit/grant-consumption", auditwire.GrantConsumption{Request: request, Grant: grant, TraceParent: trace.TraceParent()}, trace.TraceParent())
 }
 
 func (c *Client) ReportOutcome(ctx context.Context, outcome auditwire.Outcome) error {
@@ -274,14 +226,6 @@ func (c *Client) authorizeWithKey(request *http.Request, key string) {
 	if key != "" {
 		request.Header.Set("Authorization", "Bearer "+key)
 	}
-}
-
-func (c *Client) VerifyGrant(token, requestHash string) error {
-	if len(c.publicKey) == 0 {
-		return fmt.Errorf("legacy grant verification is not configured")
-	}
-	_, err := grants.Verify(c.publicKey, token, c.audience, requestHash, time.Now().UTC())
-	return err
 }
 
 func (c *Client) VerifyAgentGrant(token string, operation authzen.EvaluationRequest, bundle policybundle.Bundle, resource string) error {

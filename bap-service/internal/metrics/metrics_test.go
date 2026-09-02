@@ -10,9 +10,9 @@ import (
 func TestPrometheusOutputUsesBoundedLabels(t *testing.T) {
 	registry := New()
 	registry.SetReady(true)
-	registry.Decision(false, "EXPLICIT_FORBID", "pdp_evaluation")
-	registry.Decision(false, "unsafe value", "pdp_evaluation")
-	registry.ObserveHTTP("/access/v1/evaluation", "POST", 200, 20*time.Millisecond)
+	registry.Decision(false, "EXPLICIT_FORBID", "signed_policy_bundle")
+	registry.Decision(false, "unsafe value", "signed_policy_bundle")
+	registry.ObserveHTTP("/bap/v1/edge/sync", "POST", 200, 20*time.Millisecond)
 	var output bytes.Buffer
 	registry.WritePrometheus(&output)
 	text := output.String()

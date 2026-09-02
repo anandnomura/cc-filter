@@ -12,6 +12,8 @@ bap:
     agent-sts-url: ${BAP_AGENT_STS_URL:https://127.0.0.1:8443}
     agent-sts-api-key-env: ${BAP_API_PEP_STS_API_KEY_ENV:BAP_API_PEP_STS_API_KEY}
     agent-sts-ca-path: ${BAP_AGENT_STS_CA_PATH:}
+    agent-sts-client-certificate-path: ${BAP_AGENT_STS_CLIENT_CERTIFICATE_PATH:}
+    agent-sts-client-key-path: ${BAP_AGENT_STS_CLIENT_KEY_PATH:}
     resource: ${BAP_API_PEP_RESOURCE:https://api.staging.company.example/orders/deploy}
 
 spring:

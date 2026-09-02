@@ -36,8 +36,21 @@ final class AgentStsClient implements GrantConsumer {
                 || resourceUri.getUserInfo() != null || resourceUri.getQuery() != null || resourceUri.getFragment() != null) {
             throw new IllegalStateException("API PEP requires one absolute HTTPS resource indicator without query or fragment");
         }
-        if (properties.agentStsCaPath() != null && !properties.agentStsCaPath().isBlank()) {
-            var ssl = SslContextBuilder.forClient().trustManager(new File(properties.agentStsCaPath())).build();
+        boolean hasCertificate = properties.agentStsClientCertificatePath() != null
+                && !properties.agentStsClientCertificatePath().isBlank();
+        boolean hasKey = properties.agentStsClientKeyPath() != null && !properties.agentStsClientKeyPath().isBlank();
+        if (hasCertificate != hasKey) {
+            throw new IllegalStateException("API PEP Agent STS client certificate and key are required together");
+        }
+        if ((properties.agentStsCaPath() != null && !properties.agentStsCaPath().isBlank()) || hasCertificate) {
+            var sslBuilder = SslContextBuilder.forClient();
+            if (properties.agentStsCaPath() != null && !properties.agentStsCaPath().isBlank()) {
+                sslBuilder.trustManager(new File(properties.agentStsCaPath()));
+            }
+            if (hasCertificate) {
+                sslBuilder.keyManager(new File(properties.agentStsClientCertificatePath()), new File(properties.agentStsClientKeyPath()));
+            }
+            var ssl = sslBuilder.build();
             builder.clientConnector(new ReactorClientHttpConnector(HttpClient.create().secure(spec -> spec.sslContext(ssl))));
         }
         this.client = builder.baseUrl(properties.agentStsUrl()).build();

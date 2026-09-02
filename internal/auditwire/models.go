@@ -2,12 +2,6 @@ package auditwire
 
 import "bap-system/internal/authzen"
 
-type GrantConsumption struct {
-	Request     authzen.EvaluationRequest `json:"request"`
-	Grant       string                    `json:"grant"`
-	TraceParent string                    `json:"traceparent,omitempty"`
-}
-
 type Outcome struct {
 	EventID     string `json:"event_id"`
 	SessionID   string `json:"session_id"`

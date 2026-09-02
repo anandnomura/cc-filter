@@ -1,7 +1,7 @@
 # End-to-end observability
 
 BAP owns an operation trace from the Claude hook boundary through BAP Edge,
-AuthZEN/Cedar, the signed MySQL audit commit, signed-grant reuse, and the final
+local Cedar, the signed MySQL audit commit, AgentGrant use, and the final
 tool outcome. This works without access to Claude's private model reasoning or
 internal spans.
 
@@ -13,7 +13,7 @@ sequenceDiagram
     participant DB as MySQL audit
     CC->>E: PreToolUse(session_id, tool_use_id)
     Note over E: stable operation trace_id<br/>fresh Edge span_id
-    E->>S: AuthZEN + W3C traceparent
+    E->>S: signed-policy audit + W3C traceparent
     Note over S: fresh Service child span
     S->>DB: signed event with trace/span/parent
     DB-->>S: commit
@@ -78,6 +78,19 @@ Get-Content "$env:LOCALAPPDATA\BAP Edge\observability\edge.jsonl" -Tail 20 |
 ```
 
 ## View Service logs and metrics
+
+For one live, labeled view of both components in any supported runtime:
+
+```powershell
+.\Watch-BapLogs.ps1 -Runtime Native -Component All -Tail 100
+.\Watch-BapLogs.ps1 -Runtime Docker -Component All -Tail 100
+.\Watch-BapLogs.ps1 -Runtime Podman -Component All -Tail 100
+```
+
+Use `-Component Edge` or `-Component Service` to narrow it, `-NoFollow` for a
+one-time snapshot, and Ctrl+C to stop. Native mode follows the latest retained
+run's Service stdout/stderr and Edge JSONL. Container mode follows
+`bap-service-local` plus the host-side test Edge JSONL.
 
 For a single read-only posture summary across the control plane and every local
 Edge state discovered on the workstation:

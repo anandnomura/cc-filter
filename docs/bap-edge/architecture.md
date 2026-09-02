@@ -125,25 +125,24 @@ fixture hash to the active policy version/digest and requires equivalent
 decisions across required model families. Unknown schemas fail certification
 and remain default deny at runtime.
 
-## AuthZEN and BAP endpoints
+## BAP Service endpoints
 
 - `GET /healthz` — unauthenticated liveness only
 - `GET /readyz` — unauthenticated MySQL-backed readiness
-- `GET /.well-known/authzen-configuration` — AuthZEN discovery
 - `POST /bap/v1/edge/sync` — authenticated signed policy synchronization
 - `POST /bap/v1/audit/edge-decision` — asynchronous local decision ingestion
 - `POST /bap/v1/audit/outcome` — authenticated post-tool outcome
 - `POST /bap/v1/audit/edge-denial` — authenticated local-filter denial
-- `POST /access/v1/evaluation` and grant consumption — legacy migration APIs,
-  not used by the local traffic-decision path
+- `POST /bap/v1/agent-sts/issue` and `/consume` — exact-operation AgentGrant
+  lifecycle for resource PEPs
 
-The evaluation request and `decision` response follow AuthZEN Authorization API
-1.0. Grant, decision ID, reason code, and proposal fields are documented BAP
-extensions inside AuthZEN `context`.
+The former `/.well-known/authzen-configuration`, `/access/v1/evaluation`, and
+`/bap/v1/audit/grant-consumption` routes are deliberately absent and covered by
+a 404 regression test. This prevents a second, central Cedar decision path from
+silently diverging from the signed policy evaluated by BAP Edge.
 
 ## Policy learning boundary
 
-Only a Cedar default deny caused by `NO_MATCHING_POLICY` creates a sanitized
-proposal. Explicit forbids never propose a bypass. The service does not
-self-modify or auto-enforce learned policy. An administrator reviews, edits,
-tests, and deploys Cedar policy deliberately.
+The active Edge path records privacy-safe no-match evidence but does not create
+or activate policy proposals. Explicit forbids never propose a bypass. An
+administrator reviews, tests, signs, and deploys policy deliberately.

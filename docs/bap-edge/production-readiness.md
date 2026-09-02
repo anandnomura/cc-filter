@@ -12,7 +12,8 @@ packages and measurable release gates.
 
 - admin-managed Claude hooks with lower-scope hooks/rules disabled;
 - inherited cc-filter blocks/redaction plus Cedar permit/forbid/default deny;
-- AuthZEN 1.0 evaluation endpoint over HTTPS;
+- one signed-policy decision path in BAP Edge; obsolete central AuthZEN/Cedar
+  evaluation and legacy grant routes are removed and 404-tested;
 - dedicated bearer credential, principal fingerprint, Claude session, random
   workload, and tool-use correlation;
 - signed session capability mappings, composition forbids and rolling budgets,
@@ -39,12 +40,14 @@ combination. Model identity may be diagnostic metadata, but must not grant
 authority. The detailed design and delivery sequence are in the
 [Cedar MVP policy plan](cedar-mvp-policy-plan.md).
 
-### 1. Replace interim identity
+### 1. Complete enterprise identity lifecycle
 
-The machine environment bearer key can be copied by a user who can inspect their
-environment, and this version accepts one credential/principal per instance. Add
-mTLS or short-lived enterprise workload tokens, multi-client registration,
-revocation, rotation overlap, device/user binding, and identity-provider audit.
+Pilot/production mode now requires company mTLS, an explicit enrolled Edge
+certificate-CN registry, and distinct Agent STS issue/consume principals. This
+supports bounded pilot enrollment and configuration-driven revocation. Add
+automated enrollment, CRL/OCSP or short-lived workload identity, rotation
+overlap, device/user binding, protected keys, and identity-provider audit before
+enterprise-wide deployment.
 
 ### 2. Move authority to protected resources
 
@@ -92,7 +95,7 @@ runbooks.
 ### 8. Formal security and resilience validation
 
 Perform threat modeling, independent review and penetration testing,
-AuthZEN/Cedar conformance tests, parser fuzzing, race testing, load/soak tests,
+Cedar and applicable AuthZEN COAZ-MCP conformance tests, parser fuzzing, race testing, load/soak tests,
 network partition/slow backend/disk-full/key-rotation chaos tests, and bypass
 testing against every supported Claude release and managed-settings source.
 

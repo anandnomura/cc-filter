@@ -34,6 +34,8 @@ type Config struct {
 	Resource                             string       `json:"resource"`
 	STSAPIKeyEnv                         string       `json:"agent_sts_api_key_env"`
 	STSCAPath                            string       `json:"agent_sts_ca_path,omitempty"`
+	STSClientCertPath                    string       `json:"agent_sts_client_certificate_path,omitempty"`
+	STSClientKeyPath                     string       `json:"agent_sts_client_key_path,omitempty"`
 	UpstreamURL                          string       `json:"upstream_url"`
 	UpstreamKeyEnv                       string       `json:"upstream_api_key_env"`
 	UpstreamCAPath                       string       `json:"upstream_ca_path,omitempty"`
@@ -98,6 +100,9 @@ func LoadConfig(path string) (Config, error) {
 	if (config.TLSCertPath == "") != (config.TLSKeyPath == "") {
 		return config, errors.New("both MCP PEP TLS certificate and key are required together")
 	}
+	if (config.STSClientCertPath == "") != (config.STSClientKeyPath == "") {
+		return config, errors.New("both Agent STS client certificate and key are required together")
+	}
 	return config, nil
 }
 
@@ -115,11 +120,11 @@ func New(config Config) (*Server, error) {
 	if stsKey == "" || upstreamKey == "" {
 		return nil, errors.New("MCP PEP credentials are not available in the configured environment variables")
 	}
-	stsClient, err := secureClient(config.STSCAPath)
+	stsClient, err := secureClient(config.STSCAPath, config.STSClientCertPath, config.STSClientKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("configure Agent STS client: %w", err)
 	}
-	upstreamClient, err := secureClient(config.UpstreamCAPath)
+	upstreamClient, err := secureClient(config.UpstreamCAPath, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("configure upstream MCP client: %w", err)
 	}
@@ -347,9 +352,19 @@ func (s *Server) originAllowed(origin string) bool {
 	return false
 }
 
-func secureClient(caPath string) (*http.Client, error) {
+func secureClient(caPath, certificatePath, keyPath string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
+	if certificatePath != "" || keyPath != "" {
+		if certificatePath == "" || keyPath == "" {
+			return nil, errors.New("client certificate and key are required together")
+		}
+		certificate, err := tls.LoadX509KeyPair(certificatePath, keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("load client certificate: %w", err)
+		}
+		transport.TLSClientConfig.Certificates = []tls.Certificate{certificate}
+	}
 	if caPath != "" {
 		data, err := os.ReadFile(caPath)
 		if err != nil {

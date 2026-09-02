@@ -4,6 +4,8 @@
   "resource": "https://bap-mcp-pep.company.example/mcp",
   "agent_sts_api_key_env": "BAP_MCP_PEP_STS_API_KEY",
   "agent_sts_ca_path": ".bap/native-local/service-state/dev-ca.pem",
+  "agent_sts_client_certificate_path": "",
+  "agent_sts_client_key_path": "",
   "upstream_url": "http://127.0.0.1:18765/mcp",
   "upstream_api_key_env": "BAP_MCP_UPSTREAM_API_KEY",
   "allowed_origins": ["https://claude.company.example"],

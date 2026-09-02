@@ -8,6 +8,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor ./vendor
 COPY bap-service ./bap-service
+COPY bap-edge ./bap-edge
 COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=linux go test -mod=vendor ./bap-service/... ./internal/authzen ./internal/auditwire ./internal/grants && \
     CGO_ENABLED=0 GOOS=linux go build -mod=vendor -trimpath -ldflags="-s -w -X main.version=${BAP_VERSION} -X main.defaultRole=${BAP_DEFAULT_ROLE}" -o /out/bap-service ./bap-service/cmd

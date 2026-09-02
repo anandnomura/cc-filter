@@ -5,6 +5,14 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
+- `Watch-BapLogs.ps1`/`.bat` live labeled Edge and Service log viewing for
+  native, Docker, and Podman runtimes
+- fail-fast `pilot`/`production` deployment modes requiring unique instance
+  identity, TLS MySQL, company client mTLS, enrolled Edge certificate names,
+  distinct STS principals, durable shared state, and verified pre-signed policy
+- offline `bap-service policy activate` signing flow; pilot/production runtime
+  loads only the verified envelope and public policy key
+- client-mTLS support from both the Spring API PEP and Go MCP PEP to Agent STS
 - Signed, configurable session capability mappings, ordered composition
   forbids, rolling budgets, lifetime/idle limits, and bounded per-session state
 - Cross-process atomic session ledgers for multiple concurrent Claude hook
@@ -83,6 +91,9 @@ All notable changes to cc-filter are documented in this file.
   Native|Docker|Podman|Auto`; every mode now requires company fixtures
 
 ### Changed
+- Removed the dormant central AuthZEN/Cedar PDP, discovery, proposal-ingestion,
+  and legacy grant-consumption path, including its obsolete token format; 404
+  regression tests prevent silent re-enablement
 - BAP Service is the rule control plane; BAP Edge is the traffic data plane and no longer needs a network authorization decision per tool call
 - Endpoint configuration no longer accepts policy profiles or allow registries
 - MVP architecture, installation, testing, certificate, deployment, and roadmap documentation now describe the signed-bundle model

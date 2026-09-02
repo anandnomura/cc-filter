@@ -119,7 +119,8 @@ AgentGrant bearer values.
 The current system is **not conformant with AuthZEN COAZ-MCP Binding 1.0**. It
 is conceptually aligned only:
 
-- BAP has a SARC-shaped request and legacy `/access/v1/evaluation` endpoint;
+- BAP has a SARC-shaped request internally; the legacy
+  `/access/v1/evaluation` PDP endpoint has been removed;
 - MCP AgentGrants bind exact tool/server and canonical argument digest;
 - Agent STS re-evaluates the operation at issue and consume.
 

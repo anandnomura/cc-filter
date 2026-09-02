@@ -9,21 +9,16 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"bap-system/bap-service/internal/agentsts"
 	"bap-system/bap-service/internal/audit"
-	"bap-system/bap-service/internal/cedaradapter"
 	"bap-system/bap-service/internal/metrics"
 	"bap-system/internal/agentgrant"
-	"bap-system/internal/auditwire"
 	"bap-system/internal/authzen"
-	"bap-system/internal/grants"
 	"bap-system/internal/policybundle"
 )
 
@@ -170,90 +165,46 @@ func TestMutualTLSIdentityTakesAuthorityFromVerifiedCertificate(t *testing.T) {
 		t.Fatalf("mTLS identity was not derived from certificate: %#v", caller)
 	}
 }
+
+func TestMutualTLSPrincipalRegistryRejectsUnenrolledCertificate(t *testing.T) {
+	service := &Server{metrics: metrics.New()}
+	if err := service.SetMTLSPrincipals([]string{"edge-allowed"}); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	handler := service.authenticate(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	request := httptest.NewRequest(http.MethodPost, "/bap/v1/edge/sync", nil)
+	request.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{Raw: []byte("device-certificate"), Subject: pkix.Name{CommonName: "edge-revoked"}}}}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if called || response.Code != http.StatusUnauthorized {
+		t.Fatalf("unenrolled certificate called handler=%t status=%d", called, response.Code)
+	}
+}
 func (s *recordingAuditStore) HasEvent(string) (bool, error) { return false, nil }
 func (s *recordingAuditStore) HasAllowedOperation(string, string, string, string) (bool, error) {
 	return true, nil
 }
 func (s *recordingAuditStore) Ready(context.Context) error { return nil }
 
-func TestAuthZENEvaluationEndpoint(t *testing.T) {
-	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	engine, err := cedaradapter.New(filepath.Join("..", "..", "policies", "agent-tools.cedar"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	auditStore := &recordingAuditStore{}
-	service := New(engine, privateKey, "test", "bap-edge", time.Minute, nil, auditStore, "test-api-key", "test-user")
-	service.legacyAuthZEN = true // internal coverage only; production handlers leave this false
-	server := httptest.NewServer(service.Handler())
-	defer server.Close()
-
-	request := authzen.EvaluationRequest{
-		Subject: authzen.Entity{Type: "agent", ID: "claude-code-local"}, Action: authzen.Action{Name: "file.read"},
-		Resource: authzen.Entity{Type: "tool-invocation", ID: "safe", Properties: map[string]any{
-			"tool": "Read", "target": "safe.go", "path": "safe.go", "command": "",
-			"protected": false, "outsideWorkspace": false, "destructive": false,
-		}}, Context: map[string]any{"session_id": "test-session"},
-	}
-	body, _ := json.Marshal(request)
-	httpRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/access/v1/evaluation", bytes.NewReader(body))
-	httpRequest.Header.Set("Content-Type", "application/json")
-	httpRequest.Header.Set("Authorization", "Bearer test-api-key")
-	httpRequest.Header.Set("traceparent", "00-11111111111111111111111111111111-2222222222222222-01")
-	response, err := http.DefaultClient.Do(httpRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	var decision authzen.Decision
-	if err := json.NewDecoder(response.Body).Decode(&decision); err != nil {
-		t.Fatal(err)
-	}
-	if !decision.Decision || decision.Context["grant"] == "" {
-		t.Fatalf("expected allow with grant, got %#v", decision)
-	}
-	if response.Header.Get("X-Trace-ID") != "11111111111111111111111111111111" {
-		t.Fatalf("unexpected response trace ID %q", response.Header.Get("X-Trace-ID"))
-	}
-	if len(auditStore.events) != 1 || auditStore.events[0].TraceID != "11111111111111111111111111111111" || auditStore.events[0].ParentSpanID != "2222222222222222" {
-		t.Fatalf("trace context was not persisted in audit: %#v", auditStore.events)
-	}
-
-	requestHash, _ := grants.HashRequest(request)
-	issuedGrant, _ := decision.Context["grant"].(string)
-	claims, err := grants.Verify(privateKey.Public().(ed25519.PublicKey), issuedGrant, "bap-edge", requestHash, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	claims.PolicyVersion = "stale-policy-version"
-	staleGrant, err := grants.Sign(privateKey, claims)
-	if err != nil {
-		t.Fatal(err)
-	}
-	consumptionBody, _ := json.Marshal(auditwire.GrantConsumption{Request: request, Grant: staleGrant})
-	consumptionRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/bap/v1/audit/grant-consumption", bytes.NewReader(consumptionBody))
-	consumptionRequest.Header.Set("Content-Type", "application/json")
-	consumptionRequest.Header.Set("Authorization", "Bearer test-api-key")
-	consumptionResponse, err := http.DefaultClient.Do(consumptionRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer consumptionResponse.Body.Close()
-	if consumptionResponse.StatusCode != http.StatusForbidden {
-		t.Fatalf("stale-policy grant status=%d want=403", consumptionResponse.StatusCode)
-	}
-
-	metricsResponse, err := http.Get(server.URL + "/metrics")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer metricsResponse.Body.Close()
-	metricsBody, _ := io.ReadAll(metricsResponse.Body)
-	if !bytes.Contains(metricsBody, []byte(`bap_authorization_decisions_total{decision="allow"`)) {
-		t.Fatalf("authorization metric missing:\n%s", metricsBody)
+func TestLegacyAuthZENEndpointsArePermanentlyAbsent(t *testing.T) {
+	service := &Server{apiKey: "test-api-key", principal: "device", metrics: metrics.New()}
+	handler := service.Handler()
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/.well-known/authzen-configuration"},
+		{http.MethodPost, "/access/v1/evaluation"},
+		{http.MethodPost, "/bap/v1/audit/grant-consumption"},
+	} {
+		request := httptest.NewRequest(test.method, test.path, bytes.NewReader([]byte(`{}`)))
+		request.Header.Set("Authorization", "Bearer test-api-key")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("removed legacy endpoint %s returned %d", test.path, response.Code)
+		}
 	}
 }
 

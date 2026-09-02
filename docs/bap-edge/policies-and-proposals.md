@@ -31,12 +31,11 @@ to `internal/policybundle/testdata/command-policy-corpus.json`, then run
 `Test-PolicyRollout.ps1` followed by `Test-MVP0.ps1`. Changing content without a version increment
 causes service activation or Edge equivocation checks to fail closed.
 
-## Missing-rule proposals
+## Missing-rule evidence
 
-The current proposal collector belongs to the legacy central AuthZEN path. The
-local Edge path records `LOCAL_NO_MATCHING_POLICY` in audit but does not yet
-create a governed proposal. Future asynchronous proposal ingestion must store
-only classification metadata
+The obsolete central AuthZEN proposal collector is no longer reachable. The
+local Edge path records `LOCAL_NO_MATCHING_POLICY` in audit but does not create
+a governed proposal. Future asynchronous proposal ingestion must store only classification metadata
 such as action and tool name; it does not store prompts, paths, command strings,
 subject IDs, or secrets.
 
@@ -45,7 +44,9 @@ candidate. This prevents a new tool schema from teaching the system to weaken
 its own boundary. Proposals are reserved for recognized operations that are not
 covered by a permit or forbid.
 
-List aggregated proposals:
+The `proposals list` CLI remains only for inspecting data created by older
+development versions during migration. It cannot ingest or activate proposals.
+List that retained data with:
 
 ```bat
 List-PolicyProposals.bat -Runtime Docker

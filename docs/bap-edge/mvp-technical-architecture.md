@@ -304,12 +304,11 @@ checkpoint.
 |---|---|---|---|
 | `GET /healthz` | None | Process liveness | Implemented |
 | `GET /readyz` | None | MySQL-backed service readiness | Implemented and outage-tested |
-| `GET /.well-known/authzen-configuration` | None | PDP discovery | Implemented |
 | `POST /bap/v1/edge/sync` | Edge mTLS or development bearer | Signed bundle and update/kill directive | Implemented |
 | `POST /bap/v1/audit/edge-decision` | Edge mTLS or development bearer | Ingest locally made decision | Implemented |
 | `POST /bap/v1/audit/outcome` | Edge mTLS or development bearer | Record correlated success/failure | Implemented |
 | `POST /bap/v1/audit/edge-denial` | Edge mTLS or development bearer | Record sanitized local-filter denial | Implemented |
-| `POST /access/v1/evaluation`, grant consumption | Development bearer | Legacy migration compatibility | Implemented; not active Edge path |
+| `POST /access/v1/evaluation`, legacy grant consumption | None | Removed central decision path | Permanently absent; regression-tested 404 |
 | policy/proposal CRUD and approval | Admin identity | Govern proposal, validate, approve, deploy, rollback | MVP requirement |
 | audit/decision read API | Admin/auditor identity | Search timelines without file access | MVP requirement |
 | identity registration/revocation | Admin identity | Manage endpoint credentials/workload identities | MVP requirement |

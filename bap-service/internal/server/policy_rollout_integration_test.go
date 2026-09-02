@@ -41,7 +41,7 @@ func TestSignedPolicyRolloutEndToEnd(t *testing.T) {
 	initialEpoch := source.RevocationEpoch
 	bundleV1, envelopeV1 := rolloutBundle(t, source, cedarPolicy, privateKey, now)
 
-	controlPlane := serviceserver.New(nil, nil, "", "", 0, nil, rolloutAuditStore{}, "rollout-api-key", "rollout-edge")
+	controlPlane := serviceserver.New(nil, "", rolloutAuditStore{}, "rollout-api-key", "rollout-edge")
 	controlPlane.SetPolicyBundle(bundleV1, envelopeV1)
 	tlsServer := httptest.NewTLSServer(controlPlane.Handler())
 

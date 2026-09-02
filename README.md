@@ -27,7 +27,7 @@ Claude Code/model schema capture and replay are documented in the
 
 The operator guide includes the complete Docker/Podman build, HTTPS and key
 initialization, Windows managed-settings installation, standard-user bypass
-test, AuthZEN/Cedar acceptance test, audit verification, network deployment,
+test, Cedar/AgentGrant acceptance test, audit verification, network deployment,
 and fork synchronization procedures. Containerized development builds do not
 need local Go; source-only company Windows builds use the documented approved
 native Go compiler path.
@@ -157,6 +157,14 @@ launcher with a bare `claude` command.
 
 # Native control-plane, policy lease, Edge state, and audit queue status
 .\Show-BapStatus.ps1 -Runtime Native
+
+# Live combined Edge + Service logs; Ctrl+C stops watching
+.\Watch-BapLogs.bat -Runtime Native
+.\Watch-BapLogs.ps1 -Runtime Docker -Component All -Tail 100
+.\Watch-BapLogs.ps1 -Runtime Podman -Component Service -Tail 100
+
+# Print recent logs once (useful in CI or when reporting an error)
+.\Watch-BapLogs.ps1 -Runtime Native -NoFollow -Tail 100
 
 # Company Windows/native AgentGrant acceptance: rebuild, issue, consume once,
 # reject replay, and verify signed audit (no Docker, Podman, or Claude needed)
