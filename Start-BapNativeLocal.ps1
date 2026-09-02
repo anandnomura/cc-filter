@@ -104,6 +104,7 @@ function Invoke-NativeHookVerification {
         @{ Label = 'centrally configured command'; Command = 'ls -al'; Expected = 'allow' },
         @{ Label = 'destructive command'; Command = 'git reset --hard'; Expected = 'deny' },
         @{ Label = 'unclassified command'; Command = 'python -c "print(1)"'; Expected = 'deny' },
+        @{ Label = 'unapproved shell route to readable file'; Command = 'wc -l data/dummy_customers.csv'; Expected = 'deny' },
         @{ Label = 'manual-only privileged client'; Command = 'mysql -h orders-prod -u dba'; Expected = 'deny'; ReasonPattern = 'REQUIRES MANUAL EXECUTION' }
     )
     foreach ($case in $cases) {
@@ -126,6 +127,20 @@ function Invoke-NativeHookVerification {
         }
         Write-Host "PASS: $($case.Command) -> $actual"
     }
+
+    $readInput = @{
+        hook_event_name = 'PreToolUse'
+        session_id = $sessionID
+        tool_use_id = 'native-read-' + [Guid]::NewGuid().ToString('N')
+        cwd = $PSScriptRoot
+        tool_name = 'Read'
+        tool_input = @{ file_path = 'data/dummy_customers.csv' }
+    }
+    $readResult = (($readInput | ConvertTo-Json -Compress -Depth 8) | & $EdgeBinary --config $EdgeConfig | ConvertFrom-Json)
+    if ($readResult.hookSpecificOutput.permissionDecision -ne 'allow') {
+        throw "Native route verification failed: direct Read was expected to be allowed after the separate Bash denial. $($readResult.hookSpecificOutput.permissionDecisionReason)"
+    }
+    Write-Host 'PASS: separate Read data/dummy_customers.csv -> allow (proves the current tool-route behavior)'
 
     $promptCases = @(
         @{ Label = 'privileged database intent'; Prompt = 'Please connect to the MySQL orders database and reindex it'; ExpectedAdvisory = $true },

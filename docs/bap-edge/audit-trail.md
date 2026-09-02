@@ -52,11 +52,27 @@ private keys on BAP Service. Distribute `audit-public.pem` to verifiers and
 ```powershell
 .\View-AuditTrail.ps1 -Runtime Docker
 .\View-AuditTrail.ps1 -Runtime Docker -VerifyOnly
+.\View-AuditTrail.ps1 -Runtime Native -Timeline -Last 30
 ```
 
-For Podman replace `Docker` with `Podman`. Verification occurs before records are
-printed. A nonzero exit or `audit verification failed` message means the trail
-must be treated as potentially altered.
+For Podman replace `Docker` with `Podman`. Native mode discovers the most recent
+retained run through `.bap\native-local\latest-run.txt` and verifies its signed
+JSONL chain before displaying it. A nonzero exit or `audit verification failed`
+message means the trail must be treated as potentially altered.
+
+To investigate one Claude session, first display recent decisions, copy the
+session ID printed below the table, and then request full correlation details:
+
+```powershell
+.\View-AuditTrail.ps1 -Runtime Native -Timeline -Last 30
+.\View-AuditTrail.ps1 -Runtime Native -Timeline -SessionID 'COPY-SESSION-ID' -Details
+```
+
+The route-switch test should show two different tool-use IDs in timestamp order:
+a denied `Bash`/`command.execute` event followed by an allowed
+`Read`/`file.read` event. That proves Claude did not execute the denied Bash
+call; it proposed a second operation which the current policy independently
+allowed. Targets and commands remain privacy-safe summaries.
 
 Direct commands execute inside the running service container so they use its
 configured MySQL connection and mounted keys:

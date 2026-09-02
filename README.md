@@ -148,6 +148,16 @@ launcher with a bare `claude` command.
 # Verify Service, Edge, policy, commands, and prompt classifier without Claude
 .\Start-BapNativeLocal.bat -VerifyOnly
 
+# Verify and view the latest native signed audit as a readable decision timeline
+.\View-AuditTrail.ps1 -Runtime Native -VerifyOnly
+.\View-AuditTrail.ps1 -Runtime Native -Timeline -Last 30
+
+# Show exact IDs/targets for one session copied from the timeline
+.\View-AuditTrail.ps1 -Runtime Native -Timeline -SessionID 'COPY-SESSION-ID' -Details
+
+# Native control-plane, policy lease, Edge state, and audit queue status
+.\Show-BapStatus.ps1 -Runtime Native
+
 # Company Windows/native AgentGrant acceptance: rebuild, issue, consume once,
 # reject replay, and verify signed audit (no Docker, Podman, or Claude needed)
 .\Start-BapNativeLocal.ps1 -VerifyOnly -Rebuild -Port 18443

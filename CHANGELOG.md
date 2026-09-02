@@ -19,6 +19,9 @@ All notable changes to cc-filter are documented in this file.
   model behavior as enforcement evidence
 - Resumable Claude process support: `SessionEnd` no longer discards a session's
   workload/capability ledger, and Windows UTF-8 BOM hook input is accepted
+- Native runtime support for audit verification, readable per-session decision
+  timelines, and status inspection; native verification now records the exact
+  denied-Bash then allowed-Read route change as two distinct tool calls
 - One-click native Windows local test launcher for BAP Service, BAP Edge, signed
   policy verification, and temporary project-local Claude hooks
 - Native Windows Go fallback and explicit Windows/Linux compilation targets for

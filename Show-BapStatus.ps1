@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Auto', 'Podman', 'Docker')][string]$Runtime = 'Auto',
+    [ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Auto',
     [string]$StateDirectory = ''
 )
 
@@ -7,10 +7,29 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
 
-$engine = Get-BapContainerEngine -Runtime $Runtime
-$runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
-$caBundle = Join-Path $runtimeDirectory 'dev-ca.pem'
-$serviceEnvelopePath = Join-Path $runtimeDirectory 'active-policy-bundle.json'
+if ($Runtime -eq 'Auto') {
+    try { $Runtime = Get-BapContainerEngine -Runtime Auto } catch { $Runtime = 'Native' }
+}
+$isNative = $Runtime -eq 'Native'
+if ($isNative) {
+    $runtimeDirectory = Get-BapNativeLatestRunDirectory
+    $serviceStateDirectory = Join-Path $runtimeDirectory 'service-state'
+    $caBundle = Join-Path $serviceStateDirectory 'dev-ca.pem'
+    $serviceEnvelopePath = Join-Path $serviceStateDirectory 'active-policy-bundle.json'
+    $engine = 'Native'
+    $serviceURL = 'https://127.0.0.1:8443'
+    $edgeConfigPath = Join-Path $runtimeDirectory 'bap-edge.yaml'
+    if (Test-Path -LiteralPath $edgeConfigPath -PathType Leaf) {
+        $serviceURLLine = Get-Content -LiteralPath $edgeConfigPath | Where-Object { $_ -match '^service_url:\s*"?([^"\s]+)' } | Select-Object -First 1
+        if ($serviceURLLine -match '^service_url:\s*"?([^"\s]+)') { $serviceURL = $Matches[1] }
+    }
+} else {
+    $engine = Get-BapContainerEngine -Runtime $Runtime
+    $runtimeDirectory = Get-BapRuntimeDirectory -Engine $engine
+    $caBundle = Join-Path $runtimeDirectory 'dev-ca.pem'
+    $serviceEnvelopePath = Join-Path $runtimeDirectory 'active-policy-bundle.json'
+    $serviceURL = 'https://127.0.0.1:8443'
+}
 $serviceBundle = $null
 if (Test-Path -LiteralPath $serviceEnvelopePath) {
     $serviceBundle = (Get-Content -LiteralPath $serviceEnvelopePath -Raw | ConvertFrom-Json).payload
@@ -19,17 +38,19 @@ if (Test-Path -LiteralPath $serviceEnvelopePath) {
 $ready = $false
 if (Test-Path -LiteralPath $caBundle) {
     try {
-        $response = & curl.exe --silent --show-error --fail --max-time 3 --ssl-no-revoke --cacert $caBundle 'https://127.0.0.1:8443/readyz' 2>$null | ConvertFrom-Json
+        $response = & curl.exe --silent --show-error --fail --max-time 3 --ssl-no-revoke --cacert $caBundle "$serviceURL/readyz" 2>$null | ConvertFrom-Json
         $ready = $response.status -eq 'ready'
     } catch { $ready = $false }
 }
-$mysql = 'not-found'
-$oldPreference = $ErrorActionPreference
-try {
-    $ErrorActionPreference = 'Continue'
-    $mysqlResult = & $engine inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' bap-mysql-local 2>$null
-    if ($LASTEXITCODE -eq 0) { $mysql = ($mysqlResult -join '').Trim() }
-} finally { $ErrorActionPreference = $oldPreference }
+$mysql = if ($isNative) { 'development JSONL (no MySQL)' } else { 'not-found' }
+if (-not $isNative) {
+    $oldPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $mysqlResult = & $engine inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' bap-mysql-local 2>$null
+        if ($LASTEXITCODE -eq 0) { $mysql = ($mysqlResult -join '').Trim() }
+    } finally { $ErrorActionPreference = $oldPreference }
+}
 
 Write-Host 'BAP Service control plane' -ForegroundColor Cyan
 [pscustomobject]@{
@@ -47,12 +68,14 @@ Write-Host 'BAP Service control plane' -ForegroundColor Cyan
 
 $candidates = [ordered]@{}
 if ($StateDirectory) { $candidates['Explicit'] = $StateDirectory }
+$candidates['NativeLatest'] = if ($isNative) { Join-Path $runtimeDirectory 'edge-state' } else { '' }
 $candidates['Managed'] = Join-Path $env:LOCALAPPDATA 'BAP Edge'
 $candidates['LocalClaude'] = Join-Path $PSScriptRoot '.bap\local-claude\edge-state'
 $candidates['Acceptance'] = Join-Path $runtimeDirectory 'test-edge-state'
 $rows = @()
 $now = [DateTime]::UtcNow
 foreach ($entry in $candidates.GetEnumerator()) {
+    if (-not $entry.Value) { continue }
     $policyStatePath = Join-Path $entry.Value 'policy\policy-state.json'
     $edgeEnvelopePath = Join-Path $entry.Value 'policy\active-bundle.json'
     if (-not (Test-Path -LiteralPath $policyStatePath) -or -not (Test-Path -LiteralPath $edgeEnvelopePath)) { continue }

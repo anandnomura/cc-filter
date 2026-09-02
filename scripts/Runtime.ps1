@@ -27,6 +27,25 @@ function Get-BapRuntimeDirectory {
     return Join-Path $root ".bap\runtime\$($Engine.ToLowerInvariant())"
 }
 
+function Get-BapNativeLatestRunDirectory {
+    $root = Split-Path -Parent $PSScriptRoot
+    $runsRoot = Join-Path $root '.bap\native-local\runs'
+    $latestPath = Join-Path $root '.bap\native-local\latest-run.txt'
+    if (-not (Test-Path -LiteralPath $latestPath -PathType Leaf)) {
+        throw 'No retained native BAP run was found. Run .\Start-BapNativeLocal.ps1 -VerifyOnly first.'
+    }
+    $candidate = (Get-Content -LiteralPath $latestPath -Raw).Trim().TrimStart([char]0xFEFF)
+    if (-not $candidate -or -not (Test-Path -LiteralPath $candidate -PathType Container)) {
+        throw "The latest native BAP run is missing: $candidate"
+    }
+    $resolvedRuns = (Resolve-Path -LiteralPath $runsRoot).Path.TrimEnd('\')
+    $resolvedCandidate = (Resolve-Path -LiteralPath $candidate).Path
+    if (-not $resolvedCandidate.StartsWith($resolvedRuns + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The native run pointer is outside the repository runtime directory: $resolvedCandidate"
+    }
+    return $resolvedCandidate
+}
+
 function Wait-BapHealth {
     param(
         [string]$Url = 'https://127.0.0.1:8443/readyz',
