@@ -22,7 +22,7 @@ import (
 	mysqldriver "github.com/go-sql-driver/mysql"
 )
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 type Config struct {
 	DSN                   string
@@ -195,6 +195,14 @@ func (s *Store) migrate(ctx context.Context) error {
 			consumed_at DATETIME(6) NULL,
 			KEY ix_bap_agent_grants_expiry (status, expires_at)
 		) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS bap_agent_intents (
+			intent_key CHAR(64) NOT NULL PRIMARY KEY,
+			uses_count INT UNSIGNED NOT NULL,
+			max_uses INT UNSIGNED NOT NULL,
+			expires_at DATETIME(6) NOT NULL,
+			updated_at DATETIME(6) NOT NULL,
+			KEY ix_bap_agent_intents_expiry (expires_at)
+		) ENGINE=InnoDB`,
 		`INSERT IGNORE INTO bap_schema_migrations (version, applied_at) VALUES (1, UTC_TIMESTAMP(6))`,
 	}
 	for _, statement := range statements {
@@ -222,12 +230,36 @@ func (s *Store) migrate(ctx context.Context) error {
 }
 
 // Reserve implements the Agent STS durable one-use ledger.
-func (s *Store) Reserve(grantID string, expiresAt time.Time, now time.Time) error {
+func (s *Store) Reserve(grantID string, expiresAt time.Time, intentKey string, intentExpiresAt time.Time, maxIntentUses int, now time.Time) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO bap_agent_grants (grant_id, status, issued_at, expires_at) VALUES (?, 'ISSUED', ?, ?)`, grantID, now.UTC(), expiresAt.UTC())
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
+		return fmt.Errorf("begin AgentGrant reservation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var uses, configuredMax int
+	var intentExpiry time.Time
+	err = tx.QueryRowContext(ctx, `SELECT uses_count, max_uses, expires_at FROM bap_agent_intents WHERE intent_key = ? FOR UPDATE`, intentKey).Scan(&uses, &configuredMax, &intentExpiry)
+	if errors.Is(err, sql.ErrNoRows) {
+		if maxIntentUses <= 0 || !now.UTC().Before(intentExpiresAt.UTC()) {
+			return errors.New("classified intent issuance budget is exhausted or expired")
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO bap_agent_intents (intent_key, uses_count, max_uses, expires_at, updated_at) VALUES (?, 1, ?, ?, ?)`, intentKey, maxIntentUses, intentExpiresAt.UTC(), now.UTC())
+	} else if err == nil {
+		if configuredMax != maxIntentUses || uses >= configuredMax || !now.UTC().Before(intentExpiry.UTC()) {
+			return errors.New("classified intent issuance budget is exhausted or expired")
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE bap_agent_intents SET uses_count = uses_count + 1, updated_at = ? WHERE intent_key = ?`, now.UTC(), intentKey)
+	}
+	if err != nil {
+		return fmt.Errorf("reserve intent budget: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO bap_agent_grants (grant_id, status, issued_at, expires_at) VALUES (?, 'ISSUED', ?, ?)`, grantID, now.UTC(), expiresAt.UTC()); err != nil {
 		return fmt.Errorf("reserve AgentGrant: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit AgentGrant reservation: %w", err)
 	}
 	return nil
 }

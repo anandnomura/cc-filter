@@ -60,7 +60,7 @@ flowchart TD
     A[Employee asks Claude to perform protected work] --> B[UserPromptSubmit reaches managed BAP Edge]
     B --> C{Signed prompt-intent rule matches?}
     C -- No --> D[No intent evidence; later escalated call is denied]
-    C -- Yes --> E[Bind intent hash, rule IDs, session, workload and time]
+    C -- Yes --> E[Bind random intent nonce, hash, rule IDs, session, workload and time]
     E --> F[Claude proposes API or MCP tool call]
     F --> G[PreToolUse normalizes exact operation]
     G --> H{Current signed Edge policy eligible?}
@@ -185,8 +185,9 @@ $env:BAP_API_PEP_RESOURCE = 'https://api.staging.company.example/orders/deploy'
 
 Production should source secrets from the approved workload identity or secret
 manager rather than literal shell values, use TLS for every STS/backend hop,
-and replace the MVP in-memory Agent STS ledger with a shared transactional
-store before running multiple Service replicas.
+and configure the implemented shared transactional MySQL grant/intent ledger
+before running multiple Service replicas. The in-memory ledger is native/local
+development only.
 
 This reference is not yet COAZ-MCP Binding 1.0 conformant. The exact standards
 status and missing requirements are documented in the acceptance guide.

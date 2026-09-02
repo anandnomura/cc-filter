@@ -178,6 +178,22 @@ launcher with a bare `claude` command.
 .\Test-AgentGrant.ps1 -Runtime Docker
 .\Test-AgentGrant.ps1 -Runtime Podman
 
+# Concurrent session-capability, composition, budget, and intent-accretion gate;
+# writes a hash-bound evidence manifest under .bap\attestations
+.\Test-SessionCapabilities.ps1 -Runtime Native
+.\Test-SessionCapabilities.ps1 -Runtime Docker
+.\Test-SessionCapabilities.ps1 -Runtime Podman
+
+# Neutral eight-turn accretion observation directly against BAP (deterministic)
+.\Test-SessionAccretion.bat -Mode DirectBap
+
+# Run the same turns through the local Claude model and native BAP processes
+.\Test-SessionAccretion.bat -Mode NativeClaude
+
+# Company Sonnet: verifies managed hooks, opens the exact prompt checklist,
+# and starts the company's interactive claude.cmd with no CLI arguments
+.\Test-SessionAccretion.bat -Mode CompanySonnet
+
 # Resource-specific API and MCP PEP tests
 .\Test-ResourcePEPs.ps1 -Runtime Native
 .\Test-ResourcePEPs.ps1 -Runtime Docker
@@ -192,6 +208,12 @@ launcher with a bare `claude` command.
 See [AgentGrant STS: prove it works on a company Windows laptop](docs/bap-edge/agent-grant-sts.md#prove-agentgrant-works-on-a-company-windows-laptop)
 for the exact Agent STS assertions. The runnable API and MCP boundaries are in
 the [resource PEP guide](docs/bap-system/resource-peps.md).
+Session-aware rule configuration, multi-Claude concurrency behavior, human
+acceptance, and evidence handling are in the
+[session capability controls guide](docs/bap-edge/session-capability-controls.md).
+The neutral CSV-to-Python-to-batch scenario, expected observations, and current
+policy boundary are documented in the same guide under
+[neutral accretion acceptance](docs/bap-edge/session-capability-controls.md#neutral-accretion-acceptance).
 
 ### Capture and certify company Claude fixtures without containers
 

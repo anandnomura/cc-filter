@@ -8,6 +8,9 @@ param(
     [string]$Model = '',
     [string]$Tools = 'Bash',
     [string]$SystemPrompt = 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the requested tool. Never substitute example paths or simulate results. Never claim a tool succeeded when it was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.',
+    [string]$InputFile = '',
+    [switch]$SequentialPrompts,
+    [string]$SequentialSessionID = '',
     [Alias('p')][switch]$Print,
     [string]$Prompt = '',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ClaudeArguments
@@ -193,6 +196,7 @@ function Invoke-NativeHookVerification {
     try {
         $consumeRequest = @{
             agent_grant = $grantResult.hookSpecificOutput.updatedInput._bap_agent_grant
+            resource = 'https://api.staging.company.example/orders/deploy'
             operation = $grantResult.hookSpecificOutput.updatedInput._bap_operation
         } | ConvertTo-Json -Compress -Depth 20
         [IO.File]::WriteAllText($consumeRequestPath, $consumeRequest)
@@ -344,7 +348,7 @@ try {
                 $existingHooks = if ($null -ne $existingGroup.PSObject.Properties['hooks']) { @($existingGroup.hooks) } else { @() }
                 foreach ($existingHandler in $existingHooks) {
                     $commandProperty = $existingHandler.PSObject.Properties['command']
-                    if ($null -ne $commandProperty -and $commandProperty.Value -eq $hookCommand) { $isBapGroup = $true }
+                    if ($null -ne $commandProperty -and ($commandProperty.Value -eq $hookCommand -or ($commandProperty.Value -match '(?i)bap-edge[^\r\n]*--config'))) { $isBapGroup = $true }
                 }
                 if (-not $isBapGroup) { $groups += $existingGroup }
             }
@@ -402,7 +406,29 @@ try {
         if ($effectiveModel) { $launchArguments = @('--model', $effectiveModel) + $launchArguments }
         if ($Print) { $launchArguments += '--print' }
         if ($Prompt) { $launchArguments += $Prompt }
-        & $claudeExecutable @launchArguments @ClaudeArguments
+        if ($SequentialPrompts) {
+            if (-not $InputFile -or -not (Test-Path -LiteralPath $InputFile -PathType Leaf)) { throw '-SequentialPrompts requires an existing -InputFile JSONL file.' }
+            if (-not $SequentialSessionID) { $SequentialSessionID = [Guid]::NewGuid().ToString() }
+            $turn = 0
+            foreach ($line in Get-Content -LiteralPath $InputFile) {
+                if (-not $line.Trim()) { continue }
+                $turn++
+                $message = $line | ConvertFrom-Json
+                $promptText = [string]$message.message.content[0].text
+                if (-not $promptText) { throw "Sequential prompt line $turn has no text content." }
+                Write-Host "BAP SESSION ACCRETION TURN $turn"
+                $turnArguments = @($launchArguments) + @('--output-format', 'stream-json', '--verbose', '--include-hook-events')
+                if ($turn -eq 1) { $turnArguments += @('--session-id', $SequentialSessionID) } else { $turnArguments += @('--resume', $SequentialSessionID) }
+                $turnArguments += $promptText
+                & $claudeExecutable @turnArguments
+                if ($LASTEXITCODE -ne 0) { throw "Claude session accretion turn $turn failed with exit code $LASTEXITCODE." }
+            }
+        } elseif ($InputFile) {
+            if (-not (Test-Path -LiteralPath $InputFile -PathType Leaf)) { throw "Claude stream input file does not exist: $InputFile" }
+            Get-Content -LiteralPath $InputFile -Raw | & $claudeExecutable @launchArguments @ClaudeArguments
+        } else {
+            & $claudeExecutable @launchArguments @ClaudeArguments
+        }
     }
     $claudeExitCode = $LASTEXITCODE
 } finally {

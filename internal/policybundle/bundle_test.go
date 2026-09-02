@@ -78,6 +78,27 @@ func TestSignedBundleVerificationAndTamperResistance(t *testing.T) {
 	}
 }
 
+func TestSessionPolicyRejectsUnknownCapabilityAndUnsafeLimits(t *testing.T) {
+	source, _ := testSourceAndPolicy(t)
+	unknown := source
+	unknown.SessionPolicy.CompositionRules = []SessionCompositionRule{{ID: "bad-sequence", PriorCapabilities: []string{"missing"}, CurrentCapabilities: []string{"capability.orders-staging-deploy"}, WithinSeconds: 60, Reason: "deny", Owner: "security", Approval: "ticket"}}
+	if _, err := LoadSource(mustJSON(unknown)); err == nil {
+		t.Fatal("unknown session capability reference was accepted")
+	}
+
+	unsafe := source
+	unsafe.SessionPolicy.MaxEvents = 0
+	if _, err := LoadSource(mustJSON(unsafe)); err == nil {
+		t.Fatal("unbounded session ledger configuration was accepted")
+	}
+
+	grantBudget := source
+	grantBudget.AgentGrantRules[0].MaxGrantsPerIntent = 0
+	if _, err := LoadSource(mustJSON(grantBudget)); err == nil {
+		t.Fatal("zero AgentGrant intent budget was accepted")
+	}
+}
+
 func TestLocalCommandAuthorizationUsesBundleRulesNotClientFlags(t *testing.T) {
 	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	bundle := testBundle(t, now)

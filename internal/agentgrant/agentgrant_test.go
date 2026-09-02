@@ -14,7 +14,7 @@ func TestAgentGrantBindsRequestPolicyAndLifetime(t *testing.T) {
 		Issuer: "bap-agent-sts", Audience: "https://gateway.company.example/", Resource: "https://gateway.company.example/", GrantID: "ag_test", Subject: "agent",
 		Principal: "device", CredentialFingerprint: "fp", EdgeInstanceID: "edge", SessionID: "session",
 		WorkloadID: "workload", ToolUseID: "tool-use", Tool: "GatewayRequest", Action: "gateway.execute",
-		OperationResourceID: "resource", RequestHash: "request", IntentHash: "intent", IntentRuleIDs: []string{"intent.deploy"}, PolicyRuleIDs: []string{"agentgrant.deploy"},
+		OperationResourceID: "resource", RequestHash: "request", IntentID: "intent-1", IntentHash: "intent", IntentRuleIDs: []string{"intent.deploy"}, PolicyRuleIDs: []string{"agentgrant.deploy"},
 		PolicyVersion: 7, PolicyDigest: "sha256:policy", RevocationEpoch: 3, MaxUses: 1,
 		IssuedAt: now.Unix(), NotBefore: now.Unix(), ExpiresAt: now.Add(time.Minute).Unix(),
 	}

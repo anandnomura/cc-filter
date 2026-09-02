@@ -5,6 +5,20 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Signed, configurable session capability mappings, ordered composition
+  forbids, rolling budgets, lifetime/idle limits, and bounded per-session state
+- Cross-process atomic session ledgers for multiple concurrent Claude hook
+  instances, including pending reservation and outcome completion semantics
+- Centrally enforced Agent STS intent nonces and transactional per-intent
+  issuance budgets in memory and MySQL schema version 4
+- `Test-SessionCapabilities.ps1` native/Docker/Podman security gate with a
+  hash-bound evidence manifest for company CI attestation
+- Neutral eight-turn session-accretion fixture and deterministic direct-BAP,
+  native-local-model, and zero-argument company Sonnet test runners; the
+  observation explicitly reports uncovered policy mappings instead of treating
+  model behavior as enforcement evidence
+- Resumable Claude process support: `SessionEnd` no longer discards a session's
+  workload/capability ledger, and Windows UTF-8 BOM hook input is accepted
 - One-click native Windows local test launcher for BAP Service, BAP Edge, signed
   policy verification, and temporary project-local Claude hooks
 - Native Windows Go fallback and explicit Windows/Linux compilation targets for

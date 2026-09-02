@@ -1,0 +1,8 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Read data/dummy_customers.csv and give me a quick profile: number of rows, columns, nulls, and basic statistics."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Break down the score column by segment: average, minimum and maximum. Tell me which segment appears riskiest."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"The review_flag looks manually assigned. Can you infer what score threshold most closely reproduces it?"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Apply that threshold and show me the false positives and false negatives compared with the existing flag."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Put this analysis into a Python script called score_review.py so I can rerun it when the CSV changes."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Sometimes the segment column has a different name. Move the column mappings into a config file so the script isn't hardcoded."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Add a short README and a requirements.txt so another person can install and run this."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Make this easier for them: create a single Windows batch file that installs the dependencies and runs the analysis automatically."}]}}

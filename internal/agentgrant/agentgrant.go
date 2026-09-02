@@ -18,12 +18,13 @@ import (
 	"bap-system/internal/resourceindicator"
 )
 
-const Type = "BAP-AgentGrant-EdDSA-v2"
+const Type = "BAP-AgentGrant-EdDSA-v3"
 const GatewayToolName = "mcp__bap_gateway__execute"
 
 var ErrInvalidTarget = errors.New("invalid_target")
 
 type IntentEvidence struct {
+	IntentID   string   `json:"intent_id"`
 	SessionID  string   `json:"session_id"`
 	WorkloadID string   `json:"workload_id"`
 	IntentHash string   `json:"intent_hash"`
@@ -48,6 +49,7 @@ type Claims struct {
 	OperationResourceID   string   `json:"operation_resource_id"`
 	RequestHash           string   `json:"request_hash"`
 	IntentHash            string   `json:"intent_hash"`
+	IntentID              string   `json:"intent_id"`
 	IntentRuleIDs         []string `json:"intent_rule_ids"`
 	PolicyRuleIDs         []string `json:"policy_rule_ids"`
 	PolicyVersion         uint64   `json:"policy_version"`
@@ -111,7 +113,7 @@ func (r IssueRequest) Validate() error {
 	}
 	sessionID, _ := r.Operation.Context["session_id"].(string)
 	workloadID, _ := r.Operation.Context["workload_id"].(string)
-	if r.Intent.SessionID == "" || r.Intent.WorkloadID == "" || r.Intent.IntentHash == "" || len(r.Intent.RuleIDs) == 0 {
+	if r.Intent.IntentID == "" || r.Intent.SessionID == "" || r.Intent.WorkloadID == "" || r.Intent.IntentHash == "" || len(r.Intent.RuleIDs) == 0 {
 		return errors.New("classified intent evidence is required")
 	}
 	if r.Intent.SessionID != sessionID || r.Intent.WorkloadID != workloadID {
@@ -211,8 +213,16 @@ func NewID() (string, error) {
 	return "ag_" + base64.RawURLEncoding.EncodeToString(value), nil
 }
 
+func NewIntentID() (string, error) {
+	value := make([]byte, 18)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return "agi_" + base64.RawURLEncoding.EncodeToString(value), nil
+}
+
 func validateClaims(claims Claims) error {
-	if claims.Issuer == "" || claims.Audience == "" || claims.GrantID == "" || claims.Subject == "" || claims.Principal == "" || claims.CredentialFingerprint == "" || claims.EdgeInstanceID == "" || claims.SessionID == "" || claims.WorkloadID == "" || claims.ToolUseID == "" || claims.Tool == "" || claims.Action == "" || claims.OperationResourceID == "" || claims.RequestHash == "" || claims.IntentHash == "" || len(claims.IntentRuleIDs) == 0 || len(claims.PolicyRuleIDs) == 0 || claims.PolicyVersion == 0 || claims.PolicyDigest == "" || claims.MaxUses != 1 || claims.IssuedAt == 0 || claims.NotBefore == 0 || claims.ExpiresAt <= claims.NotBefore {
+	if claims.Issuer == "" || claims.Audience == "" || claims.GrantID == "" || claims.Subject == "" || claims.Principal == "" || claims.CredentialFingerprint == "" || claims.EdgeInstanceID == "" || claims.SessionID == "" || claims.WorkloadID == "" || claims.ToolUseID == "" || claims.Tool == "" || claims.Action == "" || claims.OperationResourceID == "" || claims.RequestHash == "" || claims.IntentID == "" || claims.IntentHash == "" || len(claims.IntentRuleIDs) == 0 || len(claims.PolicyRuleIDs) == 0 || claims.PolicyVersion == 0 || claims.PolicyDigest == "" || claims.MaxUses != 1 || claims.IssuedAt == 0 || claims.NotBefore == 0 || claims.ExpiresAt <= claims.NotBefore {
 		return errors.New("AgentGrant claims are incomplete")
 	}
 	if err := resourceindicator.Validate(claims.Resource); err != nil || claims.Audience != claims.Resource {

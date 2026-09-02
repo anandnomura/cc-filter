@@ -6,6 +6,8 @@ package agentsts
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,16 +26,24 @@ type grantState struct {
 // Ledger owns the atomic one-use state transition. A production implementation
 // can use a transactional database without changing issuance or token logic.
 type Ledger interface {
-	Reserve(grantID string, expiresAt time.Time, now time.Time) error
+	Reserve(grantID string, expiresAt time.Time, intentKey string, intentExpiresAt time.Time, maxIntentUses int, now time.Time) error
 	Consume(grantID string, now time.Time) error
 }
 
 type MemoryLedger struct {
-	mu     sync.Mutex
-	grants map[string]grantState
+	mu      sync.Mutex
+	grants  map[string]grantState
+	intents map[string]intentState
 }
 
-func NewMemoryLedger() *MemoryLedger { return &MemoryLedger{grants: map[string]grantState{}} }
+type intentState struct {
+	uses, maxUses int
+	expiresAt     time.Time
+}
+
+func NewMemoryLedger() *MemoryLedger {
+	return &MemoryLedger{grants: map[string]grantState{}, intents: map[string]intentState{}}
+}
 
 type Service struct {
 	privateKey ed25519.PrivateKey
@@ -94,7 +104,7 @@ func (s *Service) Issue(request agentgrant.IssueRequest, principal, fingerprint 
 		EdgeInstanceID: request.EdgeInstanceID, SessionID: sessionID, WorkloadID: workloadID,
 		ToolUseID: toolUseID, Tool: tool, Action: request.Operation.Action.Name,
 		OperationResourceID: request.Operation.Resource.ID, RequestHash: requestHash,
-		IntentHash: request.Intent.IntentHash, IntentRuleIDs: matchedIntent, PolicyRuleIDs: append([]string(nil), decision.RuleIDs...),
+		IntentID: request.Intent.IntentID, IntentHash: request.Intent.IntentHash, IntentRuleIDs: matchedIntent, PolicyRuleIDs: append([]string(nil), decision.RuleIDs...),
 		PolicyVersion: bundle.Version, PolicyDigest: bundle.RulesDigest, RevocationEpoch: bundle.RevocationEpoch,
 		MaxUses: 1, IssuedAt: now.Unix(), NotBefore: now.Add(-2 * time.Second).Unix(), ExpiresAt: now.Add(decision.GrantTTL).Unix(),
 	}
@@ -102,7 +112,8 @@ func (s *Service) Issue(request agentgrant.IssueRequest, principal, fingerprint 
 	if err != nil {
 		return agentgrant.IssueResponse{}, empty, err
 	}
-	if err := s.ledger.Reserve(grantID, time.Unix(claims.ExpiresAt, 0).UTC(), now); err != nil {
+	intentKey := hashIntentKey(principal, request.EdgeInstanceID, sessionID, workloadID, request.Intent.IntentID)
+	if err := s.ledger.Reserve(grantID, time.Unix(claims.ExpiresAt, 0).UTC(), intentKey, capturedAt.Add(decision.GrantIntentMaxAge), decision.GrantMaxPerIntent, now); err != nil {
 		return agentgrant.IssueResponse{}, empty, err
 	}
 	return agentgrant.IssueResponse{Token: token, GrantID: grantID, ExpiresAt: time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339), Audience: claims.Audience, Resource: claims.Resource}, claims, nil
@@ -159,13 +170,22 @@ func containsExact(values []string, wanted string) bool {
 	return false
 }
 
-func (l *MemoryLedger) Reserve(grantID string, expiresAt time.Time, now time.Time) error {
+func (l *MemoryLedger) Reserve(grantID string, expiresAt time.Time, intentKey string, intentExpiresAt time.Time, maxIntentUses int, now time.Time) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.purgeExpiredLocked(now)
 	if _, exists := l.grants[grantID]; exists {
 		return errors.New("AgentGrant ID already exists")
 	}
+	state, exists := l.intents[intentKey]
+	if !exists {
+		state = intentState{maxUses: maxIntentUses, expiresAt: intentExpiresAt.UTC()}
+	}
+	if maxIntentUses <= 0 || state.maxUses != maxIntentUses || !now.UTC().Before(state.expiresAt) || state.uses >= state.maxUses {
+		return errors.New("classified intent issuance budget is exhausted or expired")
+	}
+	state.uses++
+	l.intents[intentKey] = state
 	l.grants[grantID] = grantState{status: "ISSUED", expiresAt: expiresAt.UTC()}
 	return nil
 }
@@ -188,6 +208,16 @@ func (l *MemoryLedger) purgeExpiredLocked(now time.Time) {
 			delete(l.grants, id)
 		}
 	}
+	for id, state := range l.intents {
+		if !now.Before(state.expiresAt) {
+			delete(l.intents, id)
+		}
+	}
+}
+
+func hashIntentKey(values ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(values, "\x00")))
+	return hex.EncodeToString(sum[:])
 }
 
 func intersection(left, right []string) []string {

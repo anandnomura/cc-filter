@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": 7,
+  "version": 8,
   "valid_for_seconds": 2592000,
   "refresh_after_seconds": 900,
   "max_offline_seconds": 3600,
@@ -12,6 +12,20 @@
   "allowed_network_domains": [],
   "approved_mcp_tools": [],
   "approved_subagent_types": [],
+  "session_policy": {
+    "max_events": 1024,
+    "max_lifetime_seconds": 28800,
+    "idle_timeout_seconds": 3600,
+    "capabilities": [
+      {"id":"capability.orders-staging-deploy","actions":["gateway.execute"],"tools":["mcp__bap_gateway__execute"],"property_equals":{"httpMethod":["POST"],"networkHost":["api.staging.company.example"]},"profiles":["standard-developer"],"owner":"orders-platform","approval":"session-capability-mvp1"},
+      {"id":"capability.change-create","actions":["mcp.invoke"],"tools":["mcp__bap_mcp_pep__change_create"],"property_equals":{"mcpServer":["bap_mcp_pep"],"mcpTool":["change_create"]},"profiles":["standard-developer"],"owner":"change-platform","approval":"session-capability-mvp1"}
+    ],
+    "composition_rules": [],
+    "budget_rules": [
+      {"id":"session-budget.orders-staging-deploy","capabilities":["capability.orders-staging-deploy"],"max_count":3,"window_seconds":300,"scope":"resource","reason":"The signed policy limits repeated orders staging deploys in one Claude session.","profiles":["standard-developer"],"owner":"orders-platform","approval":"session-capability-mvp1"},
+      {"id":"session-budget.change-create","capabilities":["capability.change-create"],"max_count":3,"window_seconds":300,"scope":"resource","reason":"The signed policy limits repeated change creation in one Claude session.","profiles":["standard-developer"],"owner":"change-platform","approval":"session-capability-mvp1"}
+    ]
+  },
   "prompt_rules": [
     {"id":"prompt.manual.direct-client-command","effect":"manual-only-advisory","patterns":["(?im)^\\s*(?:mysql(?:\\.exe)?|psql(?:\\.exe)?|sqlcmd(?:\\.exe)?|sqlplus(?:\\.exe)?|ssh(?:\\.exe)?|kubectl(?:\\.exe)?)(?:\\s|$)"],"profiles":["standard-developer","read-only"],"owner":"security","approval":"manual-access-boundary-v2"},
     {"id":"prompt.manual.database","effect":"manual-only-advisory","patterns":["(?i)\\b(connect|access|log[ -]?in|use|run|execute|perform|query|index|indexing|reindex|re-index|create[ -]+index|migrate|alter|update|delete|insert|drop|truncate|grant|revoke)\\b","(?i)\\b(mysql|mariadb|postgres(?:ql)?|psql|sql[ -]?server|sqlcmd|oracle|sqlplus|database|db)\\b"],"profiles":["standard-developer","read-only"],"owner":"security","approval":"manual-access-boundary-v2"},
@@ -21,8 +35,8 @@
     {"id":"intent.mcp.change-create","effect":"agent-grant-intent","patterns":["(?i)\\b(create|open|submit)\\b","(?i)\\bchange(?: request)?\\b","(?i)\\borders\\b"],"profiles":["standard-developer"],"owner":"change-platform","approval":"agent-grant-mvp1"}
   ],
   "agent_grant_rules": [
-    {"id":"agentgrant.orders-staging.deploy","resource_type":"api","action":"gateway.execute","tool":"mcp__bap_gateway__execute","methods":["POST"],"hosts":["api.staging.company.example"],"paths":["/orders/deploy"],"intent_rule_ids":["intent.gateway.orders-staging-deploy"],"resource":"https://api.staging.company.example/orders/deploy","max_ttl_seconds":60,"max_intent_age_seconds":300,"profiles":["standard-developer"],"owner":"orders-platform","approval":"agent-grant-mvp1"},
-    {"id":"agentgrant.mcp.change-create","resource_type":"mcp","action":"mcp.invoke","tool":"mcp__bap_mcp_pep__change_create","mcp_servers":["bap_mcp_pep"],"mcp_tools":["change_create"],"intent_rule_ids":["intent.mcp.change-create"],"resource":"https://bap-mcp-pep.company.example/mcp","max_ttl_seconds":60,"max_intent_age_seconds":300,"profiles":["standard-developer"],"owner":"change-platform","approval":"agent-grant-mvp1"}
+    {"id":"agentgrant.orders-staging.deploy","resource_type":"api","action":"gateway.execute","tool":"mcp__bap_gateway__execute","methods":["POST"],"hosts":["api.staging.company.example"],"paths":["/orders/deploy"],"intent_rule_ids":["intent.gateway.orders-staging-deploy"],"resource":"https://api.staging.company.example/orders/deploy","max_ttl_seconds":60,"max_intent_age_seconds":300,"max_grants_per_intent":1,"profiles":["standard-developer"],"owner":"orders-platform","approval":"agent-grant-mvp1"},
+    {"id":"agentgrant.mcp.change-create","resource_type":"mcp","action":"mcp.invoke","tool":"mcp__bap_mcp_pep__change_create","mcp_servers":["bap_mcp_pep"],"mcp_tools":["change_create"],"intent_rule_ids":["intent.mcp.change-create"],"resource":"https://bap-mcp-pep.company.example/mcp","max_ttl_seconds":60,"max_intent_age_seconds":300,"max_grants_per_intent":1,"profiles":["standard-developer"],"owner":"change-platform","approval":"agent-grant-mvp1"}
   ],
   "command_rules": [
     {"id":"command.git.status","executable":"git","subcommand":"status","effect":"eligible-for-permit","argument_patterns":[],"profiles":["standard-developer","read-only"],"owner":"developer-platform","approval":"MVP0"},

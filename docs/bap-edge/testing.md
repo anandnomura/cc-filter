@@ -1,5 +1,15 @@
 # Build and acceptance testing
 
+## Neutral session-accretion observation
+
+Use `Test-SessionAccretion.bat -Mode DirectBap` for a deterministic observation
+against normalization, the signed policy, and one session ledger. Use
+`-Mode NativeClaude` for the local model, or `-Mode CompanySonnet` to verify the
+managed-hook installation and open the exact eight-turn checklist before the
+zero-argument company Claude launcher starts. A reported `GAP` is not a passing
+security certification; see
+[session capability controls](session-capability-controls.md#neutral-accretion-acceptance).
+
 ## Prerequisites
 
 Install either Docker Desktop or Podman Desktop/Podman machine. You do **not**

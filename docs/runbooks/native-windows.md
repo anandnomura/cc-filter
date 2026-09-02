@@ -53,6 +53,7 @@ platform-independent when a matching Java 21 runtime is installed.
 
 ```powershell
 .\Test-AgentGrant.ps1 -Runtime Native
+.\Test-SessionCapabilities.ps1 -Runtime Native
 .\Test-ResourcePEPs.ps1 -Runtime Native
 .\Demo-ResourcePEPs.ps1 -Runtime Native
 .\Test-MVP0.ps1 -Runtime Native

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 
 	"bap-system/internal/agentgrant"
 	"bap-system/internal/auditwire"
+	"bap-system/internal/authzen"
+	"bap-system/internal/policybundle"
 )
 
 func stateDirectory(configured string) (string, error) {
@@ -31,8 +34,27 @@ func stateDirectory(configured string) (string, error) {
 type SessionStore struct{ directory string }
 
 type sessionState struct {
-	WorkloadID string                     `json:"workload_id"`
-	Intent     *agentgrant.IntentEvidence `json:"intent,omitempty"`
+	SchemaVersion int                        `json:"schema_version"`
+	WorkloadID    string                     `json:"workload_id"`
+	CreatedAt     time.Time                  `json:"created_at"`
+	LastActivity  time.Time                  `json:"last_activity"`
+	PolicyVersion uint64                     `json:"policy_version,omitempty"`
+	PolicyDigest  string                     `json:"policy_digest,omitempty"`
+	Intent        *agentgrant.IntentEvidence `json:"intent,omitempty"`
+	Events        []sessionEvent             `json:"events,omitempty"`
+}
+
+type sessionEvent struct {
+	ToolUseID    string    `json:"tool_use_id"`
+	Capabilities []string  `json:"capabilities"`
+	ResourceID   string    `json:"resource_id"`
+	Status       string    `json:"status"`
+	OccurredAt   time.Time `json:"occurred_at"`
+}
+
+type SessionReservation struct {
+	Reserved bool
+	Decision policybundle.SessionDecision
 }
 
 func NewSessionStore(configured string) (*SessionStore, error) {
@@ -51,71 +73,204 @@ func (s *SessionStore) LoadOrCreate(sessionID string) (string, error) {
 	if sessionID == "" {
 		return "", fmt.Errorf("Claude session_id is missing")
 	}
-	path := s.path(sessionID)
-	if data, err := os.ReadFile(path); err == nil {
-		return decodeWorkload(data)
-	} else if !os.IsNotExist(err) {
-		return "", err
-	}
-	workloadID := "bapw_" + randomHex(24)
-	data, _ := json.Marshal(sessionState{WorkloadID: workloadID})
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if os.IsExist(err) {
-		return s.LoadOrCreate(sessionID)
-	}
-	if err != nil {
-		return "", err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return "", err
-	}
-	if err := file.Close(); err != nil {
-		return "", err
-	}
-	return workloadID, nil
+	var workloadID string
+	err := s.mutateWithTouch(sessionID, true, false, func(state *sessionState) error { workloadID = state.WorkloadID; return nil })
+	return workloadID, err
 }
 
-// RecordIntent stores only a prompt hash and signed-policy rule IDs. Prompt
-// text is deliberately excluded from local state and Agent STS requests.
+// RecordIntent stores only a random nonce, prompt hash, and signed-policy rule
+// IDs. Prompt text is deliberately excluded from local state and STS requests.
 func (s *SessionStore) RecordIntent(sessionID, workloadID, prompt string, ruleIDs []string, now time.Time) (agentgrant.IntentEvidence, error) {
-	intent := agentgrant.IntentEvidence{SessionID: sessionID, WorkloadID: workloadID, IntentHash: agentgrant.HashIntent(prompt), RuleIDs: append([]string(nil), ruleIDs...), CapturedAt: now.UTC().Unix()}
-	if err := s.write(sessionID, sessionState{WorkloadID: workloadID, Intent: &intent}); err != nil {
+	intentID, err := agentgrant.NewIntentID()
+	if err != nil {
+		return agentgrant.IntentEvidence{}, err
+	}
+	intent := agentgrant.IntentEvidence{IntentID: intentID, SessionID: sessionID, WorkloadID: workloadID, IntentHash: agentgrant.HashIntent(prompt), RuleIDs: append([]string(nil), ruleIDs...), CapturedAt: now.UTC().Unix()}
+	if err := s.mutateWithTouch(sessionID, false, false, func(state *sessionState) error {
+		if state.WorkloadID != workloadID {
+			return errors.New("session workload binding changed")
+		}
+		state.Intent = &intent
+		return nil
+	}); err != nil {
 		return intent, err
 	}
 	return intent, nil
 }
 
 func (s *SessionStore) ClearIntent(sessionID, workloadID string) error {
-	return s.write(sessionID, sessionState{WorkloadID: workloadID})
-}
-
-func (s *SessionStore) write(sessionID string, state sessionState) error {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.path(sessionID), data, 0600)
+	return s.mutateWithTouch(sessionID, false, false, func(state *sessionState) error {
+		if state.WorkloadID != workloadID {
+			return errors.New("session workload binding changed")
+		}
+		state.Intent = nil
+		return nil
+	})
 }
 
 func (s *SessionStore) LoadIntent(sessionID string) (agentgrant.IntentEvidence, error) {
-	data, err := os.ReadFile(s.path(sessionID))
-	if err != nil {
-		return agentgrant.IntentEvidence{}, err
+	var intent agentgrant.IntentEvidence
+	err := s.mutateWithTouch(sessionID, false, false, func(state *sessionState) error {
+		if state.Intent == nil {
+			return fmt.Errorf("no classified AgentGrant intent exists for this session")
+		}
+		intent = *state.Intent
+		return nil
+	})
+	return intent, err
+}
+
+func (s *SessionStore) ReserveOperation(sessionID, workloadID, toolUseID string, request authzen.EvaluationRequest, bundle policybundle.Bundle, now time.Time) (SessionReservation, error) {
+	result := SessionReservation{}
+	err := s.mutate(sessionID, false, func(state *sessionState) error {
+		if state.WorkloadID != workloadID {
+			return errors.New("session workload binding changed")
+		}
+		if state.PolicyDigest != "" && (state.PolicyDigest != bundle.RulesDigest || state.PolicyVersion != bundle.Version) {
+			return errors.New("signed policy changed during this session; start a new Claude session")
+		}
+		if now.Sub(state.CreatedAt) > time.Duration(bundle.SessionPolicy.MaxLifetimeSeconds)*time.Second || now.Sub(state.LastActivity) > time.Duration(bundle.SessionPolicy.IdleTimeoutSeconds)*time.Second {
+			return errors.New("session lifetime or idle limit exceeded; start a new Claude session")
+		}
+		for _, event := range state.Events {
+			if event.ToolUseID == toolUseID {
+				return errors.New("duplicate tool_use_id replay in this session")
+			}
+		}
+		history := make([]policybundle.SessionEvent, 0, len(state.Events))
+		for _, event := range state.Events {
+			history = append(history, policybundle.SessionEvent{Capabilities: event.Capabilities, ResourceID: event.ResourceID, Status: event.Status, OccurredAt: event.OccurredAt})
+		}
+		result.Decision = policybundle.EvaluateSession(bundle, request, history, now)
+		if !result.Decision.Allowed {
+			return nil
+		}
+		if len(result.Decision.Capabilities) == 0 {
+			return nil
+		}
+		if len(state.Events) >= bundle.SessionPolicy.MaxEvents {
+			return errors.New("session capability ledger is full; start a new Claude session")
+		}
+		state.PolicyVersion, state.PolicyDigest = bundle.Version, bundle.RulesDigest
+		state.Events = append(state.Events, sessionEvent{ToolUseID: toolUseID, Capabilities: result.Decision.Capabilities, ResourceID: request.Resource.ID, Status: "pending", OccurredAt: now.UTC()})
+		result.Reserved = true
+		return nil
+	})
+	return result, err
+}
+
+func (s *SessionStore) CompleteOperation(sessionID, workloadID, toolUseID, status string) error {
+	if status != "success" && status != "failure" {
+		return errors.New("invalid session operation outcome")
 	}
-	var state sessionState
-	if json.Unmarshal(data, &state) != nil || state.Intent == nil {
-		return agentgrant.IntentEvidence{}, fmt.Errorf("no classified AgentGrant intent exists for this session")
-	}
-	return *state.Intent, nil
+	return s.mutate(sessionID, false, func(state *sessionState) error {
+		if state.WorkloadID != workloadID {
+			return errors.New("session workload binding changed")
+		}
+		for i := range state.Events {
+			if state.Events[i].ToolUseID == toolUseID {
+				if state.Events[i].Status != "pending" {
+					return errors.New("session operation was already completed")
+				}
+				state.Events[i].Status = status
+				return nil
+			}
+		}
+		return nil // operations without a configured capability have no reservation
+	})
 }
 
 func (s *SessionStore) Remove(sessionID string) error {
-	err := os.Remove(s.path(sessionID))
+	release, err := s.lock(sessionID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	err = os.Remove(s.path(sessionID))
 	if os.IsNotExist(err) {
 		return nil
 	}
 	return err
+}
+
+func (s *SessionStore) mutate(sessionID string, create bool, fn func(*sessionState) error) error {
+	return s.mutateWithTouch(sessionID, create, true, fn)
+}
+
+func (s *SessionStore) mutateWithTouch(sessionID string, create, touch bool, fn func(*sessionState) error) error {
+	release, err := s.lock(sessionID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	path := s.path(sessionID)
+	var state sessionState
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) && create {
+		now := time.Now().UTC()
+		state = sessionState{SchemaVersion: 1, WorkloadID: "bapw_" + randomHex(24), CreatedAt: now, LastActivity: now}
+	} else if err != nil {
+		return err
+	} else if json.Unmarshal(data, &state) != nil || state.SchemaVersion != 1 || state.WorkloadID == "" {
+		return errors.New("invalid BAP session state")
+	}
+	if err := fn(&state); err != nil {
+		return err
+	}
+	if touch {
+		state.LastActivity = time.Now().UTC()
+	}
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	temporary := path + "." + randomHex(6) + ".tmp"
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	if _, err = file.Write(encoded); err == nil {
+		err = file.Sync()
+	}
+	closeErr := file.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(temporary, path)
+	}
+	if err != nil {
+		_ = os.Remove(temporary)
+	}
+	return err
+}
+
+func (s *SessionStore) lock(sessionID string) (func(), error) {
+	path := s.path(sessionID) + ".lock"
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if err := os.Mkdir(path, 0700); err == nil {
+			return func() { _ = os.Remove(path) }, nil
+		} else {
+			// On Windows a concurrent CreateDirectory can surface as access
+			// denied rather than os.ErrExist. The directory's presence is the
+			// authoritative indication that another Edge process owns the lock.
+			if _, statErr := os.Stat(path); statErr != nil {
+				if os.IsNotExist(statErr) {
+					continue
+				}
+				return nil, err
+			}
+		}
+		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > 30*time.Second {
+			_ = os.Remove(path)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return nil, errors.New("timed out acquiring session state lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (s *SessionStore) path(sessionID string) string {

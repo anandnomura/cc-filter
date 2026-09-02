@@ -90,5 +90,5 @@ func TestProtocolVersionsUseNumericOrdering(t *testing.T) {
 
 func testStoreBundle(now time.Time, version uint64, digest string) policybundle.Bundle {
 	policy, _ := os.ReadFile(filepath.Join("..", "..", "bap-service", "policies", "agent-tools.cedar"))
-	return policybundle.Bundle{SchemaVersion: policybundle.SchemaVersion, Version: version, RulesDigest: digest, IssuedAt: now, ExpiresAt: now.Add(24 * time.Hour), RefreshAfterSeconds: 60, MaxOfflineSeconds: 3600, MinimumEdgeVersion: "1", RevocationEpoch: version, PolicyProfile: "standard-developer", CedarPolicy: string(policy)}
+	return policybundle.Bundle{SchemaVersion: policybundle.SchemaVersion, Version: version, RulesDigest: digest, IssuedAt: now, ExpiresAt: now.Add(24 * time.Hour), RefreshAfterSeconds: 60, MaxOfflineSeconds: 3600, MinimumEdgeVersion: "1", RevocationEpoch: version, PolicyProfile: "standard-developer", CedarPolicy: string(policy), SessionPolicy: policybundle.SessionPolicy{MaxEvents: 100, MaxLifetimeSeconds: 3600, IdleTimeoutSeconds: 600}}
 }

@@ -15,6 +15,8 @@ packages and measurable release gates.
 - AuthZEN 1.0 evaluation endpoint over HTTPS;
 - dedicated bearer credential, principal fingerprint, Claude session, random
   workload, and tool-use correlation;
+- signed session capability mappings, composition forbids and rolling budgets,
+  with atomic multi-process Edge state and transactional STS intent budgets;
 - short-lived exact-operation grants and centrally acknowledged cache use;
 - decisions fail when durable audit fails;
 - post-tool outcomes with durable retry, idempotency, and prior-allow correlation;

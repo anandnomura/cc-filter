@@ -12,6 +12,7 @@ BAP Edge / data plane / local PDP + PEP
   - inherited cc-filter hard blocks and redaction
   - signed local prompt-intent advisories (never permits)
   - random per-session workload_id
+  - atomic per-session capability ledger and signed composition/budget rules
   - signed policy bundle verification and rollback state
   - local command classification and Cedar evaluation
   - durable outcome/denial retry spool
@@ -72,7 +73,10 @@ advisory flow cannot produce an authorization permit.
 8. Edge applies command precedence: explicit forbid, `manual-only`, then normal
    Cedar evaluation. A manual-only match is denied with a safe employee handoff;
    explicit forbids still win and no matching permit denies.
-9. Edge durably spools the local decision, attempts asynchronous central audit
+9. For a permitted or STS-eligible operation, Edge atomically reserves any
+   signed session capability before execution. Pending operations count against
+   composition rules and budgets, including across concurrent hook processes.
+10. Edge durably spools the local decision, attempts asynchronous central audit
    delivery, and returns allow or deny to Claude.
 
 The company hook is installed in administrator-owned managed settings with a
@@ -95,6 +99,10 @@ writes a minimal user-local spool record and retries on the next hook. A user ca
 delete their spool, which is why this interim identity model is not equivalent to
 an OS service or protected workload identity; authorization events remain
 central and fail-closed.
+The same outcome atomically completes the capability reservation. A failure no
+longer accrues capability; a missing outcome remains pending and conservative.
+`SessionEnd` retains the session security ledger because Claude can resume that
+same ID later; it is not treated as an authorization reset boundary.
 
 ## Policy state semantics
 

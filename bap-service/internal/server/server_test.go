@@ -145,7 +145,7 @@ func TestAgentSTSIssueReturnsInvalidTargetForMissingResource(t *testing.T) {
 			Resource: authzen.Entity{Type: "tool-invocation", ID: "operation", Properties: map[string]any{"tool": agentgrant.GatewayToolName}},
 			Context:  map[string]any{"session_id": "session", "workload_id": "workload", "tool_use_id": "tool"},
 		},
-		Intent: agentgrant.IntentEvidence{SessionID: "session", WorkloadID: "workload", IntentHash: "sha256:intent", RuleIDs: []string{"intent"}, CapturedAt: time.Now().Unix()},
+		Intent: agentgrant.IntentEvidence{IntentID: "intent-1", SessionID: "session", WorkloadID: "workload", IntentHash: "sha256:intent", RuleIDs: []string{"intent"}, CapturedAt: time.Now().Unix()},
 	}
 	body, _ := json.Marshal(requestBody)
 	request := httptest.NewRequest(http.MethodPost, "/bap/v1/agent-sts/issue", bytes.NewReader(body))

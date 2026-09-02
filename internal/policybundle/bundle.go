@@ -41,6 +41,51 @@ type Source struct {
 	PromptRules         []PromptRule     `json:"prompt_rules,omitempty"`
 	CommandRules        []CommandRule    `json:"command_rules"`
 	AgentGrantRules     []AgentGrantRule `json:"agent_grant_rules,omitempty"`
+	SessionPolicy       SessionPolicy    `json:"session_policy"`
+}
+
+// SessionPolicy is signed with the bundle. Capability labels and limits are
+// configuration; the Edge only implements the generic state machine.
+type SessionPolicy struct {
+	MaxEvents          int                      `json:"max_events"`
+	MaxLifetimeSeconds int64                    `json:"max_lifetime_seconds"`
+	IdleTimeoutSeconds int64                    `json:"idle_timeout_seconds"`
+	Capabilities       []SessionCapability      `json:"capabilities,omitempty"`
+	CompositionRules   []SessionCompositionRule `json:"composition_rules,omitempty"`
+	BudgetRules        []SessionBudgetRule      `json:"budget_rules,omitempty"`
+}
+
+type SessionCapability struct {
+	ID         string              `json:"id"`
+	Actions    []string            `json:"actions,omitempty"`
+	Tools      []string            `json:"tools,omitempty"`
+	Properties map[string][]string `json:"property_equals,omitempty"`
+	Profiles   []string            `json:"profiles,omitempty"`
+	Owner      string              `json:"owner"`
+	Approval   string              `json:"approval"`
+}
+
+type SessionCompositionRule struct {
+	ID                  string   `json:"id"`
+	PriorCapabilities   []string `json:"prior_capabilities"`
+	CurrentCapabilities []string `json:"current_capabilities"`
+	WithinSeconds       int64    `json:"within_seconds"`
+	Reason              string   `json:"reason"`
+	Profiles            []string `json:"profiles,omitempty"`
+	Owner               string   `json:"owner"`
+	Approval            string   `json:"approval"`
+}
+
+type SessionBudgetRule struct {
+	ID            string   `json:"id"`
+	Capabilities  []string `json:"capabilities"`
+	MaxCount      int      `json:"max_count"`
+	WindowSeconds int64    `json:"window_seconds"`
+	Scope         string   `json:"scope"`
+	Reason        string   `json:"reason"`
+	Profiles      []string `json:"profiles,omitempty"`
+	Owner         string   `json:"owner"`
+	Approval      string   `json:"approval"`
 }
 
 // PromptRule is an advisory natural-language signal. It can make handling
@@ -70,6 +115,7 @@ type AgentGrantRule struct {
 	Resource            string   `json:"resource"`
 	MaxTTLSeconds       int64    `json:"max_ttl_seconds"`
 	MaxIntentAgeSeconds int64    `json:"max_intent_age_seconds"`
+	MaxGrantsPerIntent  int      `json:"max_grants_per_intent"`
 	Profiles            []string `json:"profiles,omitempty"`
 	Owner               string   `json:"owner"`
 	Approval            string   `json:"approval"`
@@ -115,6 +161,7 @@ type Bundle struct {
 	CedarPolicy         string           `json:"cedar_policy"`
 	CommandRules        []CommandRule    `json:"command_rules"`
 	AgentGrantRules     []AgentGrantRule `json:"agent_grant_rules,omitempty"`
+	SessionPolicy       SessionPolicy    `json:"session_policy"`
 }
 
 type Envelope struct {
@@ -149,7 +196,150 @@ type Decision struct {
 	GrantResource         string
 	GrantTTL              time.Duration
 	GrantIntentMaxAge     time.Duration
+	GrantMaxPerIntent     int
 	RequiredIntentRuleIDs []string
+}
+
+type SessionEvent struct {
+	Capabilities []string
+	ResourceID   string
+	Status       string
+	OccurredAt   time.Time
+}
+
+type SessionDecision struct {
+	Allowed      bool
+	Capabilities []string
+	Reason       string
+	ReasonCode   string
+	RuleIDs      []string
+}
+
+func validateSessionPolicy(policy SessionPolicy, profile string) error {
+	if policy.MaxEvents <= 0 || policy.MaxEvents > 10000 || policy.MaxLifetimeSeconds <= 0 || policy.MaxLifetimeSeconds > 86400 || policy.IdleTimeoutSeconds <= 0 || policy.IdleTimeoutSeconds > policy.MaxLifetimeSeconds {
+		return errors.New("session_policy limits are invalid")
+	}
+	capabilities := map[string]bool{}
+	for i, capability := range policy.Capabilities {
+		if capability.ID == "" || capability.Owner == "" || capability.Approval == "" || len(capability.Actions) == 0 || capabilities[capability.ID] {
+			return fmt.Errorf("session capability %d is incomplete or duplicated", i)
+		}
+		capabilities[capability.ID] = true
+	}
+	validateRefs := func(ruleID string, refs []string) error {
+		if len(refs) == 0 {
+			return fmt.Errorf("session rule %s has no capabilities", ruleID)
+		}
+		for _, ref := range refs {
+			if !capabilities[ref] {
+				return fmt.Errorf("session rule %s references unknown capability %q", ruleID, ref)
+			}
+		}
+		return nil
+	}
+	ids := map[string]bool{}
+	for _, rule := range policy.CompositionRules {
+		if rule.ID == "" || ids[rule.ID] || rule.WithinSeconds <= 0 || rule.WithinSeconds > policy.MaxLifetimeSeconds || rule.Reason == "" || rule.Owner == "" || rule.Approval == "" {
+			return fmt.Errorf("session composition rule %q is incomplete", rule.ID)
+		}
+		if err := validateRefs(rule.ID, rule.PriorCapabilities); err != nil {
+			return err
+		}
+		if err := validateRefs(rule.ID, rule.CurrentCapabilities); err != nil {
+			return err
+		}
+		ids[rule.ID] = true
+	}
+	for _, rule := range policy.BudgetRules {
+		if rule.ID == "" || ids[rule.ID] || rule.MaxCount <= 0 || rule.WindowSeconds <= 0 || rule.WindowSeconds > policy.MaxLifetimeSeconds || (rule.Scope != "session" && rule.Scope != "resource") || rule.Reason == "" || rule.Owner == "" || rule.Approval == "" {
+			return fmt.Errorf("session budget rule %q is incomplete", rule.ID)
+		}
+		if err := validateRefs(rule.ID, rule.Capabilities); err != nil {
+			return err
+		}
+		ids[rule.ID] = true
+	}
+	_ = profile
+	return nil
+}
+
+// EvaluateSession applies signed capability mappings, ordered composition
+// forbids, and rolling budgets. Pending events count conservatively so two
+// concurrent Claude hook processes cannot race through the same limit.
+func EvaluateSession(bundle Bundle, request authzen.EvaluationRequest, history []SessionEvent, now time.Time) SessionDecision {
+	current := make([]string, 0)
+	tool, _ := request.Resource.Properties["tool"].(string)
+	for _, capability := range bundle.SessionPolicy.Capabilities {
+		if !profileMatches(bundle.PolicyProfile, capability.Profiles) || !matchesExact(request.Action.Name, capability.Actions) || (len(capability.Tools) > 0 && !matchesExact(tool, capability.Tools)) {
+			continue
+		}
+		matched := true
+		for key, allowed := range capability.Properties {
+			value, ok := request.Resource.Properties[key]
+			if !ok || !matchesExact(fmt.Sprint(value), allowed) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			current = append(current, capability.ID)
+		}
+	}
+	decision := SessionDecision{Allowed: true, Capabilities: current, ReasonCode: "SESSION_POLICY_PERMIT"}
+	if len(current) == 0 {
+		return decision
+	}
+	currentSet := stringSet(current)
+	for _, rule := range bundle.SessionPolicy.CompositionRules {
+		if !profileMatches(bundle.PolicyProfile, rule.Profiles) || !intersectsSet(currentSet, rule.CurrentCapabilities) {
+			continue
+		}
+		cutoff := now.Add(-time.Duration(rule.WithinSeconds) * time.Second)
+		for _, event := range history {
+			if event.Status == "failure" || event.OccurredAt.Before(cutoff) {
+				continue
+			}
+			if intersectsSet(stringSet(event.Capabilities), rule.PriorCapabilities) {
+				return SessionDecision{Capabilities: current, Reason: rule.Reason, ReasonCode: "SESSION_COMPOSITION_FORBID", RuleIDs: []string{rule.ID}}
+			}
+		}
+	}
+	for _, rule := range bundle.SessionPolicy.BudgetRules {
+		if !profileMatches(bundle.PolicyProfile, rule.Profiles) || !intersectsSet(currentSet, rule.Capabilities) {
+			continue
+		}
+		count := 0
+		cutoff := now.Add(-time.Duration(rule.WindowSeconds) * time.Second)
+		for _, event := range history {
+			if event.Status == "failure" || event.OccurredAt.Before(cutoff) || !intersectsSet(stringSet(event.Capabilities), rule.Capabilities) {
+				continue
+			}
+			if rule.Scope == "resource" && event.ResourceID != request.Resource.ID {
+				continue
+			}
+			count++
+		}
+		if count >= rule.MaxCount {
+			return SessionDecision{Capabilities: current, Reason: rule.Reason, ReasonCode: "SESSION_BUDGET_EXCEEDED", RuleIDs: []string{rule.ID}}
+		}
+	}
+	return decision
+}
+
+func stringSet(values []string) map[string]bool {
+	result := map[string]bool{}
+	for _, value := range values {
+		result[value] = true
+	}
+	return result
+}
+func intersectsSet(set map[string]bool, values []string) bool {
+	for _, value := range values {
+		if set[value] {
+			return true
+		}
+	}
+	return false
 }
 
 func LoadSource(data []byte) (Source, error) {
@@ -213,7 +403,7 @@ func LoadSource(data []byte) (Source, error) {
 		}
 	}
 	for i, rule := range source.AgentGrantRules {
-		if rule.ID == "" || (rule.ResourceType != "api" && rule.ResourceType != "mcp") || rule.Action == "" || rule.Tool == "" || len(rule.IntentRuleIDs) == 0 || rule.Resource == "" || rule.MaxTTLSeconds <= 0 || rule.MaxTTLSeconds > 300 || rule.MaxIntentAgeSeconds <= 0 || rule.MaxIntentAgeSeconds > 900 || rule.Owner == "" || rule.Approval == "" {
+		if rule.ID == "" || (rule.ResourceType != "api" && rule.ResourceType != "mcp") || rule.Action == "" || rule.Tool == "" || len(rule.IntentRuleIDs) == 0 || rule.Resource == "" || rule.MaxTTLSeconds <= 0 || rule.MaxTTLSeconds > 300 || rule.MaxIntentAgeSeconds <= 0 || rule.MaxIntentAgeSeconds > 900 || rule.MaxGrantsPerIntent <= 0 || rule.MaxGrantsPerIntent > 10 || rule.Owner == "" || rule.Approval == "" {
 			return source, fmt.Errorf("agent grant rule %d is incomplete", i)
 		}
 		if err := resourceindicator.Validate(rule.Resource); err != nil {
@@ -257,6 +447,9 @@ func LoadSource(data []byte) (Source, error) {
 			}
 		}
 	}
+	if err := validateSessionPolicy(source.SessionPolicy, source.PolicyProfile); err != nil {
+		return source, err
+	}
 	return source, nil
 }
 
@@ -286,6 +479,7 @@ func Build(source Source, cedarPolicy []byte, now time.Time) (Bundle, error) {
 		PolicyProfile: source.PolicyProfile, AllowedNetwork: source.AllowedNetwork, ApprovedMCP: source.ApprovedMCP,
 		ApprovedDelegates: source.ApprovedDelegates, PromptRules: append([]PromptRule(nil), source.PromptRules...), CedarPolicy: string(cedarPolicy), CommandRules: rules,
 		AgentGrantRules: append([]AgentGrantRule(nil), source.AgentGrantRules...),
+		SessionPolicy:   source.SessionPolicy,
 	}, nil
 }
 
@@ -405,6 +599,12 @@ func Verify(publicKey ed25519.PublicKey, envelope Envelope, now time.Time) (Bund
 		if err := resourceindicator.Validate(rule.Resource); err != nil {
 			return bundle, fmt.Errorf("policy bundle contains invalid AgentGrant resource for %s: %w", rule.ID, err)
 		}
+		if rule.MaxGrantsPerIntent <= 0 || rule.MaxGrantsPerIntent > 10 {
+			return bundle, fmt.Errorf("policy bundle contains invalid AgentGrant intent budget for %s", rule.ID)
+		}
+	}
+	if err := validateSessionPolicy(bundle.SessionPolicy, bundle.PolicyProfile); err != nil {
+		return bundle, fmt.Errorf("policy bundle contains invalid session policy: %w", err)
 	}
 	return bundle, nil
 }
@@ -507,6 +707,7 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 			GrantResource:         agentRule.Resource,
 			GrantTTL:              time.Duration(agentRule.MaxTTLSeconds) * time.Second,
 			GrantIntentMaxAge:     time.Duration(agentRule.MaxIntentAgeSeconds) * time.Second,
+			GrantMaxPerIntent:     agentRule.MaxGrantsPerIntent,
 			RequiredIntentRuleIDs: append([]string(nil), agentRule.IntentRuleIDs...),
 		}, nil
 	}
@@ -524,6 +725,7 @@ func Authorize(bundle Bundle, request authzen.EvaluationRequest, now time.Time) 
 			GrantResource:         agentRule.Resource,
 			GrantTTL:              time.Duration(agentRule.MaxTTLSeconds) * time.Second,
 			GrantIntentMaxAge:     time.Duration(agentRule.MaxIntentAgeSeconds) * time.Second,
+			GrantMaxPerIntent:     agentRule.MaxGrantsPerIntent,
 			RequiredIntentRuleIDs: append([]string(nil), agentRule.IntentRuleIDs...),
 		}, nil
 	}

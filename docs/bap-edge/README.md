@@ -153,6 +153,7 @@ that lease BAP Edge fails closed. Claude can continue reasoning without tools.
 - [Audit trail, integrity, privacy, and operations](audit-trail.md)
 - [End-to-end tracing, structured logs, metrics, and privacy boundary](observability.md)
 - [Docker, Podman, managed-settings, and fail-closed tests](testing.md)
+- [Session capability controls and neutral accretion acceptance](session-capability-controls.md)
 - [New computer: download, build, initialize, install, and demonstrate](new-environment.md)
 - [Company Windows: compile Edge locally without Docker or Podman](company-windows-build.md)
 - [Native local Windows test with project-local Claude hooks](native-local-testing.md)

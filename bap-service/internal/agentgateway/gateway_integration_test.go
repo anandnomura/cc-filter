@@ -32,7 +32,7 @@ func TestAgentGrantEndToEndIssueGatewayConsumeReplayDenied(t *testing.T) {
 	input.Operation.Context = map[string]any{"session_id": "session-1", "workload_id": "workload-1", "tool_use_id": "tool-use-1"}
 	issued, _, err := service.Issue(agentgrant.IssueRequest{
 		EdgeInstanceID: "edge-1", Resource: testResource, Operation: input.Operation,
-		Intent: agentgrant.IntentEvidence{SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()},
+		Intent: agentgrant.IntentEvidence{IntentID: "intent-1", SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()},
 	}, "edge-device", "fingerprint", bundle, now)
 	if err != nil {
 		t.Fatal(err)
@@ -55,6 +55,6 @@ func gatewayBundle(now time.Time) policybundle.Bundle {
 	return policybundle.Bundle{
 		SchemaVersion: 1, Version: 6, RulesDigest: "sha256:gateway-policy", IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour), RevocationEpoch: 1, PolicyProfile: "standard-developer",
 		CedarPolicy:     `forbid (principal is Agent, action == Action::"gateway.execute", resource is ToolInvocation) when { resource.policyProfile == "read-only" };`,
-		AgentGrantRules: []policybundle.AgentGrantRule{{ID: "agentgrant.deploy", ResourceType: "api", Action: "gateway.execute", Tool: agentgrant.GatewayToolName, Methods: []string{"POST"}, Hosts: []string{"api.staging.company.example"}, Paths: []string{"/orders/deploy"}, IntentRuleIDs: []string{"intent.deploy"}, Resource: testResource, MaxTTLSeconds: 60, MaxIntentAgeSeconds: 300, Profiles: []string{"standard-developer"}, Owner: "test", Approval: "test"}},
+		AgentGrantRules: []policybundle.AgentGrantRule{{ID: "agentgrant.deploy", ResourceType: "api", Action: "gateway.execute", Tool: agentgrant.GatewayToolName, Methods: []string{"POST"}, Hosts: []string{"api.staging.company.example"}, Paths: []string{"/orders/deploy"}, IntentRuleIDs: []string{"intent.deploy"}, Resource: testResource, MaxTTLSeconds: 60, MaxIntentAgeSeconds: 300, MaxGrantsPerIntent: 1, Profiles: []string{"standard-developer"}, Owner: "test", Approval: "test"}},
 	}
 }

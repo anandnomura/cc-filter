@@ -4,6 +4,9 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,7 +24,7 @@ func TestIssueConsumeIsExactAndOneUse(t *testing.T) {
 	bundle := testBundle(now)
 	operation := testOperation()
 	request := agentgrant.IssueRequest{EdgeInstanceID: "edge-1", Resource: apiResource, Operation: operation, Intent: agentgrant.IntentEvidence{
-		SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent",
+		IntentID: "intent-1", SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent",
 		RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix(),
 	}}
 	issued, claims, err := service.Issue(request, "edge-device", "fingerprint", bundle, now)
@@ -40,6 +43,37 @@ func TestIssueConsumeIsExactAndOneUse(t *testing.T) {
 	}
 }
 
+func TestIntentIssuanceBudgetIsAtomicAcrossConcurrentRequests(t *testing.T) {
+	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	service := New(privateKey, "issuer")
+	now := time.Now().UTC().Truncate(time.Second)
+	bundle := testBundle(now)
+	var issued atomic.Int32
+	var group sync.WaitGroup
+	for i := 0; i < 30; i++ {
+		group.Add(1)
+		go func(i int) {
+			defer group.Done()
+			operation := testOperation()
+			operation.Context = clone(operation.Context)
+			operation.Context["tool_use_id"] = fmt.Sprintf("tool-%d", i)
+			request := agentgrant.IssueRequest{EdgeInstanceID: "edge-1", Resource: apiResource, Operation: operation, Intent: agentgrant.IntentEvidence{IntentID: "one-prompt", SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()}}
+			if _, _, err := service.Issue(request, "principal", "fingerprint", bundle, now); err == nil {
+				issued.Add(1)
+			}
+		}(i)
+	}
+	group.Wait()
+	if issued.Load() != 1 {
+		t.Fatalf("same intent issued %d grants, want exactly 1", issued.Load())
+	}
+
+	fresh := agentgrant.IssueRequest{EdgeInstanceID: "edge-1", Resource: apiResource, Operation: testOperation(), Intent: agentgrant.IntentEvidence{IntentID: "new-prompt", SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:new", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()}}
+	if _, _, err := service.Issue(fresh, "principal", "fingerprint", bundle, now); err != nil {
+		t.Fatalf("fresh intent inherited prior budget: %v", err)
+	}
+}
+
 func TestWrongPEPAudienceCannotConsumeOrBurnGrant(t *testing.T) {
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
 	service := New(privateKey, "bap-agent-sts")
@@ -48,7 +82,7 @@ func TestWrongPEPAudienceCannotConsumeOrBurnGrant(t *testing.T) {
 	operation := testOperation()
 	issued, _, err := service.Issue(agentgrant.IssueRequest{
 		EdgeInstanceID: "edge-1", Resource: apiResource, Operation: operation,
-		Intent: agentgrant.IntentEvidence{SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()},
+		Intent: agentgrant.IntentEvidence{IntentID: "intent-1", SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()},
 	}, "edge-device", "fingerprint", bundle, now)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +101,7 @@ func TestIssueAndConsumeRejectChangedEvidence(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	bundle := testBundle(now)
 	operation := testOperation()
-	valid := agentgrant.IssueRequest{EdgeInstanceID: "edge-1", Resource: apiResource, Operation: operation, Intent: agentgrant.IntentEvidence{SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()}}
+	valid := agentgrant.IssueRequest{EdgeInstanceID: "edge-1", Resource: apiResource, Operation: operation, Intent: agentgrant.IntentEvidence{IntentID: "intent-1", SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()}}
 
 	t.Run("wrong intent", func(t *testing.T) {
 		service := New(privateKey, "issuer")
@@ -125,7 +159,7 @@ func TestResourceIndicatorIsMandatoryExactAndDoesNotBurnGrant(t *testing.T) {
 	operation := testOperation()
 	valid := agentgrant.IssueRequest{
 		EdgeInstanceID: "edge-1", Resource: apiResource, Operation: operation,
-		Intent: agentgrant.IntentEvidence{SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()},
+		Intent: agentgrant.IntentEvidence{IntentID: "intent-1", SessionID: "session-1", WorkloadID: "workload-1", IntentHash: "sha256:intent", RuleIDs: []string{"intent.deploy"}, CapturedAt: now.Unix()},
 	}
 	for name, resource := range map[string]string{
 		"missing":        "",
@@ -163,7 +197,7 @@ func testBundle(now time.Time) policybundle.Bundle {
 		SchemaVersion: 1, Version: 7, RulesDigest: "sha256:policy", IssuedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour),
 		PolicyProfile: "standard-developer", RevocationEpoch: 4,
 		CedarPolicy:     `forbid (principal is Agent, action == Action::"gateway.execute", resource is ToolInvocation) when { resource.policyProfile == "read-only" };`,
-		AgentGrantRules: []policybundle.AgentGrantRule{{ID: "agentgrant.deploy", ResourceType: "api", Action: "gateway.execute", Tool: agentgrant.GatewayToolName, Methods: []string{"POST"}, Hosts: []string{"api.staging.company.example"}, Paths: []string{"/orders/deploy"}, IntentRuleIDs: []string{"intent.deploy"}, Resource: apiResource, MaxTTLSeconds: 60, MaxIntentAgeSeconds: 300, Profiles: []string{"standard-developer"}, Owner: "test", Approval: "test"}},
+		AgentGrantRules: []policybundle.AgentGrantRule{{ID: "agentgrant.deploy", ResourceType: "api", Action: "gateway.execute", Tool: agentgrant.GatewayToolName, Methods: []string{"POST"}, Hosts: []string{"api.staging.company.example"}, Paths: []string{"/orders/deploy"}, IntentRuleIDs: []string{"intent.deploy"}, Resource: apiResource, MaxTTLSeconds: 60, MaxIntentAgeSeconds: 300, MaxGrantsPerIntent: 1, Profiles: []string{"standard-developer"}, Owner: "test", Approval: "test"}},
 	}
 }
 

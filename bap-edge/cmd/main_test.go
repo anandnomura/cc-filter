@@ -1,11 +1,26 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 )
+
+func TestDecodeHookInputAcceptsUTF8BOM(t *testing.T) {
+	payload := []byte(`{"hook_event_name":"PreToolUse","session_id":"s-1","tool_name":"Read"}`)
+	input, normalized, err := decodeHookInput(append([]byte{0xef, 0xbb, 0xbf}, payload...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.SessionID != "s-1" || input.ToolName != "Read" {
+		t.Fatalf("unexpected decoded input: %#v", input)
+	}
+	if !bytes.Equal(normalized, payload) {
+		t.Fatalf("normalized payload retained BOM: %q", normalized)
+	}
+}
 
 func TestManualExecutionMessageIsActionableAndDoesNotEchoCommand(t *testing.T) {
 	message := manualExecutionMessage()

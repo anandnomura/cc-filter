@@ -10,6 +10,7 @@ dist/
 .bap/native-local/
 .bap/resource-peps/
 .bap/resource-pep-demo/
+.bap/attestations/
 .claude/settings.local.json
 
 # Go build artifacts

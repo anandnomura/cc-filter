@@ -58,6 +58,7 @@ Edge/API-PEP/MCP-PEP identities:
 
 ```powershell
 .\Test-AgentGrant.ps1 -Runtime Docker
+.\Test-SessionCapabilities.ps1 -Runtime Docker
 .\Test-ResourcePEPs.ps1 -Runtime Docker
 .\Demo-ResourcePEPs.ps1 -Runtime Docker -Rebuild
 ```

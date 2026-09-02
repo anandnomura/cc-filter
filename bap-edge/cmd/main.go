@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -36,9 +37,9 @@ func main() {
 	if err != nil {
 		deny("BAP Edge could not read the Claude hook request")
 	}
-	var input bapedge.HookInput
-	if err := json.Unmarshal(raw, &input); err != nil {
-		deny("BAP Edge received malformed hook JSON")
+	input, raw, err := decodeHookInput(raw)
+	if err != nil {
+		deny("BAP Edge received malformed hook JSON: " + err.Error())
 	}
 
 	config, err := bapedge.LoadConfig(*configPath)
@@ -142,6 +143,9 @@ func main() {
 		if input.HookEventName == "PostToolUseFailure" {
 			outcome = "failure"
 		}
+		if err := sessions.CompleteOperation(input.SessionID, workloadID, input.ToolUseID, outcome); err != nil {
+			fmt.Fprintln(os.Stderr, "BAP Edge retained conservative session state:", err)
+		}
 		eventID := bapedge.AuditEventID("outcome", input.SessionID, workloadID, input.ToolUseID, outcome)
 		event := auditwire.Outcome{EventID: eventID, SessionID: input.SessionID, WorkloadID: workloadID, ToolUseID: input.ToolUseID, Tool: input.ToolName, Outcome: outcome, TraceParent: operationTrace.TraceParent()}
 		if err := client.ReportOutcome(context.Background(), event); err != nil {
@@ -165,9 +169,10 @@ func main() {
 	}
 	if input.HookEventName != "PreToolUse" {
 		fmt.Print(local.Output)
-		if input.HookEventName == "SessionEnd" {
-			_ = sessions.Remove(input.SessionID)
-		}
+		// Claude emits SessionEnd when a non-interactive turn exits even though
+		// the same session_id remains resumable. Retain the workload and
+		// capability ledger so --resume cannot reset accumulated authority.
+		// Signed lifetime/idle limits make an old retained session fail closed.
 		return
 	}
 	bundle, err := bapedge.EnsurePolicy(context.Background(), client, policyStore, edgeInstanceID, false, time.Now().UTC())
@@ -200,20 +205,45 @@ func main() {
 		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", Level: "error", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: "deny", ReasonCode: "LOCAL_POLICY_ERROR", Source: "signed_policy_bundle"})
 		deny("BAP local authorization failed closed: " + err.Error())
 	}
+	reservation := bapedge.SessionReservation{}
+	if decision.Allowed || decision.AgentGrantRequired {
+		reservation, err = sessions.ReserveOperation(input.SessionID, workloadID, input.ToolUseID, request, bundle, time.Now().UTC())
+		if err != nil {
+			deny("BAP session authorization failed closed: " + err.Error())
+		}
+		if !reservation.Decision.Allowed {
+			decision.Allowed, decision.AgentGrantRequired = false, false
+			decision.Reason, decision.ReasonCode, decision.RuleIDs = reservation.Decision.Reason, reservation.Decision.ReasonCode, reservation.Decision.RuleIDs
+		} else if reservation.Reserved {
+			decision.RuleIDs = append(decision.RuleIDs, reservation.Decision.Capabilities...)
+		}
+	}
 	agentGrantToken := ""
 	if decision.AgentGrantRequired {
 		intent, loadErr := sessions.LoadIntent(input.SessionID)
 		if loadErr != nil {
+			if reservation.Reserved {
+				_ = sessions.CompleteOperation(input.SessionID, workloadID, input.ToolUseID, "failure")
+			}
 			deny("AgentGrant denied: no recent matching intent is bound to this session")
 		}
 		issued, issueErr := client.IssueAgentGrant(context.Background(), agentgrant.IssueRequest{EdgeInstanceID: edgeInstanceID, Resource: decision.GrantResource, Operation: request, Intent: intent}, operationTrace)
 		if issueErr != nil {
+			if reservation.Reserved {
+				_ = sessions.CompleteOperation(input.SessionID, workloadID, input.ToolUseID, "failure")
+			}
 			deny("BAP Agent STS denied this operation: " + issueErr.Error())
 		}
 		if issued.Resource != decision.GrantResource || issued.Audience != decision.GrantResource {
+			if reservation.Reserved {
+				_ = sessions.CompleteOperation(input.SessionID, workloadID, input.ToolUseID, "failure")
+			}
 			deny("BAP Edge rejected an Agent STS response for a different resource")
 		}
 		if verifyErr := client.VerifyAgentGrant(issued.Token, request, bundle, decision.GrantResource); verifyErr != nil {
+			if reservation.Reserved {
+				_ = sessions.CompleteOperation(input.SessionID, workloadID, input.ToolUseID, "failure")
+			}
 			deny("BAP Edge rejected the Agent STS response: " + verifyErr.Error())
 		}
 		agentGrantToken = issued.Token
@@ -230,6 +260,9 @@ func main() {
 	}
 	auditDecision := auditwire.EdgeDecision{EventID: bapedge.AuditEventID("edge-policy-decision", input.SessionID, workloadID, input.ToolUseID), Request: request, Allowed: decision.Allowed, ReasonCode: decision.ReasonCode, PolicyVersion: decision.PolicyVersion, BundleVersion: bundle.Version, BundleDigest: bundle.RulesDigest, RuleIDs: decision.RuleIDs, TraceParent: operationTrace.TraceParent()}
 	if _, err := spool.RecordEdgeDecision(context.Background(), client, auditDecision); err != nil {
+		if reservation.Reserved {
+			_ = sessions.CompleteOperation(input.SessionID, workloadID, input.ToolUseID, "failure")
+		}
 		deny("BAP Edge could not durably record its local authorization decision")
 	}
 	_ = spool.WriteMetrics(time.Now().UTC())
@@ -249,6 +282,16 @@ func main() {
 		return
 	}
 	allow(decision.Reason)
+}
+
+func decodeHookInput(raw []byte) (bapedge.HookInput, []byte, error) {
+	// Windows PowerShell 5.1 may prepend a UTF-8 BOM when piping JSON to a
+	// native executable. Claude sends plain UTF-8, but accepting the optional
+	// BOM keeps the native certification scripts wire-equivalent.
+	raw = bytes.TrimPrefix(raw, []byte{0xef, 0xbb, 0xbf})
+	var input bapedge.HookInput
+	err := json.Unmarshal(raw, &input)
+	return input, raw, err
 }
 
 func classifyPrompt(config bapedge.Config, prompt string) (policybundle.Bundle, []policybundle.PromptMatch, string, error) {

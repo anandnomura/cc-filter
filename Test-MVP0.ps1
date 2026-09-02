@@ -24,6 +24,9 @@ if ($Runtime -eq 'Native') {
         Pop-Location
     }
 
+    Write-Host 'Running concurrent session-capability and Agent STS intent-budget tests...'
+    & (Join-Path $PSScriptRoot 'Test-SessionCapabilities.ps1') -Runtime Native
+
     Write-Host 'Running isolated native Service, Edge, signed-policy, command, and prompt verification...'
     & (Join-Path $PSScriptRoot 'Start-BapNativeLocal.ps1') -VerifyOnly -Port $NativePort
 
@@ -59,6 +62,9 @@ Write-Host 'Building the current BAP Edge and BAP Service sources...'
 
 Write-Host 'Running focused policy corpus and signed rollout lifecycle gates...'
 & (Join-Path $PSScriptRoot 'Test-PolicyRollout.ps1') -Runtime $Runtime
+
+Write-Host 'Running concurrent session-capability and Agent STS intent-budget tests...'
+& (Join-Path $PSScriptRoot 'Test-SessionCapabilities.ps1') -Runtime $Runtime
 
 Write-Host 'Starting the rebuilt service and durable MySQL store...'
 & (Join-Path $PSScriptRoot 'Start-Bap.ps1') -Runtime $Runtime

@@ -22,7 +22,7 @@ flowchart TD
     C -->|hard deny| Z1[Stop]
     C --> D[Edge classifies with signed prompt rules]
     D --> E[Replace session intent state]
-    E -->|match| F[Store prompt hash, intent rule IDs, session, workload, captured time]
+    E -->|match| F[Store random intent nonce, prompt hash, rule IDs, session, workload and captured time]
     E -->|no match| G[Clear older intent]
     F --> H[Claude proposes structured tool call]
     G --> H
@@ -72,7 +72,10 @@ The two boxes are security sequences. With `BAP_DATABASE_DSN`, Agent STS
 stores grant state in MySQL and performs `ISSUED -> CONSUMED` as one conditional
 atomic update, so only one gateway replica succeeds. No-database local mode uses
 a mutex-protected in-memory ledger and is labeled development-only at startup.
-The database compare-and-set is the one-use transaction boundary. Audit append
+Issuance also increments the signed `max_grants_per_intent` budget and inserts
+the grant in one MySQL transaction; the privacy-safe key binds principal, Edge,
+session, workload, and the random intent nonce. The database compare-and-set is
+the one-use transaction boundary. Audit append
 is a subsequent fail-closed step: if it fails, issuance is not returned or the
 gateway does not call the protected API. An orphaned issued/consumed row then
 expires or remains as security evidence; it never becomes a second execution.

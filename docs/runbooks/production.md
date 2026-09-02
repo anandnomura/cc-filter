@@ -74,6 +74,8 @@ signing/scanning controls:
 1. Create company DNS names and server certificates containing their exact SANs.
 2. Provision three separate signing keys: AgentGrant, policy bundle and audit.
 3. Provision TLS MySQL; enable backups/PITR and least-privilege schema access.
+   Schema version 4 includes the transactional `bap_agent_intents` issuance
+   budget used by every Agent STS replica.
 4. Create distinct identities for Edge issue, API PEP consume and MCP PEP
    consume. Bind each consume identity to only its exact HTTPS resource URI.
 5. Create distinct API-PEP-to-backend and MCP-PEP-to-upstream identities.
@@ -139,10 +141,13 @@ Before enabling employee traffic:
 7. verify exact operation tampering, wrong audience, stale intent, expiry,
    replay and STS outage all fail closed; also verify missing, malformed,
    query-bearing, and cross-resource indicators return `invalid_target`;
-8. verify one issue and one consume audit event correlate to one backend event;
-9. confirm no AgentGrant or downstream credential appears in prompts, process
+8. run `Test-SessionCapabilities.ps1` against the promoted source, retain its
+   evidence manifest, and have company CI sign it with runner identity and
+   artifact digest;
+9. verify one issue and one consume audit event correlate to one backend event;
+10. confirm no AgentGrant or downstream credential appears in prompts, process
    arguments, application logs or retained test evidence;
-10. keep the canary until audit/latency/error alerts remain healthy for the
+11. keep the canary until audit/latency/error alerts remain healthy for the
    company-defined observation window.
 
 ## Runtime operations

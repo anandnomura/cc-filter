@@ -50,6 +50,7 @@ podman image inspect bap-mcp-pep:local | Out-Null
 .\Stop-Bap.ps1 -Runtime Podman
 
 .\Test-AgentGrant.ps1 -Runtime Podman
+.\Test-SessionCapabilities.ps1 -Runtime Podman
 .\Test-ResourcePEPs.ps1 -Runtime Podman
 .\Demo-ResourcePEPs.ps1 -Runtime Podman -Rebuild
 ```
