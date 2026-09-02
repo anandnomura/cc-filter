@@ -229,8 +229,22 @@ func (r *Rules) ShouldBlockFile(path string) (bool, string) {
 func (r *Rules) ShouldBlockSearch(pattern string) (bool, string) {
 	patternLower := strings.ToLower(pattern)
 
+	// The pattern is itself a regex that the search tool will execute verbatim,
+	// so a literal substring check can be defeated by obfuscating a blocked
+	// keyword with regex metacharacters (e.g. "s.cret", "p[a]ssword") that never
+	// contain the keyword as a contiguous substring but still match it at
+	// search time. Guard against that by also checking whether the compiled
+	// pattern matches the blocked keyword itself.
+	compiled, compileErr := regexp.Compile(patternLower)
+
 	for _, blocked := range r.SearchBlocks {
-		if strings.Contains(patternLower, strings.ToLower(blocked)) {
+		blockedLower := strings.ToLower(blocked)
+
+		if strings.Contains(patternLower, blockedLower) {
+			return true, "Search pattern may expose sensitive data: " + pattern
+		}
+
+		if compileErr == nil && compiled.MatchString(blockedLower) {
 			return true, "Search pattern may expose sensitive data: " + pattern
 		}
 	}
