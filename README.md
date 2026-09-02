@@ -166,6 +166,12 @@ launcher with a bare `claude` command.
 # Print recent logs once (useful in CI or when reporting an error)
 .\Watch-BapLogs.ps1 -Runtime Native -NoFollow -Tail 100
 
+# Aggregate privacy-safe shadow JSONL into ML-ranked, human-review-only ideas
+.\Analyze-ShadowLogs.ps1 -InputDirectory '.\collected-bap-jsonl' -OutputPath '.\shadow-suggestions.json' -MinCount 2
+
+# Optional deterministic-only report (no learned ranking)
+.\Analyze-ShadowLogs.ps1 -InputDirectory '.\collected-bap-jsonl' -OutputPath '.\shadow-counts.json' -DisableML
+
 # Company Windows/native AgentGrant acceptance: rebuild, issue, consume once,
 # reject replay, and verify signed audit (no Docker, Podman, or Claude needed)
 .\Start-BapNativeLocal.ps1 -VerifyOnly -Rebuild -Port 18443
@@ -202,6 +208,11 @@ launcher with a bare `claude` command.
 .\Test-SessionCapabilities.ps1 -Runtime Docker
 .\Test-SessionCapabilities.ps1 -Runtime Podman
 
+# Shadow expiry/go-live, cc-filter hard boundary, audit, and analyzer gate
+.\Test-ShadowMode.ps1 -Runtime Native
+.\Test-ShadowMode.ps1 -Runtime Docker
+.\Test-ShadowMode.ps1 -Runtime Podman
+
 # Neutral eight-turn accretion observation directly against BAP (deterministic)
 .\Test-SessionAccretion.bat -Mode DirectBap
 
@@ -232,6 +243,8 @@ acceptance, and evidence handling are in the
 The neutral CSV-to-Python-to-batch scenario, expected observations, and current
 policy boundary are documented in the same guide under
 [neutral accretion acceptance](docs/bap-edge/session-capability-controls.md#neutral-accretion-acceptance).
+Signed, expiring observation mode and offline policy recommendations are in the
+[shadow-mode guide](docs/bap-edge/shadow-mode.md).
 
 ### Capture and certify company Claude fixtures without containers
 

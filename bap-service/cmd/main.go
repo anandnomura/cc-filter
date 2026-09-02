@@ -258,6 +258,10 @@ func main() {
 			log.Fatal(err)
 		}
 	}
+	if err := validateRuntimePolicy(deploymentMode, bundle); err != nil {
+		log.Fatalf("unsafe %s deployment refused: %v", deploymentMode, err)
+	}
+	log.Printf("active policy version=%d digest=%s enforcement_mode=%s", bundle.Version, bundle.RulesDigest, policybundle.EnforcementModeAt(bundle, time.Now().UTC()))
 	apiKey := os.Getenv("BAP_EDGE_API_KEY")
 	if role == "combined" && apiKey == "" && clientCAPath == "" {
 		log.Fatal("BAP_EDGE_API_KEY is required unless mutual TLS client authentication is configured")

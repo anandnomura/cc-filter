@@ -123,6 +123,11 @@ missing TLS MySQL, missing client CA, an empty Edge enrollment list, shared STS
 issue/consume principals, or runtime policy signing. This avoids silently
 falling back to single-machine development behavior.
 
+A pilot may use a signed, expiring `enforcement_mode=shadow` bundle for policy
+discovery. `production` startup rejects shadow even when its expiry has passed;
+the approved go-live bundle must explicitly say `enforce`. See the
+[shadow-mode guide](../bap-edge/shadow-mode.md).
+
 Activate policy in a separate controlled signing job, then deploy only the
 signed envelope and public verification key to runtime instances:
 

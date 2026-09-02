@@ -19,6 +19,10 @@ applicable MVP gaps:
 - central audit export/alerting is external to the reference;
 - Linux lacks a one-command full certification runner.
 
+Production startup requires `BAP_DEPLOYMENT_MODE=production` and a signed
+`enforcement_mode=enforce` bundle. A shadow bundle is rejected rather than
+silently promoted.
+
 Do not waive a listed gap when it is a stated company production requirement.
 
 ## Required deployment inventory

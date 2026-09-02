@@ -34,6 +34,8 @@ type Source struct {
 	RevocationEpoch     uint64           `json:"revocation_epoch"`
 	ForceUpdate         bool             `json:"force_update"`
 	KillSwitch          bool             `json:"kill_switch"`
+	EnforcementMode     string           `json:"enforcement_mode,omitempty"`
+	ShadowExpiresAt     *time.Time       `json:"shadow_expires_at,omitempty"`
 	PolicyProfile       string           `json:"policy_profile"`
 	AllowedNetwork      []string         `json:"allowed_network_domains"`
 	ApprovedMCP         []string         `json:"approved_mcp_tools"`
@@ -153,6 +155,8 @@ type Bundle struct {
 	RevocationEpoch     uint64           `json:"revocation_epoch"`
 	ForceUpdate         bool             `json:"force_update"`
 	KillSwitch          bool             `json:"kill_switch"`
+	EnforcementMode     string           `json:"enforcement_mode"`
+	ShadowExpiresAt     *time.Time       `json:"shadow_expires_at,omitempty"`
 	PolicyProfile       string           `json:"policy_profile"`
 	AllowedNetwork      []string         `json:"allowed_network_domains"`
 	ApprovedMCP         []string         `json:"approved_mcp_tools"`
@@ -198,6 +202,41 @@ type Decision struct {
 	GrantIntentMaxAge     time.Duration
 	GrantMaxPerIntent     int
 	RequiredIntentRuleIDs []string
+}
+
+// ApplyEnforcementMode converts only an ordinary policy denial into a shadow
+// allow. Trust failures, protected paths, security controls, exfiltration,
+// obfuscation, session-level controls, expired shadow windows, and the kill
+// switch always enforce.
+func ApplyEnforcementMode(bundle Bundle, request authzen.EvaluationRequest, evaluated Decision, now time.Time) Decision {
+	if evaluated.Allowed || evaluated.AgentGrantRequired || bundle.EnforcementMode != "shadow" || bundle.ShadowExpiresAt == nil || !now.UTC().Before(bundle.ShadowExpiresAt.UTC()) {
+		return evaluated
+	}
+	if evaluated.ReasonCode == "KILL_SWITCH" || evaluated.ReasonCode == "BUNDLE_EXPIRED" || strings.HasPrefix(evaluated.ReasonCode, "SESSION_") || shadowHardDeny(request.Resource.Properties) {
+		return evaluated
+	}
+	effective := evaluated
+	effective.Allowed = true
+	effective.ManualOnly = false
+	effective.Reason = "Allowed by time-bounded BAP shadow observation mode"
+	effective.ReasonCode = "SHADOW_ALLOW"
+	return effective
+}
+
+func EnforcementModeAt(bundle Bundle, now time.Time) string {
+	if bundle.EnforcementMode == "shadow" && bundle.ShadowExpiresAt != nil && now.UTC().Before(bundle.ShadowExpiresAt.UTC()) {
+		return "shadow"
+	}
+	return "enforce"
+}
+
+func shadowHardDeny(properties map[string]any) bool {
+	for _, name := range []string{"protected", "outsideWorkspace", "securityControl", "exfiltration", "obfuscated"} {
+		if value, ok := properties[name].(bool); ok && value {
+			return true
+		}
+	}
+	return false
 }
 
 type SessionEvent struct {
@@ -358,6 +397,18 @@ func LoadSource(data []byte) (Source, error) {
 	if source.RefreshAfterSeconds <= 0 || source.MaxOfflineSeconds < source.RefreshAfterSeconds || source.MaxOfflineSeconds > source.ValidForSeconds {
 		return source, errors.New("policy refresh/offline intervals are invalid")
 	}
+	if source.EnforcementMode == "" {
+		source.EnforcementMode = "enforce"
+	}
+	if source.EnforcementMode != "enforce" && source.EnforcementMode != "shadow" {
+		return source, errors.New("enforcement_mode must be enforce or shadow")
+	}
+	if source.EnforcementMode == "shadow" && source.ShadowExpiresAt == nil {
+		return source, errors.New("shadow mode requires shadow_expires_at")
+	}
+	if source.EnforcementMode == "enforce" && source.ShadowExpiresAt != nil {
+		return source, errors.New("enforce mode must not set shadow_expires_at")
+	}
 	if source.PolicyProfile != "standard-developer" && source.PolicyProfile != "read-only" {
 		return source, errors.New("policy_profile must be standard-developer or read-only")
 	}
@@ -454,14 +505,19 @@ func LoadSource(data []byte) (Source, error) {
 }
 
 func Build(source Source, cedarPolicy []byte, now time.Time) (Bundle, error) {
-	if _, err := LoadSource(mustJSON(source)); err != nil {
+	normalized, err := LoadSource(mustJSON(source))
+	if err != nil {
 		return Bundle{}, err
 	}
+	source = normalized
 	if _, err := cedar.NewPolicyListFromBytes("bundle.cedar", cedarPolicy); err != nil {
 		return Bundle{}, fmt.Errorf("parse bundled Cedar policy: %w", err)
 	}
 	sourceDigest := sha256.Sum256(append(mustJSON(source), cedarPolicy...))
 	expires := now.UTC().Add(time.Duration(source.ValidForSeconds) * time.Second)
+	if source.EnforcementMode == "shadow" && (!now.UTC().Before(source.ShadowExpiresAt.UTC()) || source.ShadowExpiresAt.After(expires)) {
+		return Bundle{}, errors.New("shadow_expires_at must be after activation and no later than bundle expiry")
+	}
 	rules := append([]CommandRule(nil), source.CommandRules...)
 	for i := range rules {
 		if rules[i].NotBefore.IsZero() {
@@ -476,6 +532,7 @@ func Build(source Source, cedarPolicy []byte, now time.Time) (Bundle, error) {
 		IssuedAt: now.UTC(), ExpiresAt: expires, RefreshAfterSeconds: source.RefreshAfterSeconds,
 		MaxOfflineSeconds: source.MaxOfflineSeconds, MinimumEdgeVersion: source.MinimumEdgeVersion,
 		RevocationEpoch: source.RevocationEpoch, ForceUpdate: source.ForceUpdate, KillSwitch: source.KillSwitch,
+		EnforcementMode: source.EnforcementMode, ShadowExpiresAt: source.ShadowExpiresAt,
 		PolicyProfile: source.PolicyProfile, AllowedNetwork: source.AllowedNetwork, ApprovedMCP: source.ApprovedMCP,
 		ApprovedDelegates: source.ApprovedDelegates, PromptRules: append([]PromptRule(nil), source.PromptRules...), CedarPolicy: string(cedarPolicy), CommandRules: rules,
 		AgentGrantRules: append([]AgentGrantRule(nil), source.AgentGrantRules...),
@@ -585,6 +642,15 @@ func Verify(publicKey ed25519.PublicKey, envelope Envelope, now time.Time) (Bund
 	}
 	if bundle.SchemaVersion != SchemaVersion || bundle.Version == 0 || bundle.RulesDigest == "" {
 		return bundle, errors.New("unsupported policy bundle schema or identity")
+	}
+	if bundle.EnforcementMode != "enforce" && bundle.EnforcementMode != "shadow" {
+		return bundle, errors.New("policy bundle contains invalid enforcement mode")
+	}
+	if bundle.EnforcementMode == "shadow" && bundle.ShadowExpiresAt == nil {
+		return bundle, errors.New("shadow policy bundle has no expiry")
+	}
+	if bundle.EnforcementMode == "enforce" && bundle.ShadowExpiresAt != nil {
+		return bundle, errors.New("enforce policy bundle contains a shadow expiry")
 	}
 	if !bundle.IssuedAt.Before(bundle.ExpiresAt) || !now.UTC().Before(bundle.ExpiresAt) {
 		return bundle, errors.New("policy bundle is expired")

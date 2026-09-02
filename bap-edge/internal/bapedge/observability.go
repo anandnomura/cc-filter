@@ -11,17 +11,20 @@ import (
 // EdgeEvent contains only bounded operational metadata. Callers must never add
 // prompts, command text, paths, tool input, model output, or credentials.
 type EdgeEvent struct {
-	Timestamp  string `json:"timestamp"`
-	Level      string `json:"level"`
-	Event      string `json:"event"`
-	TraceID    string `json:"trace_id,omitempty"`
-	SpanID     string `json:"span_id,omitempty"`
-	HookEvent  string `json:"hook_event,omitempty"`
-	Tool       string `json:"tool,omitempty"`
-	Action     string `json:"action,omitempty"`
-	Decision   string `json:"decision,omitempty"`
-	ReasonCode string `json:"reason_code,omitempty"`
-	Source     string `json:"source,omitempty"`
+	Timestamp           string `json:"timestamp"`
+	Level               string `json:"level"`
+	Event               string `json:"event"`
+	TraceID             string `json:"trace_id,omitempty"`
+	SpanID              string `json:"span_id,omitempty"`
+	HookEvent           string `json:"hook_event,omitempty"`
+	Tool                string `json:"tool,omitempty"`
+	Action              string `json:"action,omitempty"`
+	Decision            string `json:"decision,omitempty"`
+	ReasonCode          string `json:"reason_code,omitempty"`
+	EvaluatedDecision   string `json:"evaluated_decision,omitempty"`
+	EvaluatedReasonCode string `json:"evaluated_reason_code,omitempty"`
+	EnforcementMode     string `json:"enforcement_mode,omitempty"`
+	Source              string `json:"source,omitempty"`
 }
 
 type EdgeLogger struct{ path string }

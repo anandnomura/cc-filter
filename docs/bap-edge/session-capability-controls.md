@@ -154,7 +154,7 @@ paste one turn at a time in the same conversation, and record each tool name,
 decision/reason, review prompt, and whether the tool ran. It does not attempt to
 scrape the company UI.
 
-With signed policy version 8, the direct observation currently reports zero
+With signed policy version 9, the direct observation currently reports zero
 capability assignments for this sequence. The policy maps protected API/MCP
 operations but does not yet classify general file-read, source-generation,
 dependency, or launcher-generation activity. Consequently, writing the batch

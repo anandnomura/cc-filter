@@ -30,8 +30,11 @@ $baselineEvents = (& $engine exec bap-service-local bap-service audit list) | Co
 $baselineCount = if ($null -eq $baselineEvents) { 0 } else { @($baselineEvents).Count }
 $baselineProposals = (& $engine exec bap-service-local bap-service proposals list) | ConvertFrom-Json
 $baselineProposalCount = if ($null -eq $baselineProposals) { 0 } else { @($baselineProposals).Count }
-$metadata = (& curl.exe --silent --show-error --fail --ssl-no-revoke --cacert $caBundle 'https://127.0.0.1:8443/.well-known/authzen-configuration') | ConvertFrom-Json
-if (-not $metadata.access_evaluation_endpoint) { throw 'AuthZEN metadata is missing the evaluation endpoint.' }
+$legacyAuthZenStatus = & curl.exe --silent --output NUL --write-out '%{http_code}' --ssl-no-revoke --cacert $caBundle 'https://127.0.0.1:8443/.well-known/authzen-configuration'
+if ($legacyAuthZenStatus -ne '404') { throw "Expected removed legacy AuthZEN metadata endpoint to return 404, got $legacyAuthZenStatus." }
+$legacyEvaluationStatus = & curl.exe --silent --output NUL --write-out '%{http_code}' --ssl-no-revoke --cacert $caBundle -X POST -H 'Content-Type: application/json' --data '{}' 'https://127.0.0.1:8443/access/v1/evaluation'
+if ($legacyEvaluationStatus -ne '404') { throw "Expected removed legacy AuthZEN evaluation endpoint to return 404, got $legacyEvaluationStatus." }
+Write-Host 'PASS: legacy AuthZEN authorization endpoints remain unavailable'
 $unauthenticatedStatus = & curl.exe --silent --output NUL --write-out '%{http_code}' --ssl-no-revoke --cacert $caBundle -X POST -H 'Content-Type: application/json' --data '{}' 'https://127.0.0.1:8443/bap/v1/agent-sts/issue'
 if ($unauthenticatedStatus -ne '401') { throw "Expected unauthenticated evaluation to return 401, got $unauthenticatedStatus." }
 Write-Host 'PASS: unauthenticated authorization request -> 401'

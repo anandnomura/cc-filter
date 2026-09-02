@@ -412,7 +412,7 @@ func (s *Server) auditEdgeDecision(w http.ResponseWriter, r *http.Request) {
 	var decision auditwire.EdgeDecision
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&decision); err != nil || decision.EventID == "" || decision.Request.Validate() != nil || decision.PolicyVersion == "" || decision.BundleVersion == 0 || decision.BundleDigest == "" || decision.ReasonCode == "" {
+	if err := decoder.Decode(&decision); err != nil || decision.EventID == "" || decision.Request.Validate() != nil || decision.PolicyVersion == "" || decision.BundleVersion == 0 || decision.BundleDigest == "" || decision.ReasonCode == "" || decision.EvaluatedReasonCode == "" || (decision.EnforcementMode != "enforce" && decision.EnforcementMode != "shadow") {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_edge_decision"})
 		return
 	}
@@ -425,6 +425,9 @@ func (s *Server) auditEdgeDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	event := authorizationEvent(decision.Request, "edge_policy_evaluation", "", decision.ReasonCode, decision.PolicyVersion, &decision.Allowed, caller, traceFrom(r.Context()))
 	event.EventID = decision.EventID
+	event.EvaluatedAllowed = &decision.EvaluatedAllowed
+	event.EvaluatedReasonCode = decision.EvaluatedReasonCode
+	event.EnforcementMode = decision.EnforcementMode
 	if err := s.audit.Append(event); err != nil {
 		s.metrics.AuditFailure("edge_decision")
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "audit_unavailable"})

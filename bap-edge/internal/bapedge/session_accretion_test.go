@@ -77,7 +77,7 @@ func TestNeutralSessionAccretionScenarioObservation(t *testing.T) {
 		t.Logf("turn=%d tool=%s path=%s local=%s session=%s capabilities=%v", operation.turn, operation.tool, operation.path, local.ReasonCode, session.Decision.ReasonCode, session.Decision.Capabilities)
 	}
 	if observedCapabilities == 0 {
-		t.Log("GAP: active policy v8 assigns no session capability to this read/write/package sequence; Turn 8 remains an ordinary file.write permit")
+		t.Logf("GAP: active policy v%d assigns no session capability to this read/write/package sequence; Turn 8 remains an ordinary file.write permit", bundle.Version)
 	} else {
 		t.Logf("active policy observed %d session capability assignments", observedCapabilities)
 	}

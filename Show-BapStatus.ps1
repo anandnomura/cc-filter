@@ -35,6 +35,17 @@ if (Test-Path -LiteralPath $serviceEnvelopePath) {
     $serviceBundle = (Get-Content -LiteralPath $serviceEnvelopePath -Raw | ConvertFrom-Json).payload
 }
 
+function Get-EffectiveEnforcementMode {
+    param($Bundle)
+    if ($null -eq $Bundle) { return 'missing' }
+    $modeProperty = $Bundle.PSObject.Properties['enforcement_mode']
+    if ($null -eq $modeProperty -or $modeProperty.Value -ne 'shadow') { return 'enforce' }
+    $expiryProperty = $Bundle.PSObject.Properties['shadow_expires_at']
+    if ($null -eq $expiryProperty -or -not $expiryProperty.Value) { return 'enforce' }
+    if ([DateTime]::UtcNow -ge ([DateTime]$expiryProperty.Value).ToUniversalTime()) { return 'enforce (shadow expired)' }
+    return 'shadow'
+}
+
 $ready = $false
 if (Test-Path -LiteralPath $caBundle) {
     try {
@@ -64,6 +75,8 @@ Write-Host 'BAP Service control plane' -ForegroundColor Cyan
     MaxOfflineSeconds = if ($serviceBundle) { $serviceBundle.max_offline_seconds } else { 'missing' }
     ForceUpdate = if ($serviceBundle) { $serviceBundle.force_update } else { 'unknown' }
     KillSwitch = if ($serviceBundle) { $serviceBundle.kill_switch } else { 'unknown' }
+    EnforcementMode = Get-EffectiveEnforcementMode $serviceBundle
+    ShadowExpires = if ($serviceBundle -and $serviceBundle.PSObject.Properties['shadow_expires_at']) { $serviceBundle.shadow_expires_at } else { 'not-set' }
 } | Format-List
 
 $candidates = [ordered]@{}
@@ -103,6 +116,7 @@ foreach ($entry in $candidates.GetEnumerator()) {
             OfflineLeaseSeconds = [Math]::Max(0, $offlineRemaining)
             LeaseValid = $offlineRemaining -ge 0 -and $now -lt ([DateTime]$edgeBundle.expires_at).ToUniversalTime()
             KillSwitch = $edgeBundle.kill_switch
+            EnforcementMode = Get-EffectiveEnforcementMode $edgeBundle
             AuditQueued = $queued
             AuditBytes = $spoolBytes
             AuditOldestSeconds = $oldestSpoolSeconds
@@ -118,7 +132,7 @@ Write-Host 'BAP Edge data planes' -ForegroundColor Cyan
 if ($rows.Count -eq 0) {
     Write-Host 'No initialized Edge policy state was found.'
 } else {
-    $rows | Format-Table Edge,Version,DigestMatchesService,LastSyncUTC,RefreshInSeconds,OfflineLeaseSeconds,LeaseValid,KillSwitch,AuditQueued,AuditBytes,AuditOldestSeconds -AutoSize
+    $rows | Format-Table Edge,Version,EnforcementMode,DigestMatchesService,LastSyncUTC,RefreshInSeconds,OfflineLeaseSeconds,LeaseValid,KillSwitch,AuditQueued,AuditBytes,AuditOldestSeconds -AutoSize
     Write-Host 'Edge durable audit queues' -ForegroundColor Cyan
     $rows | Format-Table Edge,AuditQueued,AuditBytes,AuditOldestSeconds -AutoSize
     Write-Host 'Edge identities and state locations' -ForegroundColor Cyan

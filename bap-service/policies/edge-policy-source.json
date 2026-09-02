@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": 8,
+  "version": 9,
   "valid_for_seconds": 2592000,
   "refresh_after_seconds": 900,
   "max_offline_seconds": 3600,
@@ -8,6 +8,7 @@
   "revocation_epoch": 1,
   "force_update": false,
   "kill_switch": false,
+  "enforcement_mode": "enforce",
   "policy_profile": "standard-developer",
   "allowed_network_domains": [],
   "approved_mcp_tools": [],

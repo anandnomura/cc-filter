@@ -85,13 +85,20 @@ func main() {
 		if stateErr != nil {
 			deny("BAP Edge could not update classified intent: " + stateErr.Error())
 		}
+		enforcementMode := policybundle.EnforcementModeAt(bundle, time.Now().UTC())
 		if len(matches) == 0 {
-			_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "no_match", Source: "signed_policy_bundle"})
+			_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "no_match", EnforcementMode: enforcementMode, Source: "signed_policy_bundle"})
 			fmt.Print(local.Output)
 			return
 		}
 		allIDs := append(append([]string(nil), manualIDs...), grantIntentIDs...)
-		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "matched", ReasonCode: strings.Join(allIDs, ","), Source: "signed_policy_bundle"})
+		_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "prompt_intent_classification", TraceID: promptTrace.TraceID, SpanID: promptTrace.SpanID, HookEvent: input.HookEventName, Decision: "matched", ReasonCode: strings.Join(allIDs, ","), EnforcementMode: enforcementMode, Source: "signed_policy_bundle"})
+		if enforcementMode == "shadow" {
+			// Do not bias Claude with the shadow classifier's result. The
+			// privacy-safe rule IDs remain available to offline analysis.
+			fmt.Print(local.Output)
+			return
+		}
 		if len(manualIDs) > 0 {
 			promptAdvisoryOutput(local.Output)
 		} else {
@@ -133,8 +140,12 @@ func main() {
 	_ = spool.WriteMetrics(time.Now().UTC())
 
 	if input.HookEventName == "SessionStart" {
-		if _, err := bapedge.EnsurePolicy(context.Background(), client, policyStore, edgeInstanceID, true, time.Now().UTC()); err != nil {
-			contextOutput("BAP policy synchronization is unavailable. Tool calls will fail closed: " + err.Error())
+		sessionBundle, syncErr := bapedge.EnsurePolicy(context.Background(), client, policyStore, edgeInstanceID, true, time.Now().UTC())
+		if syncErr != nil {
+			contextOutput("BAP policy synchronization is unavailable. Tool calls will fail closed: " + syncErr.Error())
+		}
+		if policybundle.EnforcementModeAt(sessionBundle, time.Now().UTC()) == "shadow" {
+			return
 		}
 		contextOutput("BAP Edge is active with a verified signed policy. Workload " + workloadID + " is bound to this Claude session; tool traffic is decided locally and fails closed on stale policy.")
 	}
@@ -251,14 +262,19 @@ func main() {
 		decision.Reason = "Allowed with a verified, short-lived, one-use AgentGrant"
 		decision.ReasonCode = "AGENT_GRANT_ISSUED"
 	}
+	evaluatedDecision := decision
+	enforcementMode := policybundle.EnforcementModeAt(bundle, time.Now().UTC())
+	decision = policybundle.ApplyEnforcementMode(bundle, request, evaluatedDecision, time.Now().UTC())
 	fixtureDecision := "deny"
-	if decision.Allowed {
+	if evaluatedDecision.Allowed {
 		fixtureDecision = "allow"
 	}
-	if err := bapedge.RecordFixtureFromEnvironment(raw, input, request, fixtureDecision, decision.ReasonCode, decision.RuleIDs, bundle); err != nil {
-		deny("BAP fixture capture failed closed: " + err.Error())
+	if enforcementMode == "enforce" {
+		if err := bapedge.RecordFixtureFromEnvironment(raw, input, request, fixtureDecision, evaluatedDecision.ReasonCode, evaluatedDecision.RuleIDs, bundle); err != nil {
+			deny("BAP fixture capture failed closed: " + err.Error())
+		}
 	}
-	auditDecision := auditwire.EdgeDecision{EventID: bapedge.AuditEventID("edge-policy-decision", input.SessionID, workloadID, input.ToolUseID), Request: request, Allowed: decision.Allowed, ReasonCode: decision.ReasonCode, PolicyVersion: decision.PolicyVersion, BundleVersion: bundle.Version, BundleDigest: bundle.RulesDigest, RuleIDs: decision.RuleIDs, TraceParent: operationTrace.TraceParent()}
+	auditDecision := auditwire.EdgeDecision{EventID: bapedge.AuditEventID("edge-policy-decision", input.SessionID, workloadID, input.ToolUseID), Request: request, Allowed: decision.Allowed, ReasonCode: decision.ReasonCode, EvaluatedAllowed: evaluatedDecision.Allowed, EvaluatedReasonCode: evaluatedDecision.ReasonCode, EnforcementMode: enforcementMode, PolicyVersion: decision.PolicyVersion, BundleVersion: bundle.Version, BundleDigest: bundle.RulesDigest, RuleIDs: evaluatedDecision.RuleIDs, TraceParent: operationTrace.TraceParent()}
 	if _, err := spool.RecordEdgeDecision(context.Background(), client, auditDecision); err != nil {
 		if reservation.Reserved {
 			_ = sessions.CompleteOperation(input.SessionID, workloadID, input.ToolUseID, "failure")
@@ -270,7 +286,11 @@ func main() {
 	if decision.Allowed {
 		result = "allow"
 	}
-	_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: result, ReasonCode: decision.ReasonCode, Source: "signed_policy_bundle"})
+	evaluatedResult := "deny"
+	if evaluatedDecision.Allowed {
+		evaluatedResult = "allow"
+	}
+	_ = edgeLogger.Log(bapedge.EdgeEvent{Event: "authorization_result", TraceID: operationTrace.TraceID, SpanID: operationTrace.SpanID, HookEvent: input.HookEventName, Tool: input.ToolName, Action: request.Action.Name, Decision: result, ReasonCode: decision.ReasonCode, EvaluatedDecision: evaluatedResult, EvaluatedReasonCode: evaluatedDecision.ReasonCode, EnforcementMode: enforcementMode, Source: "signed_policy_bundle"})
 	if !decision.Allowed {
 		if decision.ManualOnly {
 			manualExecutionRequired()

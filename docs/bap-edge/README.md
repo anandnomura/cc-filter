@@ -164,5 +164,6 @@ that lease BAP Edge fails closed. Claude can continue reasoning without tools.
 - [Windows managed settings and bypass tests](managed-settings-windows.md)
 - [Network and Podman deployment](network-deployment.md)
 - [Cedar policies and safe learning](policies-and-proposals.md)
+- [Signed shadow observation and offline ML-assisted recommendations](shadow-mode.md)
 - [Keeping the fork synchronized](fork-sync.md)
 - [Troubleshooting](troubleshooting.md)

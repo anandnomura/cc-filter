@@ -40,3 +40,5 @@ Thumbs.db
 
 config.yaml
 target/
+__pycache__/
+*.py[cod]

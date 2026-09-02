@@ -5,6 +5,11 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
+- centrally signed, time-bounded shadow observation mode with automatic expiry,
+  production startup rejection, non-bypassable safety controls, evaluated vs
+  effective decision audit, and no advisory feedback to Claude
+- offline dependency-free Python categorical-density ranker and multi-file shadow analyzer with outcome correlation, input
+  hashes, privacy-safe grouping, and human-review-only policy recommendations
 - `Watch-BapLogs.ps1`/`.bat` live labeled Edge and Service log viewing for
   native, Docker, and Podman runtimes
 - fail-fast `pilot`/`production` deployment modes requiring unique instance

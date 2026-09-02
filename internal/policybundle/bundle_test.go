@@ -99,6 +99,50 @@ func TestSessionPolicyRejectsUnknownCapabilityAndUnsafeLimits(t *testing.T) {
 	}
 }
 
+func TestShadowModeAllowsOrdinaryDenialButNeverHardSafetyBoundary(t *testing.T) {
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	bundle := testBundle(t, now)
+	expires := now.Add(time.Hour)
+	bundle.EnforcementMode, bundle.ShadowExpiresAt = "shadow", &expires
+	evaluated := Decision{ReasonCode: "LOCAL_EXPLICIT_FORBID", Reason: "denied"}
+
+	ordinary := commandRequest("git reset --hard")
+	ordinary.Resource.Properties["destructive"] = true
+	effective := ApplyEnforcementMode(bundle, ordinary, evaluated, now.Add(time.Minute))
+	if !effective.Allowed || effective.ReasonCode != "SHADOW_ALLOW" {
+		t.Fatalf("ordinary shadow observation was not allowed: %#v", effective)
+	}
+
+	for _, property := range []string{"protected", "outsideWorkspace", "securityControl", "exfiltration", "obfuscated"} {
+		request := commandRequest("test")
+		request.Resource.Properties[property] = true
+		if got := ApplyEnforcementMode(bundle, request, evaluated, now.Add(time.Minute)); got.Allowed {
+			t.Fatalf("shadow mode relaxed hard safety property %s", property)
+		}
+	}
+	if got := ApplyEnforcementMode(bundle, ordinary, evaluated, expires); got.Allowed {
+		t.Fatal("expired shadow mode did not automatically return to enforcement")
+	}
+	sessionDenied := Decision{ReasonCode: "SESSION_COMPOSITION_FORBID", Reason: "session denied"}
+	if got := ApplyEnforcementMode(bundle, ordinary, sessionDenied, now.Add(time.Minute)); got.Allowed {
+		t.Fatal("shadow mode relaxed a session-level safety control")
+	}
+}
+
+func TestShadowConfigurationRequiresBoundedExpiry(t *testing.T) {
+	source, policy := testSourceAndPolicy(t)
+	source.EnforcementMode = "shadow"
+	source.ShadowExpiresAt = nil
+	if _, err := LoadSource(mustJSON(source)); err == nil {
+		t.Fatal("shadow source without expiry was accepted")
+	}
+	expires := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	source.ShadowExpiresAt = &expires
+	if _, err := Build(source, policy, time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)); err == nil {
+		t.Fatal("shadow expiry beyond bundle expiry was accepted")
+	}
+}
+
 func TestLocalCommandAuthorizationUsesBundleRulesNotClientFlags(t *testing.T) {
 	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	bundle := testBundle(t, now)

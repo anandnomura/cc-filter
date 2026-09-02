@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"bap-system/internal/policybundle"
 )
 
 func validPilotSettings() deploymentSettings {
@@ -12,6 +14,16 @@ func validPilotSettings() deploymentSettings {
 		TLSCertPath: "service.pem", TLSKeyPath: "service-key.pem", ClientCAPath: "client-ca.pem",
 		EdgeMTLSPrincipals: []string{"edge-1", "edge-2"}, STSEdgePrincipal: "edge-sts",
 		STSGatewayPrincipal: "api-pep", STSConsumersJSON: `[{"principal":"api-pep"}]`,
+	}
+}
+
+func TestProductionRejectsShadowBundleAndPilotMayObserve(t *testing.T) {
+	bundle := policybundle.Bundle{EnforcementMode: "shadow"}
+	if err := validateRuntimePolicy("production", bundle); err == nil {
+		t.Fatal("production accepted a shadow policy bundle")
+	}
+	if err := validateRuntimePolicy("pilot", bundle); err != nil {
+		t.Fatalf("bounded pilot unexpectedly rejected shadow policy: %v", err)
 	}
 }
 

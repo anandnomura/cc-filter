@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"bap-system/internal/policybundle"
 )
 
 type deploymentSettings struct {
@@ -23,6 +25,13 @@ type deploymentSettings struct {
 	STSEdgePrincipal      string
 	STSGatewayPrincipal   string
 	STSConsumersJSON      string
+}
+
+func validateRuntimePolicy(deploymentMode string, bundle policybundle.Bundle) error {
+	if deploymentMode == "production" && bundle.EnforcementMode != "enforce" {
+		return fmt.Errorf("production requires a signed policy bundle with enforcement_mode=enforce")
+	}
+	return nil
 }
 
 func validateDeployment(settings deploymentSettings) error {

@@ -78,6 +78,8 @@ $timelineRows = @($events | ForEach-Object {
     $allowedProperty = $_.PSObject.Properties['allowed']
     $outcome = Get-AuditField -Event $_ -Name 'outcome'
     $decision = if ($null -ne $allowedProperty) { if ($allowedProperty.Value) { 'allow' } else { 'deny' } } elseif ($outcome) { $outcome } else { '' }
+    $evaluatedProperty = $_.PSObject.Properties['evaluated_allowed']
+    $evaluated = if ($null -ne $evaluatedProperty) { if ($evaluatedProperty.Value) { 'allow' } else { 'deny' } } else { $decision }
     $timestamp = [DateTime](Get-AuditField -Event $_ -Name 'timestamp' -Default ([DateTime]::MinValue))
     [pscustomobject]@{
         Timestamp = $timestamp.ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss.fffZ')
@@ -85,16 +87,19 @@ $timelineRows = @($events | ForEach-Object {
         Tool = Get-AuditField -Event $_ -Name 'tool'
         Action = Get-AuditField -Event $_ -Name 'action'
         Decision = $decision
+        Evaluated = $evaluated
+        Mode = Get-AuditField -Event $_ -Name 'enforcement_mode' -Default 'enforce'
         Reason = Get-AuditField -Event $_ -Name 'reason_code'
+        EvaluatedReason = Get-AuditField -Event $_ -Name 'evaluated_reason_code' -Default (Get-AuditField -Event $_ -Name 'reason_code')
         Source = Get-AuditField -Event $_ -Name 'source'
         ToolUseID = Get-AuditField -Event $_ -Name 'tool_use_id'
         Target = Get-AuditField -Event $_ -Name 'target_summary'
     }
 })
 if ($Details) {
-    $timelineRows | Format-List Timestamp,Session,Tool,Action,Decision,Reason,Source,ToolUseID,Target
+    $timelineRows | Format-List Timestamp,Session,Tool,Action,Evaluated,Decision,Mode,EvaluatedReason,Reason,Source,ToolUseID,Target
 } else {
-    $timelineRows | Format-Table Timestamp,Tool,Action,Decision,Reason -AutoSize -Wrap
+    $timelineRows | Format-Table Timestamp,Tool,Action,Evaluated,Decision,Mode,EvaluatedReason -AutoSize -Wrap
 }
 
 Write-Host 'Session IDs in this result:' -ForegroundColor Cyan

@@ -8,6 +8,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+Write-Host 'Running signed shadow-mode, cc-filter, and offline recommendation gates...'
+& (Join-Path $PSScriptRoot 'Test-ShadowMode.ps1') -Runtime $Runtime
+
 if ($Runtime -eq 'Native') {
     . (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
     $goCommand = Get-BapGoCommand -Required

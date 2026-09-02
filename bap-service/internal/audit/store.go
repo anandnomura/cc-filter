@@ -38,6 +38,9 @@ type Event struct {
 	IntentHash            string    `json:"intent_hash,omitempty"`
 	Allowed               *bool     `json:"allowed,omitempty"`
 	ReasonCode            string    `json:"reason_code,omitempty"`
+	EvaluatedAllowed      *bool     `json:"evaluated_allowed,omitempty"`
+	EvaluatedReasonCode   string    `json:"evaluated_reason_code,omitempty"`
+	EnforcementMode       string    `json:"enforcement_mode,omitempty"`
 	PolicyVersion         string    `json:"policy_version,omitempty"`
 	Outcome               string    `json:"outcome,omitempty"`
 	PreviousHash          string    `json:"previous_hash,omitempty"`

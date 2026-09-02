@@ -18,6 +18,7 @@ import (
 	"bap-system/bap-service/internal/audit"
 	"bap-system/bap-service/internal/metrics"
 	"bap-system/internal/agentgrant"
+	"bap-system/internal/auditwire"
 	"bap-system/internal/authzen"
 	"bap-system/internal/policybundle"
 )
@@ -32,7 +33,7 @@ func (s *recordingAuditStore) Append(event audit.Event) error {
 func TestPolicySyncAuthenticationAndDirectives(t *testing.T) {
 	_, privateKey, _ := ed25519.GenerateKey(rand.Reader)
 	now := time.Now().UTC()
-	bundle := policybundle.Bundle{SchemaVersion: policybundle.SchemaVersion, Version: 7, RulesDigest: "sha256:rules", IssuedAt: now, ExpiresAt: now.Add(time.Hour), RefreshAfterSeconds: 60, MaxOfflineSeconds: 300, MinimumEdgeVersion: "1", RevocationEpoch: 4, ForceUpdate: true, PolicyProfile: "standard-developer", CedarPolicy: "forbid(principal, action, resource);"}
+	bundle := policybundle.Bundle{SchemaVersion: policybundle.SchemaVersion, Version: 7, RulesDigest: "sha256:rules", IssuedAt: now, ExpiresAt: now.Add(time.Hour), RefreshAfterSeconds: 60, MaxOfflineSeconds: 300, MinimumEdgeVersion: "1", RevocationEpoch: 4, ForceUpdate: true, EnforcementMode: "enforce", PolicyProfile: "standard-developer", CedarPolicy: "forbid(principal, action, resource);"}
 	envelope, err := policybundle.Sign(privateKey, "test", bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -205,6 +206,35 @@ func TestLegacyAuthZENEndpointsArePermanentlyAbsent(t *testing.T) {
 		if response.Code != http.StatusNotFound {
 			t.Fatalf("removed legacy endpoint %s returned %d", test.path, response.Code)
 		}
+	}
+}
+
+func TestShadowDecisionPersistsEvaluatedAndEffectiveOutcomes(t *testing.T) {
+	store := &recordingAuditStore{}
+	service := New(nil, "issuer", store, "test-api-key", "pilot-edge")
+	decision := auditwire.EdgeDecision{
+		EventID: "shadow-decision-1",
+		Request: authzen.EvaluationRequest{
+			Subject:  authzen.Entity{Type: "agent", ID: "claude"},
+			Action:   authzen.Action{Name: "command.execute"},
+			Resource: authzen.Entity{Type: "tool-invocation", ID: "operation", Properties: map[string]any{"tool": "Bash", "command": "redacted"}},
+			Context:  map[string]any{"session_id": "session", "workload_id": "workload", "tool_use_id": "tool-use"},
+		},
+		Allowed: true, ReasonCode: "SHADOW_ALLOW", EvaluatedAllowed: false,
+		EvaluatedReasonCode: "MANUAL_EXECUTION_REQUIRED", EnforcementMode: "shadow",
+		PolicyVersion: "bundle:9:digest", BundleVersion: 9, BundleDigest: "sha256:digest",
+	}
+	body, _ := json.Marshal(decision)
+	request := httptest.NewRequest(http.MethodPost, "/bap/v1/audit/edge-decision", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer test-api-key")
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || len(store.events) != 1 {
+		t.Fatalf("shadow audit status=%d events=%d", response.Code, len(store.events))
+	}
+	event := store.events[0]
+	if event.Allowed == nil || !*event.Allowed || event.EvaluatedAllowed == nil || *event.EvaluatedAllowed || event.EnforcementMode != "shadow" || event.EvaluatedReasonCode != "MANUAL_EXECUTION_REQUIRED" {
+		t.Fatalf("shadow evidence was not preserved: %#v", event)
 	}
 }
 

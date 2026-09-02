@@ -65,6 +65,11 @@ bap-service/policies/edge-policy-source.json
 Changing rule content requires incrementing its `version`. Reusing a version
 with different content is rejected as equivocation.
 
+`enforcement_mode` is signed policy and accepts `enforce` or `shadow`. Shadow
+also requires a bounded `shadow_expires_at`; expiry automatically restores
+enforcement, and production Service startup refuses shadow. See
+[Shadow observation and policy recommendations](shadow-mode.md).
+
 Command rule `effect` accepts `eligible-for-permit`, `manual-only`, or `forbid`.
 `manual-only` is for direct privileged client executables that Claude may help
 prepare but must not execute. It returns `MANUAL_EXECUTION_REQUIRED`; a matching
@@ -102,6 +107,8 @@ Example:
 | Variable | Default | Purpose |
 |---|---|---|
 | `BAP_LISTEN_ADDRESS` | `:8080` (image sets `:8443`) | Listener |
+| `BAP_DEPLOYMENT_MODE` | `development` | `development`, `pilot`, or fail-fast `production` safety profile |
+| `BAP_POLICY_MODE` | combined: `activate`; STS: `verified` | Runtime policy activation or pre-signed verification; pilot/production require `verified` |
 | `BAP_POLICY_PATH` | `policies/agent-tools.cedar` | Cedar policy |
 | `BAP_STATE_DIRECTORY` | `.bap/runtime` (image sets `/var/lib/bap`) | Development key/state root |
 | `BAP_TLS_CERT_PATH`, `BAP_TLS_KEY_PATH` | empty | Production TLS pair |

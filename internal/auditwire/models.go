@@ -20,13 +20,16 @@ type EdgeDenial struct {
 }
 
 type EdgeDecision struct {
-	EventID       string                    `json:"event_id"`
-	Request       authzen.EvaluationRequest `json:"request"`
-	Allowed       bool                      `json:"allowed"`
-	ReasonCode    string                    `json:"reason_code"`
-	PolicyVersion string                    `json:"policy_version"`
-	BundleVersion uint64                    `json:"bundle_version"`
-	BundleDigest  string                    `json:"bundle_digest"`
-	RuleIDs       []string                  `json:"rule_ids,omitempty"`
-	TraceParent   string                    `json:"traceparent,omitempty"`
+	EventID             string                    `json:"event_id"`
+	Request             authzen.EvaluationRequest `json:"request"`
+	Allowed             bool                      `json:"allowed"`
+	ReasonCode          string                    `json:"reason_code"`
+	EvaluatedAllowed    bool                      `json:"evaluated_allowed"`
+	EvaluatedReasonCode string                    `json:"evaluated_reason_code"`
+	EnforcementMode     string                    `json:"enforcement_mode"`
+	PolicyVersion       string                    `json:"policy_version"`
+	BundleVersion       uint64                    `json:"bundle_version"`
+	BundleDigest        string                    `json:"bundle_digest"`
+	RuleIDs             []string                  `json:"rule_ids,omitempty"`
+	TraceParent         string                    `json:"traceparent,omitempty"`
 }
