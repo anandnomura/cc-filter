@@ -22,6 +22,8 @@ All notable changes to cc-filter are documented in this file.
 - Native runtime support for audit verification, readable per-session decision
   timelines, and status inspection; native verification now records the exact
   denied-Bash then allowed-Read route change as two distinct tool calls
+- Audit timelines tolerate valid event variants with optional action, tool,
+  reason, target, session, or outcome fields under PowerShell strict mode
 - One-click native Windows local test launcher for BAP Service, BAP Edge, signed
   policy verification, and temporary project-local Claude hooks
 - Native Windows Go fallback and explicit Windows/Linux compilation targets for

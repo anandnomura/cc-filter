@@ -11,6 +11,17 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
 
+function Get-AuditField {
+    param(
+        [Parameter(Mandatory)]$Event,
+        [Parameter(Mandatory)][string]$Name,
+        $Default = ''
+    )
+    $property = $Event.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) { return $Default }
+    return $property.Value
+}
+
 if ($Runtime -eq 'Auto') {
     try { $Runtime = Get-BapContainerEngine -Runtime Auto } catch { $Runtime = 'Native' }
 }
@@ -50,8 +61,8 @@ if ($VerifyOnly) { exit 0 }
 $parsedEvents = $auditJSON | ConvertFrom-Json
 $events = @()
 foreach ($event in $parsedEvents) { $events += $event }
-if ($SessionID) { $events = @($events | Where-Object { $_.session_id -eq $SessionID }) }
-$events = @($events | Sort-Object { [DateTime]$_.timestamp } | Select-Object -Last $Last)
+if ($SessionID) { $events = @($events | Where-Object { (Get-AuditField -Event $_ -Name 'session_id') -eq $SessionID }) }
+$events = @($events | Sort-Object { [DateTime](Get-AuditField -Event $_ -Name 'timestamp' -Default ([DateTime]::MinValue)) } | Select-Object -Last $Last)
 
 if (-not $Timeline -and -not $SessionID) {
     $events | ConvertTo-Json -Depth 20
@@ -65,17 +76,19 @@ if ($events.Count -eq 0) {
 
 $timelineRows = @($events | ForEach-Object {
     $allowedProperty = $_.PSObject.Properties['allowed']
-    $decision = if ($null -ne $allowedProperty) { if ($allowedProperty.Value) { 'allow' } else { 'deny' } } elseif ($_.outcome) { $_.outcome } else { '' }
+    $outcome = Get-AuditField -Event $_ -Name 'outcome'
+    $decision = if ($null -ne $allowedProperty) { if ($allowedProperty.Value) { 'allow' } else { 'deny' } } elseif ($outcome) { $outcome } else { '' }
+    $timestamp = [DateTime](Get-AuditField -Event $_ -Name 'timestamp' -Default ([DateTime]::MinValue))
     [pscustomobject]@{
-        Timestamp = ([DateTime]$_.timestamp).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss.fffZ')
-        Session = $_.session_id
-        Tool = $_.tool
-        Action = $_.action
+        Timestamp = $timestamp.ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss.fffZ')
+        Session = Get-AuditField -Event $_ -Name 'session_id'
+        Tool = Get-AuditField -Event $_ -Name 'tool'
+        Action = Get-AuditField -Event $_ -Name 'action'
         Decision = $decision
-        Reason = $_.reason_code
-        Source = $_.source
-        ToolUseID = $_.tool_use_id
-        Target = $_.target_summary
+        Reason = Get-AuditField -Event $_ -Name 'reason_code'
+        Source = Get-AuditField -Event $_ -Name 'source'
+        ToolUseID = Get-AuditField -Event $_ -Name 'tool_use_id'
+        Target = Get-AuditField -Event $_ -Name 'target_summary'
     }
 })
 if ($Details) {
@@ -85,6 +98,6 @@ if ($Details) {
 }
 
 Write-Host 'Session IDs in this result:' -ForegroundColor Cyan
-$events | Where-Object session_id | Group-Object session_id | ForEach-Object {
+$timelineRows | Where-Object { $_.Session } | Group-Object Session | ForEach-Object {
     [pscustomobject]@{ SessionID = $_.Name; Events = $_.Count }
 } | Format-Table -AutoSize
