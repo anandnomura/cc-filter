@@ -68,6 +68,24 @@ For a shadow override, the audit timeline must show `Evaluated=deny`,
 `Decision=allow`, `Mode=shadow`, the original evaluated reason, and an effective
 `SHADOW_ALLOW`. A hard boundary must show deny for both decisions.
 
+## Native local testing and pilot sessions
+
+To enable developers to run realistic pilot sessions and discover missing tool rules without being blocked, the native local launcher starts in **shadow observation mode** by default:
+
+```powershell
+.\Start-BapNativeLocal.bat -UseCompanyClaude
+```
+
+When started natively:
+1. **Ephemeral signed shadow bundle:** `Start-BapNativeLocal` automatically provisions an active signed bundle with `enforcement_mode: "shadow"` and a 14-day expiry for that run.
+2. **Commands execute uninterrupted:** Unclassified developer commands (e.g., running build scripts, folder comparisons, Python scripts) are permitted (`SHADOW_ALLOW`) and recorded in the audit log.
+3. **Hard boundaries remain fail-closed:** Accessing protected files (such as `.env` or credentials), directory traversals outside the authorized workspace root, and attempts to modify security controls remain strictly denied.
+4. **Automatic snapshot on exit:** When Claude exits, `Start-BapNativeLocal` automatically captures a shadow log snapshot directly under `.bap\shadow-logs\<timestamp>-native\`.
+5. **Strict enforcement override:** If you want to test with strict enforcement instead of shadow observation, pass `-Enforce`:
+   ```powershell
+   .\Start-BapNativeLocal.bat -Enforce -UseCompanyClaude
+   ```
+
 ## Analyze a directory
 
 Create a clearly named snapshot from the latest Native run or the currently

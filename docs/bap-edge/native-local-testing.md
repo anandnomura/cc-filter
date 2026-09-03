@@ -79,6 +79,8 @@ To run with strict policy enforcement instead, pass `-Enforce`:
 .\Start-BapNativeLocal.bat -Enforce -UseCompanyClaude
 ```
 
+When Claude exits, the launcher automatically snapshots the session's audit events into `.bap\shadow-logs\<timestamp>-native\` so they are immediately available for analysis with `.\Analyze-ShadowLogs.ps1`.
+
 For a one-command, non-interactive local classifier check, run:
 
 ```powershell
