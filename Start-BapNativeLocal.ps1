@@ -90,7 +90,8 @@ function Invoke-NativeHookVerification {
         [Parameter(Mandatory)][string]$EdgeConfig,
         [Parameter(Mandatory)][string]$ServiceURL,
         [Parameter(Mandatory)][string]$CaBundle,
-        [Parameter(Mandatory)][string]$RuntimeDirectory
+        [Parameter(Mandatory)][string]$RuntimeDirectory,
+        [Parameter(Mandatory)][string]$STSGatewayAPIKey
     )
     $sessionID = 'native-local-' + [Guid]::NewGuid().ToString('N')
     $sessionStart = @{
@@ -221,7 +222,7 @@ function Invoke-NativeHookVerification {
         $curlArguments = @(
             '--silent', '--show-error', '--output', $consumeResponsePath,
             '--write-out', '%{http_code}', '--ssl-no-revoke', '--cacert', $CaBundle,
-            '--request', 'POST', '--header', "Authorization: Bearer $env:BAP_EDGE_API_KEY",
+            '--request', 'POST', '--header', "Authorization: Bearer $STSGatewayAPIKey",
             '--header', 'Content-Type: application/json', '--data-binary', "@$consumeRequestPath",
             "$ServiceURL/bap/v1/agent-sts/consume"
         )
@@ -281,14 +282,27 @@ New-Item -ItemType Directory -Force -Path $runtimeRoot, $runtimeDirectory, $serv
 $runtimeDirectory | Set-Content -LiteralPath (Join-Path $runtimeRoot 'latest-run.txt') -Encoding utf8
 Write-Host "Native test run state: $runtimeDirectory"
 
-if (-not (Test-Path -LiteralPath $apiKeyPath)) {
+function New-NativeLocalSecret {
     $random = New-Object byte[] 32
     $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $generator.GetBytes($random) } finally { $generator.Dispose() }
-    [Convert]::ToBase64String($random) | Set-Content -LiteralPath $apiKeyPath -Encoding ascii -NoNewline
+    return [Convert]::ToBase64String($random)
+}
+
+if (-not (Test-Path -LiteralPath $apiKeyPath)) {
+    New-NativeLocalSecret | Set-Content -LiteralPath $apiKeyPath -Encoding ascii -NoNewline
 }
 $env:BAP_EDGE_API_KEY = (Get-Content -LiteralPath $apiKeyPath -Raw).Trim()
 $env:BAP_EDGE_PRINCIPAL = 'native-local-developer'
+$env:BAP_AGENT_STS_EDGE_API_KEY = New-NativeLocalSecret
+$stsGatewayAPIKey = New-NativeLocalSecret
+$env:BAP_AGENT_STS_GATEWAY_API_KEY = $stsGatewayAPIKey
+$env:BAP_AGENT_STS_EDGE_PRINCIPAL = 'native-local-edge'
+$env:BAP_AGENT_STS_GATEWAY_PRINCIPAL = 'native-local-resource-pep'
+$env:BAP_AGENT_STS_ISSUER = 'bap-agent-sts-local'
+# Do not let machine/user-level production consumer configuration leak into
+# this isolated development transaction.
+Remove-Item Env:BAP_AGENT_STS_CONSUMERS_JSON -ErrorAction SilentlyContinue
 $env:BAP_STATE_DIRECTORY = $serviceState
 $env:BAP_POLICY_PATH = Join-Path $PSScriptRoot 'bap-service\policies\agent-tools.cedar'
 $env:BAP_BUNDLE_SOURCE_PATH = Join-Path $PSScriptRoot 'bap-service\policies\edge-policy-source.json'
@@ -309,6 +323,8 @@ if (-not (Test-Path -LiteralPath $caBundle) -or -not (Test-Path -LiteralPath $bu
 
 @"
 service_url: "$serviceURL"
+agent_sts_url: "$serviceURL"
+agent_sts_issuer: "bap-agent-sts-local"
 public_key_path: "$(ConvertTo-YamlPath $grantPublicKey)"
 bundle_public_key_path: "$(ConvertTo-YamlPath $bundlePublicKey)"
 ca_bundle_path: "$(ConvertTo-YamlPath $caBundle)"
@@ -316,6 +332,7 @@ subject_id: "claude-code-local"
 timeout_ms: 3000
 state_directory: "$(ConvertTo-YamlPath $edgeState)"
 api_key_env: "BAP_EDGE_API_KEY"
+agent_sts_api_key_env: "BAP_AGENT_STS_EDGE_API_KEY"
 "@ | Set-Content -LiteralPath $edgeConfig -Encoding utf8
 
 $serviceProcess = $null
@@ -326,25 +343,33 @@ $originalSettings = if ($settingsExisted) { [IO.File]::ReadAllBytes($settingsPat
 $settingsWritten = $false
 $claudeExitCode = 0
 try {
-    if (-not (Test-NativeServiceReady -CaBundle $caBundle -ServiceURL $serviceURL)) {
-        Write-Host "Starting native BAP Service on $serviceURL ..."
-        $serviceProcess = Start-Process -FilePath $serviceBinary -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
-        for ($attempt = 1; $attempt -le 40; $attempt++) {
-            if ($serviceProcess.HasExited) {
-                $tail = if (Test-Path -LiteralPath $stderrLog) { (Get-Content -LiteralPath $stderrLog -Tail 20) -join "`n" } else { '' }
-                throw "BAP Service exited before readiness. $tail"
-            }
-            if (Test-NativeServiceReady -CaBundle $caBundle -ServiceURL $serviceURL) { break }
-            Start-Sleep -Milliseconds 250
-        }
-        if (-not (Test-NativeServiceReady -CaBundle $caBundle -ServiceURL $serviceURL)) { throw 'BAP Service did not become ready within 10 seconds.' }
-    } else {
-        Write-Host "Using the BAP Service already listening on $serviceURL."
+    if (Test-NativeServiceReady -CaBundle $caBundle -ServiceURL $serviceURL) {
+        throw "Another BAP Service is already listening on $serviceURL. Stop it or choose another -Port; this isolated run will not reuse credentials or state."
     }
+    Write-Host "Starting native BAP Service on $serviceURL ..."
+    $serviceProcess = Start-Process -FilePath $serviceBinary -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    for ($attempt = 1; $attempt -le 40; $attempt++) {
+        if ($serviceProcess.HasExited) {
+            $tail = if (Test-Path -LiteralPath $stderrLog) { (Get-Content -LiteralPath $stderrLog -Tail 20) -join "`n" } else { '' }
+            throw "BAP Service exited before readiness. $tail"
+        }
+        if (Test-NativeServiceReady -CaBundle $caBundle -ServiceURL $serviceURL) { break }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not (Test-NativeServiceReady -CaBundle $caBundle -ServiceURL $serviceURL)) { throw 'BAP Service did not become ready within 10 seconds.' }
 
-    Invoke-NativeHookVerification -EdgeBinary $edgeBinary -EdgeConfig $edgeConfig `
-        -ServiceURL $serviceURL -CaBundle $caBundle -RuntimeDirectory $runtimeDirectory
+    try {
+        Invoke-NativeHookVerification -EdgeBinary $edgeBinary -EdgeConfig $edgeConfig `
+            -ServiceURL $serviceURL -CaBundle $caBundle -RuntimeDirectory $runtimeDirectory `
+            -STSGatewayAPIKey $stsGatewayAPIKey
+    } finally {
+        # The resource-PEP consume credential is required by the Service and
+        # this verification transaction only. Never expose it to Claude or its
+        # hook/tool child processes.
+        Remove-Item Env:BAP_AGENT_STS_GATEWAY_API_KEY -ErrorAction SilentlyContinue
+        $stsGatewayAPIKey = $null
+    }
 
     New-Item -ItemType Directory -Force -Path $settingsDirectory | Out-Null
     $settings = if ($settingsExisted) { Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json } else {
@@ -448,6 +473,7 @@ try {
     }
     $claudeExitCode = $LASTEXITCODE
 } finally {
+    Remove-Item Env:BAP_AGENT_STS_GATEWAY_API_KEY -ErrorAction SilentlyContinue
     if ($settingsWritten) {
         if ($settingsExisted) {
             [IO.File]::WriteAllBytes($settingsPath, $originalSettings)

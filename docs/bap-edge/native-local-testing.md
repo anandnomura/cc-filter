@@ -72,6 +72,10 @@ To test BAP without launching Claude, run:
 .\Start-BapNativeLocal.bat -VerifyOnly
 ```
 
+This isolated verification uses separate ephemeral Agent STS issue and consume
+credentials. Ambient company STS variables cannot change the test, and the
+resource-PEP consume credential is not inherited by Claude.
+
 If port 8443 is occupied, select another loopback port:
 
 ```powershell

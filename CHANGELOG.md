@@ -102,6 +102,11 @@ All notable changes to cc-filter are documented in this file.
 - Unified demonstrations under `Demo-Bap.ps1 -Runtime
   Native|Docker|Podman|Auto`; every mode now requires company fixtures
 
+### Fixed
+- Native `-VerifyOnly` now overrides ambient STS configuration with isolated,
+  distinct Edge-issue and resource-PEP-consume credentials and refuses to reuse
+  a Service on the selected port
+
 ### Changed
 - Removed the dormant central AuthZEN/Cedar PDP, discovery, proposal-ingestion,
   and legacy grant-consumption path, including its obsolete token format; 404

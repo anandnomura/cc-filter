@@ -155,7 +155,14 @@ For a one-command rebuild and live acceptance test, use:
 installed. It starts a temporary native BAP Service on localhost, drives the
 native Edge directly, restores any project-local Claude settings, and stops
 the temporary service. Port `18443` avoids a company service already using
-`8443`; choose another unused local port if necessary.
+`8443`; choose another unused local port if necessary. The launcher refuses to
+reuse a Service already on that port because its credentials and state do not
+belong to the new isolated run.
+
+The test creates distinct in-memory credentials and principals for Edge-to-STS
+issuance and resource-PEP-to-STS consumption. It overrides unrelated inherited
+STS environment settings for the isolated run. The consume credential is
+removed from the launcher's environment before Claude could be started.
 
 The test must print all of these lines:
 
