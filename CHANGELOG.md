@@ -10,6 +10,8 @@ All notable changes to cc-filter are documented in this file.
   effective decision audit, and no advisory feedback to Claude
 - offline dependency-free Python categorical-density ranker and multi-file shadow analyzer with outcome correlation, input
   hashes, privacy-safe grouping, and human-review-only policy recommendations
+- one-command verified Native/Docker/Podman collection into the clearly named
+  `.bap/shadow-logs` directory, with recursive multi-snapshot analysis
 - `Watch-BapLogs.ps1`/`.bat` live labeled Edge and Service log viewing for
   native, Docker, and Podman runtimes
 - fail-fast `pilot`/`production` deployment modes requiring unique instance

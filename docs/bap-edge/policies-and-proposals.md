@@ -33,6 +33,14 @@ causes service activation or Edge equivocation checks to fail closed.
 
 ## Missing-rule evidence
 
+For pilot-wide evidence, use the signed, expiring shadow workflow documented in
+[shadow observation and policy recommendations](shadow-mode.md). It collects
+verified Native/Docker/Podman snapshots under `.bap\shadow-logs`, analyzes all
+JSONL files together with session-safe correlation and deduplication, and emits
+ML-ranked candidates that always require human review. The promotion checklist
+in that guide explains when a structured registry change is sufficient and
+when Cedar must change.
+
 The obsolete central AuthZEN proposal collector is no longer reachable. The
 local Edge path records `LOCAL_NO_MATCHING_POLICY` in audit but does not create
 a governed proposal. Future asynchronous proposal ingestion must store only classification metadata

@@ -33,4 +33,21 @@ if ($python) {
 }
 if ($LASTEXITCODE -ne 0) { throw 'Shadow recommendation analyzer tests failed.' }
 
+$attestationDirectory = Join-Path $PSScriptRoot '.bap\attestations'
+[IO.Directory]::CreateDirectory($attestationDirectory) | Out-Null
+$attestationPath = Join-Path $attestationDirectory ("shadow-ml-sample-{0}.json" -f (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'))
+& (Join-Path $PSScriptRoot 'Analyze-ShadowLogs.ps1') `
+    -InputDirectory (Join-Path $PSScriptRoot 'examples\shadow-analysis') `
+    -OutputPath $attestationPath
+if ($LASTEXITCODE -ne 0) { throw 'Shadow sample analysis failed.' }
+$sampleReport = Get-Content -LiteralPath $attestationPath -Raw | ConvertFrom-Json
+$sampleCandidate = @($sampleReport.recommendations) | Select-Object -First 1
+if ($null -eq $sampleCandidate -or $sampleCandidate.status -ne 'human_review_required' -or
+    $sampleCandidate.proposed_review_scope.effect -ne 'permit_candidate' -or
+    $sampleCandidate.proposed_review_scope.automatic_activation -ne $false -or
+    $sampleCandidate.learned_ranking.model -ne 'categorical_density_v1') {
+    throw 'Shadow ML sample did not produce the expected non-activating human-review recommendation.'
+}
+Write-Host "EVIDENCE: $attestationPath"
+
 Write-Host 'PASS: signed shadow mode, expiry, production rejection, hard boundaries, cc-filter redaction, evaluated/effective audit, and offline ML-ranked human-review recommendations.'

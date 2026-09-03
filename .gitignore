@@ -11,6 +11,8 @@ dist/
 .bap/resource-peps/
 .bap/resource-pep-demo/
 .bap/attestations/
+.bap/shadow-logs/
+.bap/shadow-analysis/
 .claude/settings.local.json
 
 # Go build artifacts

@@ -94,6 +94,30 @@ podman machine start
 .\View-AuditTrail.ps1 -Runtime Podman -VerifyOnly
 ```
 
+## Shadow collection and ML recommendation test
+
+After running a signed shadow pilot, collect one verified snapshot. The command
+creates `.bap\shadow-logs\<timestamp>-<runtime>` containing Service and Edge
+JSONL files:
+
+```powershell
+.\Collect-ShadowLogs.ps1 -Runtime Native
+# or: -Runtime Docker / -Runtime Podman
+.\Analyze-ShadowLogs.ps1
+```
+
+The analyzer reads all JSONL files recursively across every snapshot and writes
+`.bap\shadow-analysis\shadow-suggestions.json`. The focused security gate also
+uses a sanitized fixture and requires an ML-ranked, non-activating candidate:
+
+```powershell
+.\Test-ShadowMode.ps1 -Runtime Native
+.\Test-ShadowMode.ps1 -Runtime Docker
+.\Test-ShadowMode.ps1 -Runtime Podman
+```
+
+Successful output includes an `EVIDENCE:` path under `.bap\attestations`.
+
 ## Managed-settings test
 
 Open PowerShell as Administrator:

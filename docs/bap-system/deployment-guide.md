@@ -128,6 +128,8 @@ discovery. `production` startup rejects shadow even when its expiry has passed;
 the approved go-live bundle must explicitly say `enforce`. See the
 [shadow-mode guide](../bap-edge/shadow-mode.md).
 
+## Policy activation and runtime separation
+
 Activate policy in a separate controlled signing job, then deploy only the
 signed envelope and public verification key to runtime instances:
 

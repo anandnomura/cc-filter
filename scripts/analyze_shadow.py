@@ -42,6 +42,12 @@ def analyze(directory: Path, min_count: int = 2, enable_ml: bool = True) -> dict
         if record.get("event_type") == "tool_outcome":
             key = (str(record.get("session_id", "")), str(record.get("workload_id", "")), str(record.get("tool_use_id", "")))
             outcomes[key] = str(record.get("outcome", "unknown"))
+    central_operations = {
+        (str(record.get("session_id", "")), str(record.get("workload_id", "")), str(record.get("tool_use_id", "")))
+        for record in records
+        if record.get("event_type") == "authorization_decision"
+    }
+    central_operations.discard(("", "", ""))
 
     groups: dict[tuple[str, str, str, str, str], dict[str, Any]] = defaultdict(
         lambda: {"observations": 0, "successes": 0, "failures": 0, "sessions": set(), "sources": set()}
@@ -60,6 +66,11 @@ def analyze(directory: Path, min_count: int = 2, enable_ml: bool = True) -> dict
         edge = record.get("event") == "authorization_result"
         if not (central or edge) or record.get("enforcement_mode") != "shadow":
             continue
+        operation = (str(record.get("session_id", "")), str(record.get("workload_id", "")), str(record.get("tool_use_id", "")))
+        if edge and operation in central_operations:
+            # The Service copy is signed and authoritative. Do not count the
+            # corresponding Edge observation again when both are collected.
+            continue
         evaluated_allowed = record.get("evaluated_allowed") if central else record.get("evaluated_decision") == "allow"
         effective_allowed = record.get("allowed") if central else record.get("decision") == "allow"
         if evaluated_allowed is not False or effective_allowed is not True:
@@ -73,16 +84,13 @@ def analyze(directory: Path, min_count: int = 2, enable_ml: bool = True) -> dict
         action = str(record.get("action") or "unknown")
         tool = str(record.get("tool") or "unknown")
         reason = str(record.get("evaluated_reason_code") or "unknown")
-        target_class = str(record.get("target_summary") or "unspecified")
-        if target_class.startswith(("command-sha256:", "outside-workspace-sha256:")):
-            target_class = target_class.split(":", 1)[0]
-        key = (principal, action, tool, reason, target_class)
+        target_key = str(record.get("target_summary") or "unspecified")
+        key = (principal, action, tool, reason, target_key)
         learned_rows.append(key)
         group = groups[key]
         group["observations"] += 1
         group["sessions"].add(str(record.get("session_id") or "unknown"))
         group["sources"].add(Path(str(record["__source_file"])).name)
-        operation = (str(record.get("session_id", "")), str(record.get("workload_id", "")), str(record.get("tool_use_id", "")))
         if outcomes.get(operation) == "success":
             group["successes"] += 1
         elif outcomes.get(operation) == "failure":
@@ -95,7 +103,8 @@ def analyze(directory: Path, min_count: int = 2, enable_ml: bool = True) -> dict
     for key, group in groups.items():
         if group["observations"] < min_count:
             continue
-        principal, action, tool, reason, target_class = key
+        principal, action, tool, reason, target_key = key
+        target_class = target_key.split(":", 1)[0] if ":" in target_key else target_key
         identity = "|".join(key).encode("utf-8")
         candidate = {
             "candidate_id": "shadow-" + hashlib.sha256(identity).hexdigest()[:16],
@@ -104,13 +113,30 @@ def analyze(directory: Path, min_count: int = 2, enable_ml: bool = True) -> dict
             "action": action,
             "tool": tool,
             "target_class": target_class,
+            "target_key": target_key,
             "evaluated_reason_code": reason,
             "observations": group["observations"],
             "distinct_sessions": len(group["sessions"]),
             "successful_outcomes": group["successes"],
             "failed_outcomes": group["failures"],
             "source_files": sorted(group["sources"]),
-            "recommendation": "Review with the IAM group owner and resource owner; test a narrowly scoped signed rule. Do not infer role membership from behavior.",
+            "recommendation": "Consider a narrowly scoped permit candidate only after authoritative identity, resource-owner, failure, and counterexample review.",
+            "proposed_review_scope": {
+                "effect": "permit_candidate",
+                "observed_principal_to_verify": principal,
+                "action": action,
+                "tool": tool,
+                "resource_class": target_class,
+                "resource_key": target_key,
+                "required_controls": [
+                    "resolve subject membership from authoritative IAM",
+                    "obtain resource-owner approval",
+                    "review failures and counterexamples",
+                    "add positive and bypass tests",
+                    "activate only through signed policy lifecycle",
+                ],
+                "automatic_activation": False,
+            },
         }
         if enable_ml and learned_total:
             # An explainable categorical density estimator: each field's

@@ -24,6 +24,9 @@ packages and measurable release gates.
 - dedicated signed/hash-chained audit key, startup verification, policy hash, and
   command/outside-path privacy;
 - recommendation-only missing-policy proposals requiring administrator approval;
+- signed, automatically expiring shadow observation with production refusal,
+  verified multi-runtime log collection, and offline explainable ML ranking that
+  can only emit human-review candidates;
 - non-root Docker/Podman service, native Windows source build, vendored modules,
   and case-by-case automated tests.
 

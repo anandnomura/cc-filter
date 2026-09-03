@@ -70,8 +70,46 @@ For a shadow override, the audit timeline must show `Evaluated=deny`,
 
 ## Analyze a directory
 
-Python 3 is the only analyzer prerequisite. Point it at a directory containing
-retained Edge or Service JSONL files:
+Create a clearly named snapshot from the latest Native run or the currently
+running Docker/Podman environment:
+
+```powershell
+.\Collect-ShadowLogs.ps1 -Runtime Native
+# or: -Runtime Docker / -Runtime Podman
+```
+
+Each snapshot is stored under `.bap\shadow-logs\<timestamp>-<runtime>\` and
+contains two files: `service-audit.jsonl` and `edge-observability.jsonl`.
+`collection-manifest.json` records their origin. The analyzer reads **all
+`*.jsonl` files recursively** beneath the directory, including all snapshots;
+it deduplicates repeated events and ignores records that are not shadow
+overrides. When the same operation exists in Edge and Service logs, the signed
+Service event is authoritative and the Edge copy is not counted twice. You do
+not select just one file.
+
+File count is determined by collection frequency, not by how many operations
+the users perform. One collection creates two JSONL files plus one manifest. A
+single end-of-week collection from each of five standalone Native test
+environments therefore produces 10 JSONL files and five manifests. Place all
+five snapshot directories under the same `.bap\shadow-logs` parent and analyze
+them together. In a centrally operated pilot, export central Service audit once
+and add each endpoint's Edge JSONL; duplicate Service snapshots are safe but
+waste storage.
+
+Sessions and people are never merged: operation outcomes correlate by
+`session_id`, `workload_id`, and `tool_use_id`, while recommendations group on
+observed principal, action, tool, evaluated reason, and the exact privacy-safe
+target key. Human reviewers—not the model—map observed principals to approved
+IAM groups.
+
+Python 3 is the only analyzer prerequisite. With the default locations, run:
+
+```powershell
+.\Analyze-ShadowLogs.ps1
+```
+
+This writes `.bap\shadow-analysis\shadow-suggestions.json`. To use explicit
+locations:
 
 ```powershell
 .\Analyze-ShadowLogs.ps1 `
@@ -89,6 +127,15 @@ frequencies from the supplied corpus and ranks candidates using explainable
 novelty, recurrence, cross-session evidence, and observed outcomes. Use
 `-DisableML` to emit deterministic counts without learned ranking.
 
+Each recommendation includes a `proposed_review_scope` with the observed
+action, tool and resource class, the identity that must be checked against
+authoritative IAM, and the required approval/test controls. It is a review
+candidate—not generated Cedar and not permission to execute.
+
+Hashed command and outside-workspace targets retain their complete stable hash
+as `target_key`. Consequently, two unrelated commands are never combined merely
+because both are shell commands. The plaintext value is still not disclosed.
+
 Every result is `human_review_required`. It deliberately emits neither Cedar
 nor an activatable bundle. Reviewers must verify the user's authoritative IAM
 group, resource owner, A2P/workflow needs, failures and counterexamples; draft a
@@ -99,3 +146,39 @@ This is an MVP statistical-learning model, not a production access model. It
 uses only the files supplied for that run, so larger representative samples and
 reviewer feedback are needed before treating its rank as meaningful. It stays
 offline from activation and never infers or assigns access roles from behavior.
+
+To see the output without running a shadow pilot, analyze the sanitized sample:
+
+```powershell
+.\Analyze-ShadowLogs.ps1 `
+  -InputDirectory '.\examples\shadow-analysis' `
+  -OutputPath '.\.bap\shadow-analysis\sample-suggestions.json'
+```
+
+## Promote a recommendation to policy
+
+There is deliberately no automatic conversion button. For each candidate:
+
+1. Recover the intended operation from the pilot owner and verify the observed
+   principal against authoritative IAM. A target hash alone is not approval.
+2. Have the resource owner and security reviewer decide whether it should be a
+   narrow permit, remain manual-only, or become an explicit forbid.
+3. Edit `bap-service/policies/edge-policy-source.json`. For a normal shell
+   candidate, add a precise `command_rules` entry with executable, subcommand,
+   bounded argument patterns, profiles, owner, approval, and
+   `effect: eligible-for-permit`. Network, MCP, prompt-intent, AgentGrant and
+   session candidates belong in their corresponding structured registries.
+4. Edit `bap-service/policies/agent-tools.cedar` only when the authorization
+   semantics or action family changes. A normal approved command already flows
+   through `resource.shellApproved`, so registry-only changes are preferred.
+5. Increment the source's top-level `version`; add positive, negative, and
+   bypass cases; run `Test-PolicyRollout.ps1`, `Test-ShadowMode.ps1`, and
+   `Test-MVP0.ps1`.
+6. Run `bap-service policy activate` in the controlled signing job. Deploy the
+   resulting `active-policy-bundle.json` and public verification key to BAP
+   Service; never deploy the bundle private key to runtime instances.
+7. Canary the new higher version, inspect audit, then promote it. For go-live,
+   the signed source must explicitly use `enforcement_mode: enforce`.
+
+Exact activation environment variables and the native command are in the
+[deployment guide](../bap-system/deployment-guide.md#policy-activation-and-runtime-separation).

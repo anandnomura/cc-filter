@@ -144,5 +144,10 @@ silently diverging from the signed policy evaluated by BAP Edge.
 ## Policy learning boundary
 
 The active Edge path records privacy-safe no-match evidence but does not create
-or activate policy proposals. Explicit forbids never propose a bypass. An
-administrator reviews, tests, signs, and deploys policy deliberately.
+or activate policy proposals. A signed, expiring pilot-only shadow mode records
+both evaluated and effective decisions without returning the policy advisory to
+Claude. `Collect-ShadowLogs.ps1` exports verified Service audit plus Edge
+observability into `.bap\shadow-logs`; the offline analyzer recursively learns
+and ranks human-review candidates from structured fields. Explicit forbids
+never propose a bypass, and the analyzer emits no Cedar or activatable bundle.
+An administrator reviews, tests, signs, and deploys policy deliberately.

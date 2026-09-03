@@ -1,5 +1,5 @@
 param(
-    [Parameter(Mandatory)][string]$InputDirectory,
+    [string]$InputDirectory = '',
     [string]$OutputPath = '',
     [ValidateRange(1, 100000)][int]$MinCount = 2,
     [switch]$DisableML
@@ -7,8 +7,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if (-not $InputDirectory) { $InputDirectory = Join-Path $PSScriptRoot '.bap\shadow-logs' }
+if (-not $OutputPath) { $OutputPath = Join-Path $PSScriptRoot '.bap\shadow-analysis\shadow-suggestions.json' }
 if (-not (Test-Path -LiteralPath $InputDirectory -PathType Container)) {
-    throw "Shadow input directory does not exist: $InputDirectory"
+    throw "Shadow input directory does not exist: $InputDirectory. Run .\Collect-ShadowLogs.ps1 first."
 }
 $python = Get-Command py -ErrorAction SilentlyContinue
 $arguments = @('-3', (Join-Path $PSScriptRoot 'scripts\analyze_shadow.py'), (Resolve-Path -LiteralPath $InputDirectory).Path, '--min-count', $MinCount)
@@ -17,8 +19,8 @@ if ($null -eq $python) {
     $arguments = @((Join-Path $PSScriptRoot 'scripts\analyze_shadow.py'), (Resolve-Path -LiteralPath $InputDirectory).Path, '--min-count', $MinCount)
 }
 if ($null -eq $python) { throw 'Python 3 is required for shadow analysis.' }
-if ($OutputPath) { $arguments += @('--output', $OutputPath) }
+$arguments += @('--output', $OutputPath)
 if ($DisableML) { $arguments += '--disable-ml' }
 & $python.Source @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Shadow analysis failed.' }
-if ($OutputPath) { Write-Host "Human-review shadow suggestions: $OutputPath" }
+Write-Host "Human-review shadow suggestions: $OutputPath"

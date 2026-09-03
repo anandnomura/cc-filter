@@ -166,7 +166,13 @@ launcher with a bare `claude` command.
 # Print recent logs once (useful in CI or when reporting an error)
 .\Watch-BapLogs.ps1 -Runtime Native -NoFollow -Tail 100
 
-# Aggregate privacy-safe shadow JSONL into ML-ranked, human-review-only ideas
+# Collect verified Service audit plus Edge logs into .bap\shadow-logs\<snapshot>
+.\Collect-ShadowLogs.ps1 -Runtime Native
+
+# Analyze every *.jsonl file in every snapshot and write the default report
+.\Analyze-ShadowLogs.ps1
+
+# Or select explicit locations
 .\Analyze-ShadowLogs.ps1 -InputDirectory '.\collected-bap-jsonl' -OutputPath '.\shadow-suggestions.json' -MinCount 2
 
 # Optional deterministic-only report (no learned ranking)
