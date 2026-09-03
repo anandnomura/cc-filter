@@ -23,16 +23,18 @@ $ErrorActionPreference = 'Stop'
 if ($InteractiveClaude -and $CompanyCliArguments) { throw '-InteractiveClaude and -CompanyCliArguments are mutually exclusive.' }
 if (($InteractiveClaude -or $CompanyCliArguments) -and -not $UseCompanyClaude) { throw '-InteractiveClaude and -CompanyCliArguments require -UseCompanyClaude.' }
 
-$effectiveWorkspace = $PSScriptRoot
-if ($env:BAP_CALLER_CWD -and (Test-Path -LiteralPath $env:BAP_CALLER_CWD -PathType Container)) {
-    $effectiveWorkspace = (Resolve-Path -LiteralPath $env:BAP_CALLER_CWD).Path
+$callerLocation = if ($env:BAP_CALLER_CWD -and (Test-Path -LiteralPath $env:BAP_CALLER_CWD -PathType Container)) {
+    (Resolve-Path -LiteralPath $env:BAP_CALLER_CWD).Path
+} else {
+    (Get-Location).Path
 }
+
+$effectiveWorkspace = $callerLocation
 if ($Workspace) {
-    $baseForRelative = if ($env:BAP_CALLER_CWD) { $env:BAP_CALLER_CWD } else { $PSScriptRoot }
     $resolvedTarget = if ([System.IO.Path]::IsPathRooted($Workspace)) {
         $Workspace
     } else {
-        Join-Path $baseForRelative $Workspace
+        Join-Path $callerLocation $Workspace
     }
     if (-not (Test-Path -LiteralPath $resolvedTarget -PathType Container)) {
         throw "Workspace directory does not exist: $Workspace"
@@ -485,6 +487,7 @@ try {
     }
 
     Write-Host "Local hooks written to $settingsPath"
+    Write-Host "WORKSPACE ROOT: $effectiveWorkspace"
     Write-Host "Launching Claude in $effectiveWorkspace. Run /hooks and confirm six hooks with source Local."
 
     $claudeExecutable = Get-ClaudeExecutablePath
