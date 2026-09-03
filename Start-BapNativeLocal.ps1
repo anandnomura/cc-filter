@@ -538,6 +538,14 @@ try {
         $serviceProcess.WaitForExit()
     }
     Write-Host "Native test run state retained at $runtimeDirectory"
+    if (-not $VerifyOnly -and $isShadow) {
+        try {
+            & (Join-Path $PSScriptRoot 'Collect-ShadowLogs.ps1') -Runtime Native | Out-Null
+            Write-Host "Shadow logs automatically captured to $(Join-Path $PSScriptRoot '.bap\shadow-logs')."
+        } catch {
+            Write-Warning "Could not automatically snapshot shadow logs: $_"
+        }
+    }
 }
 
 if ($claudeExitCode -ne 0) { exit $claudeExitCode }
