@@ -34,6 +34,7 @@ type NormalizationPolicy struct {
 	AllowedNetworkDomains []string
 	ApprovedMCPTools      []string
 	ApprovedSubagentTypes []string
+	WorkspaceRoot         string
 }
 
 type toolSpec struct {
@@ -94,7 +95,10 @@ func Normalize(input HookInput, subjectID, workloadID string) (authzen.Evaluatio
 }
 
 func NormalizeWithPolicy(input HookInput, subjectID, workloadID string, policy NormalizationPolicy) (authzen.EvaluationRequest, error) {
-	workspace := input.CWD
+	workspace := policy.WorkspaceRoot
+	if workspace == "" {
+		workspace = input.CWD
+	}
 	if workspace == "" {
 		var err error
 		workspace, err = os.Getwd()
@@ -315,6 +319,15 @@ func matchesDomain(host string, entries []string) bool {
 
 func canonicalize(pathValue, workspace string) string {
 	pathValue = os.ExpandEnv(pathValue)
+	if strings.HasPrefix(pathValue, "~") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			if pathValue == "~" {
+				pathValue = home
+			} else if strings.HasPrefix(pathValue, "~/") || strings.HasPrefix(pathValue, "~\\") {
+				pathValue = filepath.Join(home, pathValue[2:])
+			}
+		}
+	}
 	if !filepath.IsAbs(pathValue) {
 		pathValue = filepath.Join(workspace, pathValue)
 	}

@@ -23,6 +23,7 @@ type Config struct {
 	APIKeyEnv             string `yaml:"api_key_env"`
 	AgentSTSAPIKeyEnv     string `yaml:"agent_sts_api_key_env,omitempty"`
 	SubjectID             string `yaml:"subject_id"`
+	WorkspaceRoot         string `yaml:"workspace_root,omitempty"`
 	TimeoutMS             int    `yaml:"timeout_ms"`
 }
 

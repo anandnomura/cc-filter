@@ -1,6 +1,7 @@
 package bapedge
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -77,3 +78,28 @@ func TestNormalizeGatewayRejectsModelSuppliedGrant(t *testing.T) {
 		t.Fatal("model-supplied reserved AgentGrant field was accepted")
 	}
 }
+
+func TestNormalizeWorkspaceRootAndTildePath(t *testing.T) {
+	parentWorkspace := t.TempDir()
+	subDir := filepath.Join(parentWorkspace, "cc-filter")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	policy := NormalizationPolicy{
+		Profile:       "standard-developer",
+		WorkspaceRoot: parentWorkspace,
+	}
+	input := HookInput{
+		CWD:       subDir,
+		ToolName:  "Write",
+		ToolInput: map[string]any{"file_path": filepath.Join(parentWorkspace, "comp-cc-filter-policyhelp.md"), "content": "report"},
+	}
+	req, err := NormalizeWithPolicy(input, "claude-code-local", "w1", policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Resource.Properties["outsideWorkspace"] != false {
+		t.Fatalf("expected outsideWorkspace=false when target is inside policy.WorkspaceRoot, got %#v", req.Resource.Properties)
+	}
+}
+

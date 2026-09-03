@@ -190,7 +190,11 @@ func main() {
 	if err != nil {
 		deny("BAP Edge policy is unavailable or stale: " + err.Error())
 	}
-	request, err := bapedge.NormalizeWithPolicy(input, config.SubjectID, workloadID, bapedge.NormalizationPolicy{Profile: bundle.PolicyProfile, AllowedNetworkDomains: bundle.AllowedNetwork, ApprovedMCPTools: bundle.ApprovedMCP, ApprovedSubagentTypes: bundle.ApprovedDelegates})
+	workspaceRoot := config.WorkspaceRoot
+	if envWorkspace := os.Getenv("BAP_WORKSPACE_ROOT"); envWorkspace != "" {
+		workspaceRoot = envWorkspace
+	}
+	request, err := bapedge.NormalizeWithPolicy(input, config.SubjectID, workloadID, bapedge.NormalizationPolicy{Profile: bundle.PolicyProfile, AllowedNetworkDomains: bundle.AllowedNetwork, ApprovedMCPTools: bundle.ApprovedMCP, ApprovedSubagentTypes: bundle.ApprovedDelegates, WorkspaceRoot: workspaceRoot})
 	if err != nil {
 		deny("BAP Edge rejected malformed or unsupported tool input: " + err.Error())
 	}
