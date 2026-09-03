@@ -134,7 +134,7 @@ the installed Go toolchain when neither runtime is usable. To cross-compile the
 Windows AMD64 and Linux AMD64/ARM64 Edge binaries with local Go, use:
 
 ```powershell
-.\Build-BapEdge.ps1 -Runtime Native -Targets All
+.\Build-BapEdge.ps1 -Runtime Native -Target All
 ```
 
 Build the Windows AMD64 BAP Service executable for container-free local testing:
@@ -165,8 +165,8 @@ Build Linux AMD64 and ARM64 BAP Service executables with:
 The ordinary wrapper also supports both explicit and automatic fallback:
 
 ```powershell
-.\Build-BapService.ps1 -Runtime Native -NativeTarget Windows
-.\Build-BapService.ps1 -Runtime Auto -NativeTarget Windows
+.\Build-BapService.ps1 -Runtime Native -Target Windows
+.\Build-BapService.ps1 -Runtime Auto -Target Windows
 ```
 
 With `Auto`, a usable container runtime produces the OCI image; without one, an
@@ -218,7 +218,7 @@ The locally created file is:
 dist\bap-edge-windows-amd64.exe
 ```
 
-The default Edge-only command does not compile BAP Service. `-Targets All`
+The default Edge-only command does not compile BAP Service. `-Target All`
 additionally cross-compiles the Linux Edge binaries.
 
 `Build-Bap.ps1 -Runtime Native` builds the Windows Edge and Windows Service

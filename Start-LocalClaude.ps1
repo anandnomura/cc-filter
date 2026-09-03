@@ -14,6 +14,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($InteractiveClaude -and $CompanyCliArguments) { throw '-InteractiveClaude and -CompanyCliArguments are mutually exclusive.' }
+if (($InteractiveClaude -or $CompanyCliArguments) -and -not $UseCompanyClaude) { throw '-InteractiveClaude and -CompanyCliArguments require -UseCompanyClaude.' }
 . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
 
 function Get-ClaudeExecutablePath {
@@ -246,7 +248,6 @@ if ($Print) { $defaultArguments += '--print' }
 if ($Prompt) { $defaultArguments += $Prompt }
 $launchCompanyInteractive = $UseCompanyClaude -and (-not $CompanyCliArguments)
 if ($InteractiveClaude -or $launchCompanyInteractive) {
-    if (-not $UseCompanyClaude) { throw '-InteractiveClaude requires -UseCompanyClaude.' }
     Write-Host 'Launching the company Claude UI without command-line arguments.'
     & $claudeExecutable
 } else {

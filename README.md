@@ -47,6 +47,11 @@ hooks, run `Start-BapNativeLocal.bat` and follow the
 
 ## Build/test commands
 
+The authoritative flag list and runtime conventions are in the
+[command and flag reference](docs/bap-edge/command-reference.md). Run
+`.\Test-ScriptContracts.ps1` after changing scripts or documented commands;
+the complete MVP gate runs it automatically.
+
 For the complete Go/Docker/Podman × Windows/Linux scenario matrix, prerequisites,
 expected artifacts, and acceptance checks, use the
 [authoritative build and test matrix](docs/bap-edge/deployment-test-matrix.md).
@@ -63,7 +68,7 @@ Run these from the repository root.
 .\Build-BapEdge.ps1 -Runtime Native
 
 # Build BAP Edge for Windows AMD64 plus Linux AMD64 and ARM64
-.\Build-BapEdge.ps1 -Runtime Native -Targets All
+.\Build-BapEdge.ps1 -Runtime Native -Target All
 
 # Build only BAP Service as a Windows EXE
 .\Build-BapService-Native.ps1 -Target Windows
@@ -96,7 +101,7 @@ Run these from the repository root.
 .\Build-BapService.ps1 -Runtime Docker -Tag bap-service:local
 
 # Build only BAP Edge with Docker, including Windows/Linux targets
-.\Build-BapEdge.ps1 -Runtime Docker -Targets All
+.\Build-BapEdge.ps1 -Runtime Docker -Target All
 
 # Build the Spring API PEP and Go MCP PEP natively
 .\Build-ResourcePEPs.ps1 -Runtime Native
@@ -239,6 +244,36 @@ launcher with a bare `claude` command.
 .\Demo-ResourcePEPs.ps1 -Runtime Docker -Rebuild
 .\Demo-ResourcePEPs.ps1 -Runtime Podman -Rebuild
 ```
+
+### Audit logs
+
+Use the audit viewer for security decisions; do not rely on Claude's prose to
+decide whether a tool ran. The viewer verifies the signed chain before showing
+events:
+
+```powershell
+# Native, Docker, or Podman
+.\View-AuditTrail.ps1 -Runtime Native -VerifyOnly
+.\View-AuditTrail.ps1 -Runtime Native -Timeline -Last 30
+
+# Copy a session ID from the timeline to correlate every event in that session
+.\View-AuditTrail.ps1 -Runtime Native -Timeline -SessionID 'COPY-SESSION-ID' -Details
+
+# Live operational logs (Ctrl+C stops); use Docker or Podman as needed
+.\Watch-BapLogs.ps1 -Runtime Native -Component All -Tail 100
+```
+
+Native test evidence is retained under `.bap\native-local\runs\<run-id>`;
+`.bap\native-local\latest-run.txt` identifies the run read by the viewer.
+Docker audit is in the local MySQL data under `.bap\runtime\docker\mysql`.
+Podman audit is in the `bap-mysql-local-data` named volume. Edge operational
+events are under `.bap\runtime\<runtime>\test-edge-state\observability`.
+Production audit belongs in company MySQL and the central SIEM, not these local
+development paths.
+
+`.bap\shadow-logs` contains collected analysis snapshots, not the live
+authoritative audit store. For storage, safe local cleanup, event fields, and
+tamper response, see the [audit trail guide](docs/bap-edge/audit-trail.md).
 
 See [AgentGrant STS: prove it works on a company Windows laptop](docs/bap-edge/agent-grant-sts.md#prove-agentgrant-works-on-a-company-windows-laptop)
 for the exact Agent STS assertions. The runnable API and MCP boundaries are in

@@ -53,7 +53,7 @@ already checked into `vendor/` and require Go 1.23.12 or newer.
 | Artifact | Command | Output |
 |---|---|---|
 | BAP Edge, Windows AMD64 | `.\Build-BapEdge.ps1 -Runtime Native` | `dist\bap-edge-windows-amd64.exe` |
-| BAP Edge, Windows AMD64 + Linux AMD64/ARM64 | `.\Build-BapEdge.ps1 -Runtime Native -Targets All` | `dist\bap-edge-*` |
+| BAP Edge, Windows AMD64 + Linux AMD64/ARM64 | `.\Build-BapEdge.ps1 -Runtime Native -Target All` | `dist\bap-edge-*` |
 | BAP Service, Windows AMD64 EXE | `.\Build-BapService-Native.ps1 -Target Windows` | `dist\bap-service-windows-amd64.exe` |
 | Combined Service + separate STS Windows EXE | `.\Build-BapService-Native.ps1 -Target Windows -SeparateAgentSTS` | normal Service plus `dist\bap-agent-sts-windows-amd64.exe` |
 | BAP Service, Linux AMD64 binary | `.\Build-BapService-Native.ps1 -Target Linux -Architecture amd64` | `dist\bap-service-linux-amd64` |
@@ -158,6 +158,7 @@ that lease BAP Edge fails closed. Claude can continue reasoning without tools.
 - [Company Windows: compile Edge locally without Docker or Podman](company-windows-build.md)
 - [Native local Windows test with project-local Claude hooks](native-local-testing.md)
 - [Every Windows/Linux/local/distributed build and test case](deployment-test-matrix.md)
+- [Authoritative command flags and runtime conventions](command-reference.md)
 - [Performance test commands and measured baseline](performance.md)
 - [What is still required for enterprise production](production-readiness.md)
 - [Certificates and rotation](certificates.md)

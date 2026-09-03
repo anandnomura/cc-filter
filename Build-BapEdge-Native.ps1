@@ -1,7 +1,7 @@
 param(
     [string]$OutputPath = '',
     [string]$Version = '',
-    [ValidateSet('Windows', 'All')][string]$Targets = 'Windows'
+    [Alias('Targets')][ValidateSet('Windows', 'All')][string]$Target = 'Windows'
 )
 
 Set-StrictMode -Version Latest
@@ -26,8 +26,8 @@ if (-not $Version) {
     $Version = if ($LASTEXITCODE -eq 0 -and $commit) { "company-$commit" } else { 'company-build' }
 }
 
-if ($OutputPath -and $Targets -eq 'All') {
-    throw '-OutputPath can only be used with -Targets Windows.'
+if ($OutputPath -and $Target -eq 'All') {
+    throw '-OutputPath can only be used with -Target Windows.'
 }
 if (-not $OutputPath) {
     $OutputPath = Join-Path $PSScriptRoot 'dist\bap-edge-windows-amd64.exe'
@@ -45,22 +45,22 @@ try {
     & $goCommand test -mod=vendor ./bap-edge/... ./configs ./internal/...
     if ($LASTEXITCODE -ne 0) { throw 'BAP Edge tests failed.' }
     $targetsToBuild = @(@{ OS = 'windows'; Architecture = 'amd64'; Output = $OutputPath })
-    if ($Targets -eq 'All') {
+    if ($Target -eq 'All') {
         $targetsToBuild += @(
             @{ OS = 'linux'; Architecture = 'amd64'; Output = (Join-Path $PSScriptRoot 'dist\bap-edge-linux-amd64') },
             @{ OS = 'linux'; Architecture = 'arm64'; Output = (Join-Path $PSScriptRoot 'dist\bap-edge-linux-arm64') }
         )
     }
-    foreach ($target in $targetsToBuild) {
+    foreach ($buildTarget in $targetsToBuild) {
         $env:CGO_ENABLED = '0'
-        $env:GOOS = $target.OS
-        $env:GOARCH = $target.Architecture
-        & $goCommand build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$Version" -o $target.Output ./bap-edge/cmd
-        if ($LASTEXITCODE -ne 0) { throw "Native BAP Edge compilation failed for $($target.OS)/$($target.Architecture)." }
-        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $target.Output).Hash
-        $checksumPath = "$($target.Output).sha256"
-        "$($hash.ToLowerInvariant())  $([IO.Path]::GetFileName($target.Output))" | Set-Content -LiteralPath $checksumPath -Encoding ascii
-        Write-Host "BAP Edge compiled locally: $($target.Output)"
+        $env:GOOS = $buildTarget.OS
+        $env:GOARCH = $buildTarget.Architecture
+        & $goCommand build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$Version" -o $buildTarget.Output ./bap-edge/cmd
+        if ($LASTEXITCODE -ne 0) { throw "Native BAP Edge compilation failed for $($buildTarget.OS)/$($buildTarget.Architecture)." }
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $buildTarget.Output).Hash
+        $checksumPath = "$($buildTarget.Output).sha256"
+        "$($hash.ToLowerInvariant())  $([IO.Path]::GetFileName($buildTarget.Output))" | Set-Content -LiteralPath $checksumPath -Encoding ascii
+        Write-Host "BAP Edge compiled locally: $($buildTarget.Output)"
         Write-Host "SHA-256: $hash"
     }
 } finally {

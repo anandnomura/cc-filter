@@ -53,7 +53,7 @@ All demo modes require the company fixture manifest and finish with
 .\Build-Bap.ps1 -Runtime Native
 
 # Edge: Windows AMD64 plus Linux AMD64/ARM64
-.\Build-BapEdge.ps1 -Runtime Native -Targets All
+.\Build-BapEdge.ps1 -Runtime Native -Target All
 
 # Service: Windows AMD64 plus Linux AMD64/ARM64
 .\Build-BapService-Native.ps1 -Target All -Architecture All
@@ -197,10 +197,10 @@ created. Follow [company Windows build](company-windows-build.md) to install it.
 Developer cross-build path:
 
 ```powershell
-.\Build-BapEdge.ps1 -Runtime Docker -Targets All
+.\Build-BapEdge.ps1 -Runtime Docker -Target All
 ```
 
-Use `-Targets Windows` (the default) when Linux Edge artifacts are unnecessary.
+Use `-Target Windows` (the default) when Linux Edge artifacts are unnecessary.
 
 ## Case 2: Linux Edge build and test
 

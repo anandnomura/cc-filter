@@ -36,7 +36,7 @@ foreach ($case in $cases) {
         -Runtime $Runtime `
         -NativePort $NativePort `
         -UseCompanyClaude `
-        -Interactive `
+        -InteractiveClaude `
         -ClaudeCodeVersion $ClaudeCodeVersion `
         -Scenario $case.Scenario `
         -Model $Model `

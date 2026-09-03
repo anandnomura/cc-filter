@@ -5,14 +5,14 @@ Captures one privacy-safe Claude/BAP certification fixture.
 .DESCRIPTION
 Scenario is a stable label for the test case. Prompt is the instruction sent
 to Claude. Native runs use the installed Windows Go binaries and do not require
-Docker or Podman. With -Interactive, the prompt is displayed for the operator
+Docker or Podman. With -InteractiveClaude, the prompt is displayed for the operator
 to paste into the company Claude UI and no arguments are passed to Claude.
 
 .EXAMPLE
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Interactive -ClaudeCodeVersion 'company-release-2026.08' -Scenario git-status-allow -Model sonnet -ExpectedDecision allow -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git status --short'
+.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -InteractiveClaude -ClaudeCodeVersion 'company-release-2026.08' -Scenario git-status-allow -Model sonnet -ExpectedDecision allow -Tools Bash -Prompt 'Call Bash exactly once with this exact command: git status --short'
 
 .EXAMPLE
-.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -Interactive -ClaudeCodeVersion 'company-release-2026.08' -Scenario mysql-manual-only-deny -Model opus -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user'
+.\Capture-ClaudeFixtures.ps1 -Runtime Native -UseCompanyClaude -InteractiveClaude -ClaudeCodeVersion 'company-release-2026.08' -Scenario mysql-manual-only-deny -Model opus -ExpectedDecision deny -Tools Bash -Prompt 'Call Bash exactly once with this exact command: mysql -h fixture.invalid -u fixture_user'
 #>
 param(
     [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')][string]$Scenario,
@@ -24,13 +24,17 @@ param(
     [string]$CaptureDirectory = '',
     [string]$Tools = 'Bash',
     [switch]$UseCompanyClaude,
-    [switch]$Interactive,
+    [Alias('Interactive')][switch]$InteractiveClaude,
+    [switch]$CompanyCliArguments,
     [string]$ClaudeCodeVersion = '',
     [string[]]$ClaudeArguments = @()
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($InteractiveClaude -and $CompanyCliArguments) { throw '-InteractiveClaude and -CompanyCliArguments are mutually exclusive.' }
+if (($InteractiveClaude -or $CompanyCliArguments) -and -not $UseCompanyClaude) { throw '-InteractiveClaude and -CompanyCliArguments require -UseCompanyClaude.' }
+$interactiveCapture = $UseCompanyClaude -and (-not $CompanyCliArguments)
 
 function Get-ClaudeExecutablePath {
     # Prefer the company wrapper when both it and an underlying executable are
@@ -52,8 +56,7 @@ function Get-ClaudeExecutablePath {
 
 $claudeExecutable = Get-ClaudeExecutablePath
 if (-not $claudeExecutable) { throw 'Claude Code must be installed and available on PATH.' }
-if ($Interactive) {
-    if (-not $UseCompanyClaude) { throw '-Interactive requires -UseCompanyClaude.' }
+if ($interactiveCapture) {
     if (-not $ClaudeCodeVersion) {
         $ClaudeCodeVersion = Read-Host 'Enter the Claude Code version shown by the company UI/about screen'
     }
@@ -82,7 +85,7 @@ try {
     $env:BAP_FIXTURE_CLAUDE_VERSION = $claudeVersion
     $env:BAP_FIXTURE_EXPECTED_DECISION = $ExpectedDecision
 
-    if ($Interactive) {
+    if ($interactiveCapture) {
         Write-Host ''
         Write-Host "Select this company model/profile in the Claude UI: $Model"
         Write-Host "Scenario: $Scenario"
@@ -94,14 +97,14 @@ try {
     }
 
     $launcherPrompt = ''
-    if (-not $Interactive) { $launcherPrompt = $Prompt }
+    if (-not $interactiveCapture) { $launcherPrompt = $Prompt }
     $launcherParameters = @{
         UseCompanyClaude = $UseCompanyClaude
-        InteractiveClaude = $Interactive
-        CompanyCliArguments = $UseCompanyClaude -and (-not $Interactive)
+        InteractiveClaude = $interactiveCapture
+        CompanyCliArguments = $CompanyCliArguments
         Model = $Model
         Tools = $Tools
-        Print = -not $Interactive
+        Print = -not $interactiveCapture
         Prompt = $launcherPrompt
     }
     if ($Runtime -eq 'Native') {

@@ -4,7 +4,7 @@ param(
     [string]$Version = 'dev',
     [string]$BuildImage = 'docker.io/library/golang:1.23-bookworm',
     [string]$RuntimeImage = 'docker.io/library/debian:bookworm-slim',
-    [ValidateSet('Windows', 'Linux', 'All')][string]$NativeTarget = 'Windows',
+    [Alias('NativeTarget')][ValidateSet('Windows', 'Linux', 'All')][string]$Target = 'Windows',
     [ValidateSet('amd64', 'arm64', 'All')][string]$Architecture = 'amd64',
     [switch]$SeparateAgentSTS,
     [string]$AgentSTSTag = 'bap-agent-sts:local'
@@ -14,7 +14,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
 if ($Runtime -eq 'Native') {
-    & (Join-Path $PSScriptRoot 'Build-BapService-Native.ps1') -Target $NativeTarget -Architecture $Architecture -Version $Version -SeparateAgentSTS:$SeparateAgentSTS
+    & (Join-Path $PSScriptRoot 'Build-BapService-Native.ps1') -Target $Target -Architecture $Architecture -Version $Version -SeparateAgentSTS:$SeparateAgentSTS
     Write-Warning 'Native mode produced executable binaries, not an OCI image. Use Docker/Podman or the company packaging pipeline when an OCI image is required.'
     return
 }
@@ -25,7 +25,7 @@ try {
 } catch {
     if ($Runtime -ne 'Auto' -or -not (Get-BapGoCommand)) { throw }
     Write-Warning 'No usable Podman/Docker runtime was found; compiling BAP Service with the installed Go toolchain.'
-    & (Join-Path $PSScriptRoot 'Build-BapService-Native.ps1') -Target $NativeTarget -Architecture $Architecture -Version $Version -SeparateAgentSTS:$SeparateAgentSTS
+    & (Join-Path $PSScriptRoot 'Build-BapService-Native.ps1') -Target $Target -Architecture $Architecture -Version $Version -SeparateAgentSTS:$SeparateAgentSTS
     return
 }
 Write-Host "Building the Linux BAP Service OCI image with $engine..."

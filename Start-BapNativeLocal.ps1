@@ -18,6 +18,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($InteractiveClaude -and $CompanyCliArguments) { throw '-InteractiveClaude and -CompanyCliArguments are mutually exclusive.' }
+if (($InteractiveClaude -or $CompanyCliArguments) -and -not $UseCompanyClaude) { throw '-InteractiveClaude and -CompanyCliArguments require -UseCompanyClaude.' }
 
 $managedSettingsPath = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d\50-bap-edge.json'
 if (-not $VerifyOnly -and (Test-Path -LiteralPath $managedSettingsPath)) {
@@ -413,7 +415,6 @@ try {
 
     $launchCompanyInteractive = $UseCompanyClaude -and (-not $CompanyCliArguments)
     if ($InteractiveClaude -or $launchCompanyInteractive) {
-        if (-not $UseCompanyClaude) { throw '-InteractiveClaude requires -UseCompanyClaude.' }
         Write-Host 'Launching the company Claude UI without command-line arguments.'
         & $claudeExecutable
     } else {

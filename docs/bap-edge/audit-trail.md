@@ -74,6 +74,62 @@ a denied `Bash`/`command.execute` event followed by an allowed
 call; it proposed a second operation which the current policy independently
 allowed. Targets and commands remain privacy-safe summaries.
 
+## Where local logs are stored
+
+| Runtime | Authoritative Service audit | Edge operational log |
+|---|---|---|
+| Native | `.bap\native-local\runs\<run-id>\service-state\audit.jsonl` | `.bap\native-local\runs\<run-id>\edge-state\observability\edge.jsonl` |
+| Docker | local MySQL files under `.bap\runtime\docker\mysql` | `.bap\runtime\docker\test-edge-state\observability\edge.jsonl` |
+| Podman | `bap-mysql-local-data` named volume | `.bap\runtime\podman\test-edge-state\observability\edge.jsonl` |
+
+For Native, `.bap\native-local\latest-run.txt` contains the absolute path of
+the latest retained run. Service process output for that run is in
+`bap-service.stdout.log` and `bap-service.stderr.log`. For containers, Service
+process output is the `bap-service-local` container log. View both Service and
+Edge activity live with:
+
+```powershell
+.\Watch-BapLogs.ps1 -Runtime Native -Component All -Tail 100
+.\Watch-BapLogs.ps1 -Runtime Docker -Component All -Tail 100
+.\Watch-BapLogs.ps1 -Runtime Podman -Component All -Tail 100
+```
+
+These process and Edge logs help troubleshooting, but the verified Service
+audit is the decision record. `.bap\shadow-logs` contains copied snapshots for
+offline recommendation analysis and is not the authoritative live store.
+
+## Clear local development history
+
+Only clear local test history after stopping BAP and after preserving anything
+needed for an investigation. Never use these commands for pilot or production
+evidence.
+
+Native launchers isolate every run, so old events cannot break a new run. To
+remove all retained Native test runs:
+
+```powershell
+Remove-Item -LiteralPath '.\.bap\native-local' -Recurse -Force
+```
+
+For Docker local testing:
+
+```powershell
+.\Stop-Bap.ps1 -Runtime Docker
+Remove-Item -LiteralPath '.\.bap\runtime\docker\mysql', '.\.bap\runtime\docker\test-edge-state', '.\.bap\runtime\docker\audit.jsonl' -Recurse -Force -ErrorAction SilentlyContinue
+```
+
+For Podman local testing:
+
+```powershell
+.\Stop-Bap.ps1 -Runtime Podman
+podman volume rm bap-mysql-local-data
+Remove-Item -LiteralPath '.\.bap\runtime\podman\test-edge-state', '.\.bap\runtime\podman\audit.jsonl' -Recurse -Force -ErrorAction SilentlyContinue
+```
+
+The next start recreates the local database and Edge state. Clearing
+`.bap\shadow-logs` is a separate choice because those files are exported
+analysis snapshots.
+
 Direct commands execute inside the running service container so they use its
 configured MySQL connection and mounted keys:
 

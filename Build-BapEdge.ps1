@@ -1,6 +1,6 @@
 param(
     [ValidateSet('Auto', 'Podman', 'Docker', 'Native')][string]$Runtime = 'Auto',
-    [ValidateSet('Windows', 'All')][string]$Targets = 'Windows',
+    [Alias('Targets')][ValidateSet('Windows', 'All')][string]$Target = 'Windows',
     [string]$Version = ''
 )
 
@@ -18,7 +18,7 @@ if ($Runtime -ne 'Native') {
     }
 }
 if (-not $engine) {
-    & (Join-Path $PSScriptRoot 'Build-BapEdge-Native.ps1') -Targets $Targets -Version $Version
+    & (Join-Path $PSScriptRoot 'Build-BapEdge-Native.ps1') -Target $Target -Version $Version
     return
 }
 $dist = Join-Path $PSScriptRoot 'dist'
@@ -30,15 +30,15 @@ Write-Host "Testing and compiling BAP Edge with $engine..."
 if ($LASTEXITCODE -ne 0) { throw 'BAP Edge tests failed.' }
 
 $targetsToBuild = @(@{ OS = 'windows'; Architecture = 'amd64'; Output = 'dist/bap-edge-windows-amd64.exe' })
-if ($Targets -eq 'All') {
+if ($Target -eq 'All') {
     $targetsToBuild += @(
         @{ OS = 'linux'; Architecture = 'amd64'; Output = 'dist/bap-edge-linux-amd64' },
         @{ OS = 'linux'; Architecture = 'arm64'; Output = 'dist/bap-edge-linux-arm64' }
     )
 }
-foreach ($target in $targetsToBuild) {
+foreach ($buildTarget in $targetsToBuild) {
     $buildVersion = if ($Version) { $Version } else { 'dev' }
-    & $engine run --rm --volume $mount --workdir /src --env CGO_ENABLED=0 --env "GOOS=$($target.OS)" --env "GOARCH=$($target.Architecture)" docker.io/library/golang:1.23-bookworm go build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$buildVersion" -o $target.Output ./bap-edge/cmd
-    if ($LASTEXITCODE -ne 0) { throw "BAP Edge compilation failed for $($target.OS)/$($target.Architecture)." }
+    & $engine run --rm --volume $mount --workdir /src --env CGO_ENABLED=0 --env "GOOS=$($buildTarget.OS)" --env "GOARCH=$($buildTarget.Architecture)" docker.io/library/golang:1.23-bookworm go build -mod=vendor -trimpath -ldflags "-s -w -X main.version=$buildVersion" -o $buildTarget.Output ./bap-edge/cmd
+    if ($LASTEXITCODE -ne 0) { throw "BAP Edge compilation failed for $($buildTarget.OS)/$($buildTarget.Architecture)." }
 }
 Write-Host "BAP Edge build complete: $dist"

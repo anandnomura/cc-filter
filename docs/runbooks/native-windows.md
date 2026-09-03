@@ -41,7 +41,7 @@ dist\bap-api-gateway-springcloud.jar
 Optional Linux cross-builds from Windows:
 
 ```powershell
-.\Build-BapEdge.ps1 -Runtime Native -Targets All
+.\Build-BapEdge.ps1 -Runtime Native -Target All
 .\Build-BapService-Native.ps1 -Target All -Architecture All
 .\Build-ResourcePEPs.ps1 -Runtime Native -Target All -Architecture amd64
 ```

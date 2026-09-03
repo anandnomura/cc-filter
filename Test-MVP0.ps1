@@ -8,6 +8,21 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+if ($Runtime -eq 'Auto') {
+    . (Join-Path $PSScriptRoot 'scripts\Runtime.ps1')
+    try {
+        $resolvedEngine = Get-BapContainerEngine -Runtime Auto
+        $Runtime = if ((Split-Path $resolvedEngine -Leaf) -match 'podman') { 'Podman' } else { 'Docker' }
+    } catch {
+        . (Join-Path $PSScriptRoot 'scripts\GoToolchain.ps1')
+        if (-not (Get-BapGoCommand)) { throw }
+        $Runtime = 'Native'
+    }
+    Write-Host "Resolved -Runtime Auto once for the complete test: $Runtime"
+}
+
+& (Join-Path $PSScriptRoot 'Test-ScriptContracts.ps1')
+
 Write-Host 'Running signed shadow-mode, cc-filter, and offline recommendation gates...'
 & (Join-Path $PSScriptRoot 'Test-ShadowMode.ps1') -Runtime $Runtime
 

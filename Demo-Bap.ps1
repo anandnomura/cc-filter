@@ -25,6 +25,9 @@ if ($Runtime -eq 'Auto') {
 }
 
 if ($Runtime -eq 'Native') {
+    if ($SkipBuild -or $KeepRunning) {
+        throw '-SkipBuild and -KeepRunning apply only to the container demo. For Native, run Demo-Bap.ps1 -Runtime Native without those flags.'
+    }
     & (Join-Path $PSScriptRoot 'Demo-BapNative.ps1')
     return
 }

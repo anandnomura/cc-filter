@@ -5,6 +5,9 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
+- a script/document contract gate, one-time `Auto` runtime selection, canonical
+  `-Target` build flags with compatibility aliases, and consistent
+  zero-argument `-UseCompanyClaude` behavior across launch and capture scripts
 - centrally signed, time-bounded shadow observation mode with automatic expiry,
   production startup rejection, non-bypassable safety controls, evaluated vs
   effective decision audit, and no advisory feedback to Claude

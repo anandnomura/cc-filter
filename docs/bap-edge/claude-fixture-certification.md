@@ -31,7 +31,10 @@ action, decision, and reason stability without retaining the original value.
 
 Use a dedicated test workspace. An allowed tool call can execute; only request
 known-safe operations. For company Claude, use `-UseCompanyClaude` so the local
-ccbridge variables are not installed:
+ccbridge variables are not installed. This opens the company launcher
+interactively and passes it no command-line arguments. Use
+`-CompanyCliArguments` only if that wrapper explicitly supports Claude CLI
+arguments:
 
 ```powershell
 .\Capture-ClaudeFixtures.ps1 `

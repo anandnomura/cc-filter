@@ -66,7 +66,7 @@ For native deployment, build explicit targets and package them with the same
 signing/scanning controls:
 
 ```powershell
-.\Build-BapEdge.ps1 -Runtime Native -Targets All -Version '1.0.0'
+.\Build-BapEdge.ps1 -Runtime Native -Target All -Version '1.0.0'
 .\Build-BapService-Native.ps1 -Target All -Architecture All -Version '1.0.0'
 .\Build-ResourcePEPs.ps1 -Runtime Native -Target All -Architecture amd64
 ```
