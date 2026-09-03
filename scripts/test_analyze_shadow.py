@@ -58,5 +58,95 @@ class AnalyzeShadowTests(unittest.TestCase):
             self.assertNotIn("learned_ranking", report["recommendations"][0])
 
 
+    def test_suppresses_edge_observability_matching_central_trace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            central_records = [
+                {
+                    "event_id": "dec-1",
+                    "event_type": "authorization_decision",
+                    "trace_id": "shared-trace-abc",
+                    "enforcement_mode": "shadow",
+                    "evaluated_allowed": False,
+                    "allowed": True,
+                    "evaluated_reason_code": "NO_MATCHING_POLICY",
+                    "action": "command.execute",
+                    "tool": "Bash",
+                    "principal": "pilot-user",
+                    "session_id": "s1",
+                    "workload_id": "w1",
+                    "tool_use_id": "t1",
+                    "target_summary": "command-sha256:target-hash",
+                },
+                {
+                    "event_type": "tool_outcome",
+                    "session_id": "s1",
+                    "workload_id": "w1",
+                    "tool_use_id": "t1",
+                    "outcome": "success",
+                },
+            ]
+            # Realistic EdgeEvent: has trace_id, but lacks session_id, workload_id, tool_use_id, target_summary
+            edge_records = [
+                {
+                    "event": "authorization_result",
+                    "trace_id": "shared-trace-abc",
+                    "enforcement_mode": "shadow",
+                    "evaluated_decision": "deny",
+                    "decision": "allow",
+                    "action": "command.execute",
+                    "tool": "Bash",
+                }
+            ]
+            (root / "service-audit.jsonl").write_text("".join(json.dumps(r) + "\n" for r in central_records), encoding="utf-8")
+            (root / "edge-observability.jsonl").write_text("".join(json.dumps(r) + "\n" for r in edge_records), encoding="utf-8")
+            report = analyze(root, min_count=1)
+            self.assertEqual(len(report["recommendations"]), 1)
+            candidate = report["recommendations"][0]
+            self.assertEqual(candidate["observations"], 1)
+            self.assertEqual(candidate["target_key"], "command-sha256:target-hash")
+            self.assertEqual(candidate["principal"], "pilot-user")
+
+    def test_keeps_distinct_action_in_reused_trace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            central = {
+                "event_id": "dec-command",
+                "event_type": "authorization_decision",
+                "trace_id": "shared-trace",
+                "enforcement_mode": "shadow",
+                "evaluated_allowed": False,
+                "allowed": True,
+                "evaluated_reason_code": "NO_MATCHING_POLICY",
+                "action": "command.execute",
+                "tool": "Bash",
+                "principal": "pilot-user",
+                "target_summary": "command-sha256:target-hash",
+            }
+            edge = {
+                "event": "authorization_result",
+                "trace_id": "shared-trace",
+                "enforcement_mode": "shadow",
+                "evaluated_decision": "deny",
+                "decision": "allow",
+                "evaluated_reason_code": "NO_MATCHING_POLICY",
+                "action": "file.write",
+                "tool": "Write",
+            }
+            # Edge sorts before Service to prove input order does not make the
+            # distinct Service authorization disappear.
+            (root / "edge-observability.jsonl").write_text(json.dumps(edge) + "\n", encoding="utf-8")
+            (root / "service-audit.jsonl").write_text(json.dumps(central) + "\n", encoding="utf-8")
+            report = analyze(root, min_count=1)
+            scopes = {(item["action"], item["tool"], item["target_key"]) for item in report["recommendations"]}
+            self.assertEqual(
+                scopes,
+                {
+                    ("command.execute", "Bash", "command-sha256:target-hash"),
+                    ("file.write", "Write", "unspecified"),
+                },
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

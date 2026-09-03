@@ -5,6 +5,8 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
+- trace/action/tool-aware Edge-to-Service shadow deduplication and a tested
+  reviewer hash utility whose ambiguous inputs and hash mismatches fail closed
 - a script/document contract gate, one-time `Auto` runtime selection, canonical
   `-Target` build flags with compatibility aliases, and consistent
   zero-argument `-UseCompanyClaude` behavior across launch and capture scripts

@@ -40,6 +40,7 @@ Native demo mode rejects those flags instead of silently ignoring them.
 |---|---|---|
 | Collect one snapshot | `Collect-ShadowLogs.ps1` | `-Runtime`, `-OutputDirectory` |
 | Analyze every snapshot | `Analyze-ShadowLogs.ps1` | `-InputDirectory`, `-OutputPath`, `-MinCount`, `-DisableML` |
+| Verify a candidate target hash | `Find-ShadowCandidateHash.ps1` | exactly one of `-Command` or `-OutsideWorkspacePath`; optional `-TargetHash` |
 | View signed audit | `View-AuditTrail.ps1` | `-Runtime`, `-VerifyOnly`, `-Timeline`, `-Details`, `-SessionID`, `-Last` |
 | Watch logs | `Watch-BapLogs.ps1` | `-Runtime`, `-Component All|Edge|Service`, `-Tail`, `-NoFollow` |
 | Show status | `Show-BapStatus.ps1` | `-Runtime`, `-StateDirectory` |

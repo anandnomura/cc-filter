@@ -33,6 +33,8 @@ if ($python) {
 }
 if ($LASTEXITCODE -ne 0) { throw 'Shadow recommendation analyzer tests failed.' }
 
+& (Join-Path $PSScriptRoot 'Test-ShadowCandidateHash.ps1')
+
 $attestationDirectory = Join-Path $PSScriptRoot '.bap\attestations'
 [IO.Directory]::CreateDirectory($attestationDirectory) | Out-Null
 $attestationPath = Join-Path $attestationDirectory ("shadow-ml-sample-{0}.json" -f (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'))

@@ -85,7 +85,8 @@ contains two files: `service-audit.jsonl` and `edge-observability.jsonl`.
 it deduplicates repeated events and ignores records that are not shadow
 overrides. When the same operation exists in Edge and Service logs, the signed
 Service event is authoritative and the Edge copy is not counted twice. You do
-not select just one file.
+not select just one file. Trace matching also requires the same action and tool,
+so another authorization span sharing a W3C trace remains visible.
 
 File count is determined by collection frequency, not by how many operations
 the users perform. One collection creates two JSONL files plus one manifest. A
@@ -161,6 +162,14 @@ There is deliberately no automatic conversion button. For each candidate:
 
 1. Recover the intended operation from the pilot owner and verify the observed
    principal against authoritative IAM. A target hash alone is not approval.
+   Reviewers can verify suspected commands against the observed `target_key`
+   using:
+   ```powershell
+   .\Find-ShadowCandidateHash.ps1 -Command "git status" -TargetHash "command-sha256:..."
+   ```
+   Specify exactly one of `-Command` or `-OutsideWorkspacePath`. A match exits
+   successfully; a mismatch prints `Matches: False` and exits nonzero so review
+   automation cannot silently accept it.
 2. Have the resource owner and security reviewer decide whether it should be a
    narrow permit, remain manual-only, or become an explicit forbid.
 3. Edit `bap-service/policies/edge-policy-source.json`. For a normal shell

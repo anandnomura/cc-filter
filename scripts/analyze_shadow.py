@@ -48,12 +48,25 @@ def analyze(directory: Path, min_count: int = 2, enable_ml: bool = True) -> dict
         if record.get("event_type") == "authorization_decision"
     }
     central_operations.discard(("", "", ""))
+    central_trace_operations = {
+        (
+            str(record.get("trace_id", "")),
+            str(record.get("action", "")),
+            str(record.get("tool", "")),
+        )
+        for record in records
+        if record.get("event_type") == "authorization_decision"
+    }
+    central_trace_operations = {
+        key for key in central_trace_operations if key[0]
+    }
 
     groups: dict[tuple[str, str, str, str, str], dict[str, Any]] = defaultdict(
         lambda: {"observations": 0, "successes": 0, "failures": 0, "sessions": set(), "sources": set()}
     )
     learned_rows: list[tuple[str, str, str, str, str]] = []
-    seen: set[str] = set()
+    seen_event_ids: set[str] = set()
+    seen_trace_operations: set[tuple[str, str, str]] = set()
     prompt_signals: dict[str, int] = defaultdict(int)
     for record in records:
         if record.get("event") == "prompt_intent_classification" and record.get("enforcement_mode") == "shadow" and record.get("decision") == "matched":
@@ -67,19 +80,27 @@ def analyze(directory: Path, min_count: int = 2, enable_ml: bool = True) -> dict
         if not (central or edge) or record.get("enforcement_mode") != "shadow":
             continue
         operation = (str(record.get("session_id", "")), str(record.get("workload_id", "")), str(record.get("tool_use_id", "")))
-        if edge and operation in central_operations:
+        trace_id = str(record.get("trace_id", ""))
+        trace_operation = (trace_id, str(record.get("action", "")), str(record.get("tool", "")))
+        if edge and (operation in central_operations or trace_operation in central_trace_operations):
             # The Service copy is signed and authoritative. Do not count the
             # corresponding Edge observation again when both are collected.
+            # Action and tool prevent an unrelated span in a reused W3C trace
+            # from being hidden.
             continue
         evaluated_allowed = record.get("evaluated_allowed") if central else record.get("evaluated_decision") == "allow"
         effective_allowed = record.get("allowed") if central else record.get("decision") == "allow"
         if evaluated_allowed is not False or effective_allowed is not True:
             continue
-        dedupe = str(record.get("event_id") or record.get("trace_id") or "")
-        if dedupe and dedupe in seen:
+        event_id = str(record.get("event_id") or "")
+        if event_id and event_id in seen_event_ids:
             continue
-        if dedupe:
-            seen.add(dedupe)
+        if trace_id and trace_operation in seen_trace_operations:
+            continue
+        if event_id:
+            seen_event_ids.add(event_id)
+        if trace_id:
+            seen_trace_operations.add(trace_operation)
         principal = str(record.get("principal") or record.get("asserted_user") or "unverified")
         action = str(record.get("action") or "unknown")
         tool = str(record.get("tool") or "unknown")
