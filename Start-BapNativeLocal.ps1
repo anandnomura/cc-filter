@@ -5,6 +5,8 @@ param(
     [switch]$InteractiveClaude,
     [switch]$CompanyCliArguments,
     [ValidateRange(1, 65535)][int]$Port = 8443,
+    [string]$Workspace = '',
+    [switch]$Enforce,
     [string]$Model = '',
     [string]$Tools = 'Bash',
     [string]$SystemPrompt = 'You are a Windows command agent using Git Bash. Copy exact commands from the user verbatim into the requested tool. Never substitute example paths or simulate results. Never claim a tool succeeded when it was blocked or denied; explicitly report the denial. After receiving a tool result, answer only from that result.',
@@ -20,6 +22,23 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ($InteractiveClaude -and $CompanyCliArguments) { throw '-InteractiveClaude and -CompanyCliArguments are mutually exclusive.' }
 if (($InteractiveClaude -or $CompanyCliArguments) -and -not $UseCompanyClaude) { throw '-InteractiveClaude and -CompanyCliArguments require -UseCompanyClaude.' }
+
+$effectiveWorkspace = $PSScriptRoot
+if ($env:BAP_CALLER_CWD -and (Test-Path -LiteralPath $env:BAP_CALLER_CWD -PathType Container)) {
+    $effectiveWorkspace = (Resolve-Path -LiteralPath $env:BAP_CALLER_CWD).Path
+}
+if ($Workspace) {
+    $baseForRelative = if ($env:BAP_CALLER_CWD) { $env:BAP_CALLER_CWD } else { $PSScriptRoot }
+    $resolvedTarget = if ([System.IO.Path]::IsPathRooted($Workspace)) {
+        $Workspace
+    } else {
+        Join-Path $baseForRelative $Workspace
+    }
+    if (-not (Test-Path -LiteralPath $resolvedTarget -PathType Container)) {
+        throw "Workspace directory does not exist: $Workspace"
+    }
+    $effectiveWorkspace = (Resolve-Path -LiteralPath $resolvedTarget).Path
+}
 
 $managedSettingsPath = Join-Path $env:ProgramFiles 'ClaudeCode\managed-settings.d\50-bap-edge.json'
 if (-not $VerifyOnly -and (Test-Path -LiteralPath $managedSettingsPath)) {
@@ -91,7 +110,8 @@ function Invoke-NativeHookVerification {
         [Parameter(Mandatory)][string]$ServiceURL,
         [Parameter(Mandatory)][string]$CaBundle,
         [Parameter(Mandatory)][string]$RuntimeDirectory,
-        [Parameter(Mandatory)][string]$STSGatewayAPIKey
+        [Parameter(Mandatory)][string]$STSGatewayAPIKey,
+        [switch]$IsShadow
     )
     $sessionID = 'native-local-' + [Guid]::NewGuid().ToString('N')
     $sessionStart = @{
@@ -102,14 +122,22 @@ function Invoke-NativeHookVerification {
     } | ConvertTo-Json -Compress
     $sessionStart | & $EdgeBinary --config $EdgeConfig | Out-Null
 
+    $expectedUnclassified = if ($IsShadow) { 'allow' } else { 'deny' }
     $cases = @(
         @{ Label = 'safe command'; Command = 'git status --short'; Expected = 'allow' },
         @{ Label = 'centrally configured command'; Command = 'ls -al'; Expected = 'allow' },
-        @{ Label = 'destructive command'; Command = 'git reset --hard'; Expected = 'deny' },
-        @{ Label = 'unclassified command'; Command = 'python -c "print(1)"'; Expected = 'deny' },
-        @{ Label = 'unapproved shell route to readable file'; Command = 'wc -l data/dummy_customers.csv'; Expected = 'deny' },
-        @{ Label = 'manual-only privileged client'; Command = 'mysql -h orders-prod -u dba'; Expected = 'deny'; ReasonPattern = 'REQUIRES MANUAL EXECUTION' }
+        @{ Label = 'destructive command'; Command = 'git reset --hard'; Expected = $expectedUnclassified },
+        @{ Label = 'unclassified command'; Command = 'python -c "print(1)"'; Expected = $expectedUnclassified },
+        @{ Label = 'unapproved shell route to readable file'; Command = 'wc -l data/dummy_customers.csv'; Expected = $expectedUnclassified }
     )
+    if (-not $IsShadow) {
+        $cases += @{ Label = 'manual-only privileged client'; Command = 'mysql -h orders-prod -u dba'; Expected = 'deny'; ReasonPattern = 'REQUIRES MANUAL EXECUTION' }
+    } else {
+        $cases += @(
+            @{ Label = 'manual-only privileged client in shadow'; Command = 'mysql -h orders-prod -u dba'; Expected = 'allow' },
+            @{ Label = 'hard security boundary (secret file)'; Command = 'cat .env'; Expected = 'deny' }
+        )
+    }
     foreach ($case in $cases) {
         $inputObject = @{
             hook_event_name = 'PreToolUse'
@@ -145,8 +173,9 @@ function Invoke-NativeHookVerification {
     }
     Write-Host 'PASS: separate Read data/dummy_customers.csv -> allow (proves the current tool-route behavior)'
 
+    $expectedPrivilegedAdvisory = if ($IsShadow) { $false } else { $true }
     $promptCases = @(
-        @{ Label = 'privileged database intent'; Prompt = 'Please connect to the MySQL orders database and reindex it'; ExpectedAdvisory = $true },
+        @{ Label = 'privileged database intent'; Prompt = 'Please connect to the MySQL orders database and reindex it'; ExpectedAdvisory = $expectedPrivilegedAdvisory },
         @{ Label = 'ordinary explanation'; Prompt = 'Explain how database indexes work'; ExpectedAdvisory = $false }
     )
     foreach ($case in $promptCases) {
@@ -178,8 +207,10 @@ function Invoke-NativeHookVerification {
         prompt = 'Deploy release 2026.08 of orders to staging'
     }
     $grantPromptResult = (($grantPrompt | ConvertTo-Json -Compress -Depth 8) | & $EdgeBinary --config $EdgeConfig | ConvertFrom-Json)
-    if ($grantPromptResult.hookSpecificOutput.additionalContext -notmatch 'AgentGrant intent') {
-        throw 'Native AgentGrant verification failed: signed prompt intent did not match.'
+    if (-not $IsShadow) {
+        if ($grantPromptResult.hookSpecificOutput.additionalContext -notmatch 'AgentGrant intent') {
+            throw 'Native AgentGrant verification failed: signed prompt intent did not match.'
+        }
     }
 
     $gatewayCall = @{
@@ -305,7 +336,17 @@ $env:BAP_AGENT_STS_ISSUER = 'bap-agent-sts-local'
 Remove-Item Env:BAP_AGENT_STS_CONSUMERS_JSON -ErrorAction SilentlyContinue
 $env:BAP_STATE_DIRECTORY = $serviceState
 $env:BAP_POLICY_PATH = Join-Path $PSScriptRoot 'bap-service\policies\agent-tools.cedar'
-$env:BAP_BUNDLE_SOURCE_PATH = Join-Path $PSScriptRoot 'bap-service\policies\edge-policy-source.json'
+$sourcePolicyPath = Join-Path $PSScriptRoot 'bap-service\policies\edge-policy-source.json'
+$localBundleSource = Join-Path $runtimeDirectory 'edge-policy-source.json'
+$sourceContent = Get-Content -LiteralPath $sourcePolicyPath -Raw | ConvertFrom-Json
+$isShadow = -not $Enforce
+if ($isShadow) {
+    $sourceContent.version = [int]$sourceContent.version + 1
+    $sourceContent.enforcement_mode = 'shadow'
+    $sourceContent | Add-Member -MemberType NoteProperty -Name 'shadow_expires_at' -Value ((Get-Date).ToUniversalTime().AddDays(14).ToString('yyyy-MM-ddTHH:mm:ssZ')) -Force
+}
+[IO.File]::WriteAllText($localBundleSource, ($sourceContent | ConvertTo-Json -Depth 12), [System.Text.UTF8Encoding]::new($false))
+$env:BAP_BUNDLE_SOURCE_PATH = $localBundleSource
 $env:BAP_LISTEN_ADDRESS = "127.0.0.1:$Port"
 $env:BAP_DEVELOPMENT_TLS = 'true'
 Remove-Item Env:BAP_DATABASE_DSN -ErrorAction SilentlyContinue
@@ -336,7 +377,7 @@ agent_sts_api_key_env: "BAP_AGENT_STS_EDGE_API_KEY"
 "@ | Set-Content -LiteralPath $edgeConfig -Encoding utf8
 
 $serviceProcess = $null
-$settingsPath = Join-Path $PSScriptRoot '.claude\settings.local.json'
+$settingsPath = Join-Path $effectiveWorkspace '.claude\settings.local.json'
 $settingsDirectory = Split-Path -Parent $settingsPath
 $settingsExisted = Test-Path -LiteralPath $settingsPath
 $originalSettings = if ($settingsExisted) { [IO.File]::ReadAllBytes($settingsPath) } else { $null }
@@ -359,10 +400,15 @@ try {
     }
     if (-not (Test-NativeServiceReady -CaBundle $caBundle -ServiceURL $serviceURL)) { throw 'BAP Service did not become ready within 10 seconds.' }
 
+    $policySource = if (Test-Path -LiteralPath $env:BAP_BUNDLE_SOURCE_PATH) {
+        Get-Content -LiteralPath $env:BAP_BUNDLE_SOURCE_PATH -Raw | ConvertFrom-Json
+    } else { $null }
+    $isShadow = $null -ne $policySource -and $policySource.enforcement_mode -eq 'shadow'
+
     try {
         Invoke-NativeHookVerification -EdgeBinary $edgeBinary -EdgeConfig $edgeConfig `
             -ServiceURL $serviceURL -CaBundle $caBundle -RuntimeDirectory $runtimeDirectory `
-            -STSGatewayAPIKey $stsGatewayAPIKey
+            -STSGatewayAPIKey $stsGatewayAPIKey -IsShadow:$isShadow
     } finally {
         # The resource-PEP consume credential is required by the Service and
         # this verification transaction only. Never expose it to Claude or its
@@ -402,12 +448,13 @@ try {
     $settingsWritten = $true
 
     if ($VerifyOnly) {
-        Write-Host 'PASS: native BAP Service, signed policy synchronization, Edge policy, AgentGrant issue/consume/replay, audit, and local hook settings merge.'
+        $modeDesc = if ($isShadow) { 'shadow observation' } else { 'enforce' }
+        Write-Host "PASS: native BAP Service ($modeDesc), signed policy synchronization, Edge policy, AgentGrant issue/consume/replay, audit, and local hook settings merge."
         return
     }
 
     Write-Host "Local hooks written to $settingsPath"
-    Write-Host 'Launching Claude. Run /hooks and confirm six hooks with source Local.'
+    Write-Host "Launching Claude in $effectiveWorkspace. Run /hooks and confirm six hooks with source Local."
 
     $claudeExecutable = Get-ClaudeExecutablePath
     if (-not $claudeExecutable) {
@@ -438,40 +485,45 @@ try {
     }
     $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
 
-    $launchCompanyInteractive = $UseCompanyClaude -and (-not $CompanyCliArguments)
-    if ($InteractiveClaude -or $launchCompanyInteractive) {
-        Write-Host 'Launching the company Claude UI without command-line arguments.'
-        & $claudeExecutable
-    } else {
-        $launchArguments = @('--tools', $Tools, '--system-prompt', $SystemPrompt)
-        if ($effectiveModel) { $launchArguments = @('--model', $effectiveModel) + $launchArguments }
-        if ($Print) { $launchArguments += '--print' }
-        if ($Prompt) { $launchArguments += $Prompt }
-        if ($SequentialPrompts) {
-            if (-not $InputFile -or -not (Test-Path -LiteralPath $InputFile -PathType Leaf)) { throw '-SequentialPrompts requires an existing -InputFile JSONL file.' }
-            if (-not $SequentialSessionID) { $SequentialSessionID = [Guid]::NewGuid().ToString() }
-            $turn = 0
-            foreach ($line in Get-Content -LiteralPath $InputFile) {
-                if (-not $line.Trim()) { continue }
-                $turn++
-                $message = $line | ConvertFrom-Json
-                $promptText = [string]$message.message.content[0].text
-                if (-not $promptText) { throw "Sequential prompt line $turn has no text content." }
-                Write-Host "BAP SESSION ACCRETION TURN $turn"
-                $turnArguments = @($launchArguments) + @('--output-format', 'stream-json', '--verbose', '--include-hook-events')
-                if ($turn -eq 1) { $turnArguments += @('--session-id', $SequentialSessionID) } else { $turnArguments += @('--resume', $SequentialSessionID) }
-                $turnArguments += $promptText
-                & $claudeExecutable @turnArguments
-                if ($LASTEXITCODE -ne 0) { throw "Claude session accretion turn $turn failed with exit code $LASTEXITCODE." }
-            }
-        } elseif ($InputFile) {
-            if (-not (Test-Path -LiteralPath $InputFile -PathType Leaf)) { throw "Claude stream input file does not exist: $InputFile" }
-            Get-Content -LiteralPath $InputFile -Raw | & $claudeExecutable @launchArguments @ClaudeArguments
+    Push-Location $effectiveWorkspace
+    try {
+        $launchCompanyInteractive = $UseCompanyClaude -and (-not $CompanyCliArguments)
+        if ($InteractiveClaude -or $launchCompanyInteractive) {
+            Write-Host 'Launching the company Claude UI without command-line arguments.'
+            & $claudeExecutable
         } else {
-            & $claudeExecutable @launchArguments @ClaudeArguments
+            $launchArguments = @('--tools', $Tools, '--system-prompt', $SystemPrompt)
+            if ($effectiveModel) { $launchArguments = @('--model', $effectiveModel) + $launchArguments }
+            if ($Print) { $launchArguments += '--print' }
+            if ($Prompt) { $launchArguments += $Prompt }
+            if ($SequentialPrompts) {
+                if (-not $InputFile -or -not (Test-Path -LiteralPath $InputFile -PathType Leaf)) { throw '-SequentialPrompts requires an existing -InputFile JSONL file.' }
+                if (-not $SequentialSessionID) { $SequentialSessionID = [Guid]::NewGuid().ToString() }
+                $turn = 0
+                foreach ($line in Get-Content -LiteralPath $InputFile) {
+                    if (-not $line.Trim()) { continue }
+                    $turn++
+                    $message = $line | ConvertFrom-Json
+                    $promptText = [string]$message.message.content[0].text
+                    if (-not $promptText) { throw "Sequential prompt line $turn has no text content." }
+                    Write-Host "BAP SESSION ACCRETION TURN $turn"
+                    $turnArguments = @($launchArguments) + @('--output-format', 'stream-json', '--verbose', '--include-hook-events')
+                    if ($turn -eq 1) { $turnArguments += @('--session-id', $SequentialSessionID) } else { $turnArguments += @('--resume', $SequentialSessionID) }
+                    $turnArguments += $promptText
+                    & $claudeExecutable @turnArguments
+                    if ($LASTEXITCODE -ne 0) { throw "Claude session accretion turn $turn failed with exit code $LASTEXITCODE." }
+                }
+            } elseif ($InputFile) {
+                if (-not (Test-Path -LiteralPath $InputFile -PathType Leaf)) { throw "Claude stream input file does not exist: $InputFile" }
+                Get-Content -LiteralPath $InputFile -Raw | & $claudeExecutable @launchArguments @ClaudeArguments
+            } else {
+                & $claudeExecutable @launchArguments @ClaudeArguments
+            }
         }
+        $claudeExitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
     }
-    $claudeExitCode = $LASTEXITCODE
 } finally {
     Remove-Item Env:BAP_AGENT_STS_GATEWAY_API_KEY -ErrorAction SilentlyContinue
     if ($settingsWritten) {

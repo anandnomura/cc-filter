@@ -382,6 +382,7 @@ func intersectsSet(set map[string]bool, values []string) bool {
 }
 
 func LoadSource(data []byte) (Source, error) {
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	var source Source
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

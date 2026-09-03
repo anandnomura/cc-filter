@@ -20,7 +20,7 @@ commands and documentation use `-Target`.
 | Service build/image | `Build-BapService.ps1` | `-Runtime`, `-Target Windows|Linux|All`, `-Architecture amd64|arm64|All`, `-Tag`, `-Version`, `-BuildImage`, `-RuntimeImage`, `-SeparateAgentSTS`, `-AgentSTSTag` |
 | Native Service build | `Build-BapService-Native.ps1` | `-Target`, `-Architecture`, `-Version`, `-SeparateAgentSTS` |
 | Start container Service | `Start-Bap.ps1` | `-Runtime Auto|Docker|Podman`, database DSN/TLS flags |
-| Start native local stack | `Start-BapNativeLocal.ps1` | `-Rebuild`, `-VerifyOnly`, `-Port`, `-UseCompanyClaude` |
+| Start native local stack | `Start-BapNativeLocal.ps1` | `-Rebuild`, `-VerifyOnly`, `-Port`, `-Workspace`, `-Enforce`, `-UseCompanyClaude` |
 | Stop container Service | `Stop-Bap.ps1` | `-Runtime Auto|Docker|Podman` |
 | Complete MVP gate | `Test-MVP0.ps1` | `-Runtime`, `-NativePort`, `-RequireCompanyFixtures`, `-RequiredModels` |
 | Policy rollout gate | `Test-PolicyRollout.ps1` | `-Runtime Auto|Native|Docker|Podman` |

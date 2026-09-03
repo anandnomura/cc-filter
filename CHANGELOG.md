@@ -5,6 +5,12 @@ All notable changes to cc-filter are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Default shadow observation mode in `Start-BapNativeLocal` to discover real developer
+  tool patterns without interrupting work, with an explicit `-Enforce` flag for strict
+  policy mode
+- `-Workspace` parameter and caller working directory preservation in
+  `Start-BapNativeLocal` for operating across multi-folder workspace roots without
+  false `outsideWorkspace` security blocks
 - trace/action/tool-aware Edge-to-Service shadow deduplication and a tested
   reviewer hash utility whose ambiguous inputs and hash mismatches fail closed
 - a script/document contract gate, one-time `Auto` runtime selection, canonical

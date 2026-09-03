@@ -237,7 +237,13 @@ func (s *SessionStore) mutateWithTouch(sessionID string, create, touch bool, fn 
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(temporary, path)
+		for attempt := 0; attempt < 10; attempt++ {
+			err = os.Rename(temporary, path)
+			if err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 	if err != nil {
 		_ = os.Remove(temporary)

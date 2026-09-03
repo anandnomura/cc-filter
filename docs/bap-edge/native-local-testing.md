@@ -46,6 +46,39 @@ That switch removes the local bridge override and local demo credential. When
 `-Model` is omitted, the company path uses the company's configured default.
 All commands are collected in the [root README build/test commands](../../README.md#buildtest-commands).
 
+### Targeting a custom workspace or parent directory
+
+When comparing or operating across multiple sibling folders inside a common root
+(for example `ws\cc-filter`, `ws\folderA`, `ws\folderB`), launch Claude targeting the
+parent workspace so BAP Edge recognizes all sibling folders as inside the workspace:
+
+```powershell
+.\Start-BapNativeLocal.bat -Workspace .. -UseCompanyClaude
+```
+
+Or invoke the batch launcher from the workspace root directly:
+
+```powershell
+cd C:\Users\User\ws
+cc-filter\Start-BapNativeLocal.bat -UseCompanyClaude
+```
+
+The launcher preserves the caller's working directory, writes `.claude\settings.local.json`
+at the workspace root, and cleanly restores it upon exit.
+
+### Shadow observation mode by default
+
+To discover real developer tool patterns without blocking productivity, the native local launcher
+starts in **shadow observation mode** by default. Unapproved commands and scripts are
+permitted (`SHADOW_ALLOW`) and recorded for offline analysis, while hard security boundaries
+(secrets like `.env`, directory traversal, tampering) remain strictly fail-closed.
+
+To run with strict policy enforcement instead, pass `-Enforce`:
+
+```powershell
+.\Start-BapNativeLocal.bat -Enforce -UseCompanyClaude
+```
+
 For a one-command, non-interactive local classifier check, run:
 
 ```powershell
